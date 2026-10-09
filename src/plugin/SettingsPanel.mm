@@ -19,6 +19,24 @@
     NSTextField *_countryStatus;
     NSButton *_countryUpdate;
     NSScrollView *_scroll;
+    NSTextField *_welcome, *_stationCall, *_stationGrid, *_logsFolder, *_stationStatus;
+    NSArray<NSButton *> *_editorBoxes;
+}
+
+static NSTextField *sectionTitle(NSString *text) {
+    NSTextField *title = [NSTextField labelWithString:text];
+    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
+    return title;
+}
+
+static NSStackView *sectionStack(NSArray<NSView *> *views, NSString *identifier) {
+    NSStackView *section = [NSStackView stackViewWithViews:views];
+    section.orientation = NSUserInterfaceLayoutOrientationVertical;
+    section.alignment = NSLayoutAttributeLeading;
+    section.spacing = 8;
+    [section setCustomSpacing:4 afterView:views.firstObject];
+    section.identifier = identifier;
+    return section;
 }
 
 // Fixed text width: wrapping labels need it to work out their height.
@@ -49,11 +67,19 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _window.delegate = self;
 
     NSMutableArray<NSView *> *views = [NSMutableArray array];
-    [views addObject:[self countrySection]];
-    NSBox *countryLine = [[NSBox alloc] init];
-    countryLine.boxType = NSBoxSeparator;
-    [countryLine.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
-    [views addObject:countryLine];
+    _welcome = wrapping(@"Welcome to ADIF Lint. Enter your callsign and grid below: New QSO and the exports use them for "
+                        @"a log that doesn't have them yet. Accounts for QRZ.com, LoTW, eQSL and Club Log are further "
+                        @"down, when you want them.",
+                        NSFont.systemFontSize, NSColor.labelColor);
+    _welcome.hidden = YES;
+    [views addObject:_welcome];
+    for (NSView *section in @[ [self stationSection], [self editorSection], [self keyboardSection], [self countrySection] ]) {
+        [views addObject:section];
+        NSBox *line = [[NSBox alloc] init];
+        line.boxType = NSBoxSeparator;
+        [line.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
+        [views addObject:line];
+    }
     [views addObject:wrapping(@"Accounts and API keys for the online services. They are saved in your macOS Keychain "
                               @"(items named \"ADIF Lint: ...\"), never in a file, and a saved password is never shown "
                               @"here.",
@@ -106,6 +132,98 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     [_window center];
     [self refresh];
     return self;
+}
+
+- (NSView *)stationSection {
+    _stationCall = [NSTextField textFieldWithString:@""];
+    _stationCall.placeholderString = @"e.g. KW9D";
+    _stationGrid = [NSTextField textFieldWithString:@""];
+    _stationGrid.placeholderString = @"e.g. EN52";
+    for (NSTextField *f in @[ _stationCall, _stationGrid ]) [f.widthAnchor constraintEqualToConstant:140].active = YES;
+    _logsFolder = [NSTextField labelWithString:@""];
+    _logsFolder.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    [_logsFolder.widthAnchor constraintLessThanOrEqualToConstant:300].active = YES;
+    NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:self action:@selector(chooseFolder:)];
+    NSGridView *grid = [NSGridView gridViewWithViews:@[
+        @[ [NSTextField labelWithString:@"Callsign:"], _stationCall ],
+        @[ [NSTextField labelWithString:@"Grid:"], _stationGrid ],
+        @[ [NSTextField labelWithString:@"Logs folder:"], [NSStackView stackViewWithViews:@[ _logsFolder, choose ]] ],
+    ]];
+    grid.rowSpacing = 6;
+    grid.columnSpacing = 8;
+    grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    [grid columnAtIndex:0].width = 80;
+    NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(saveStation:)];
+    _stationStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    NSTextField *help = wrapping(@"Used when a log doesn't say: New QSO fills STATION_CALLSIGN and MY_GRIDSQUARE from them "
+                                 @"in a new log, and the exports use the callsign. Worked Before searches the logs folder.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    return sectionStack(@[ sectionTitle(@"Your Station"), help, grid, save, _stationStatus ], @"settings.station");
+}
+
+- (void)chooseFolder:(id)sender {
+    if (self.onChooseLogsFolder) self.onChooseLogsFolder();
+}
+
+- (void)saveStation:(id)sender {
+    if (self.onStationSave) self.onStationSave(_stationCall.stringValue, _stationGrid.stringValue);
+}
+
+- (void)setStationCall:(NSString *)call grid:(NSString *)grid logsFolder:(NSString *)folder {
+    _stationCall.stringValue = call ?: @"";
+    _stationGrid.stringValue = grid ?: @"";
+    _logsFolder.stringValue = folder.length ? folder.stringByAbbreviatingWithTildeInPath : @"(none)";
+}
+
+- (void)setStationStatus:(NSString *)text ok:(BOOL)ok {
+    _stationStatus.stringValue = text ?: @"";
+    _stationStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+}
+
+- (NSView *)editorSection {
+    NSArray<NSString *> *titles = @[
+        @"Check .adi files while typing (problem marks)", @"Colour ADIF syntax",
+        @"Autocomplete field names and values, with lengths", @"Count lengths in characters, not bytes (for UTF-8 logs)"
+    ];
+    NSMutableArray<NSButton *> *boxes = [NSMutableArray array];
+    for (NSUInteger i = 0; i < titles.count; ++i) {
+        NSButton *b = [NSButton checkboxWithTitle:titles[i] target:self action:@selector(editorOption:)];
+        b.tag = (NSInteger)i;
+        [boxes addObject:b];
+    }
+    _editorBoxes = boxes;
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:sectionTitle(@"Editor")];
+    [views addObjectsFromArray:boxes];
+    return sectionStack(views, @"settings.editor");
+}
+
+- (void)editorOption:(NSButton *)sender {
+    if (self.onEditorOption) self.onEditorOption(sender.tag, sender.state == NSControlStateValueOn);
+}
+
+- (void)setEditorValidate:(BOOL)validate colour:(BOOL)colour autocomplete:(BOOL)autocomplete characters:(BOOL)characters {
+    BOOL on[] = {validate, colour, autocomplete, characters};
+    for (NSUInteger i = 0; i < _editorBoxes.count && i < 4; ++i)
+        _editorBoxes[i].state = on[i] ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
+- (NSView *)keyboardSection {
+    NSTextField *help = wrapping(
+        @"Nextpad++ binds plugin commands in its own Shortcut Mapper: Edit > Shortcut Mapper..., the Plugin commands tab. "
+        @"Suggestions: New QSO Control-Option-N, Log Table Control-Option-T, Check Log Control-Option-C, Next Problem "
+        @"Control-Option-Down, Previous Problem Control-Option-Up, Spots Control-Option-S (pick others if Nextpad++ "
+        @"already uses one).",
+        NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    return sectionStack(@[ sectionTitle(@"Keyboard Shortcuts"), help ], @"settings.keyboard");
+}
+
+- (void)showWelcome {
+    _welcome.hidden = NO;
+    [self refresh];
+    [_window makeKeyAndOrderFront:nil];
+    [_window makeFirstResponder:_stationCall];
+    [_welcome scrollRectToVisible:_welcome.bounds];
 }
 
 - (NSView *)countrySection {

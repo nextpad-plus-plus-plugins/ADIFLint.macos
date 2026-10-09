@@ -38,6 +38,9 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   `<EOR>`. It also flags QSO dates in the future, which POTA refuses. The Record Panel
   offers the same repairs on a right-click.
 - **Fix Lengths** corrects every wrong `<FIELD:LENGTH>` in one undo step.
+- The **Record Panel** shows the whole log in a line under its title: problems, QSOs waiting
+  for each upload service the log uses, and today's POTA activation ("US-7929 today: 8 of
+  10").
 - Syntax colouring, **Reformat** (one record or one field per line, without touching any
   data), autocomplete of field names and values with automatic lengths, and a docked
   **Record Panel** for editing the record at the caret, sortable by field, value or
@@ -127,9 +130,9 @@ To uninstall, quit Nextpad++ and delete the `ADIFLint` folder.
 
 1. Open an `.adi` file. Problems are marked within half a second; rest the mouse on a mark
    to read it.
-2. **Plugins → ADIF Lint → Fix Lengths** repairs the lengths. **Validate Now** shows a
-   summary.
-3. **New QSO…** starts logging.
+2. **Plugins → ADIF Lint → Check Log…** lists every problem and repairs what it can;
+   **Fix Lengths** repairs the data lengths.
+3. **New QSO…** starts logging. The first time, Settings asks for your callsign and grid.
 4. To use an online service, add your account in **Settings…** first.
 
 The source repository has [`examples/try-me.adi`](examples/try-me.adi), with one of each
@@ -138,40 +141,38 @@ kind of mistake.
 ## Menu
 
 All commands are under **Plugins → ADIF Lint**. Nextpad++ ignores plugin default
-shortcuts, so assign your own in Nextpad++'s Shortcut Mapper.
+shortcuts, so assign your own in Nextpad++'s **Edit → Shortcut Mapper…** (Plugin commands
+tab); Settings suggests some.
 
 | Command | Does |
 |---|---|
 | New QSO… | Log contacts one after another |
 | Spots (POTA, WWFF)… | Activators spotted now; pick one to fill New QSO |
 | Log Table… | The log as a spreadsheet: sort, filter, edit, copy and paste, add and delete rows and columns |
-| Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
-| Worked Before… | Search a folder of logs for a call |
-| Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
-| Bulk Edit… | Set, replace, remove or rename a field, or fill DISTANCE, with a preview |
-| Time Shift… | Convert times between UTC and a time zone, or shift by a fixed amount |
-| Sort Records by Date and Time | Reorder the records by QSO_DATE and TIME_ON |
-| Sort and Organize… | Sort the records by any fields, and put every record's fields in one order |
-| Remove Duplicates… | Find QSOs logged twice and remove them after review |
-| Merge Another Log… | Add another log's QSOs that this one doesn't have |
-| Import CSV… | Add a CSV file's rows to the log |
-| Import from LoTW… / QRZ.com Logbook… / eQSL… | Download your QSOs: add the ones the log lacks, confirm the ones it has |
-| Export CSV… / Export Activation Logs… / Export Cabrillo… | Save as CSV, as POTA, WWFF or SOTA upload files, or as a Cabrillo contest log |
-| Upload to QRZ.com Logbook… / LoTW (TQSL)… / Club Log… / eQSL… | List what would be sent, upload when you say so, mark it uploaded |
-| Enrich from QRZ.com… / HamQTH… | Fill missing station details from a callbook |
-| Enrich from Country Data… | Fill DXCC, country, zones and continent from the call's prefix, offline |
 | Check Log… | Every problem in one list, with its repair; repair the ticked ones in one step |
-| Validate Now | Check the current document and show a summary |
 | Fix Lengths | Correct every data length |
 | Next Problem / Previous Problem | Move between marks |
-| Reformat: One Record per Line / One Field per Line | Re-lay the file without touching data |
+| Bulk Edit… | Set, replace, remove or rename a field, or fill DISTANCE, with a preview |
+| Time Shift… | Convert times between UTC and a time zone, or shift by a fixed amount |
+| Sort and Organize… | Sort the records (by date and time in one click, or by any fields), and put every record's fields in one order |
+| Remove Duplicates… | Find QSOs logged twice and remove them after review |
+| Merge Another Log… | Add another log's QSOs that this one doesn't have |
+| Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
+| Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
+| Worked Before… | Search a folder of logs for a call |
+| Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), or a CSV file |
+| Export… | Activation logs for POTA, WWFF or SOTA, CSV, or a Cabrillo contest log |
+| Upload… | To QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL: list what would be sent, upload when you say so, mark it uploaded |
+| Enrich… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
 | Record Panel | Show or hide the docked record table |
-| Validate .adi Files While Typing | Problem marks as you type (on by default) |
-| Colour ADIF Syntax | Syntax colouring (on by default) |
-| Autocomplete Field Names and Values | `<` lists and automatic lengths (on by default) |
-| Count Lengths in Characters | Count lengths in UTF-8 characters instead of bytes |
-| Settings… | Country data, and accounts for the online services |
+| Reformat: One Record per Line / One Field per Line | Re-lay the file without touching data |
+| Check .adi Files While Typing | Problem marks as you type (on by default) |
+| Settings… | Your station, editor options, country data, and accounts for the online services |
 | About ADIF Lint… | Version, licence and links |
+
+Import…, Export…, Upload… and Enrich… open the window you used last; the popup at its top
+switches to the others. The toolbar gets buttons for New QSO, Log Table, Check Log and
+Spots.
 
 Every command that changes the log is one undo step, and nothing is saved until you save
 the file.
@@ -183,12 +184,12 @@ HTTPS.
 
 | Service | Address | When | What is sent |
 |---|---|---|---|
-| QRZ.com XML | `xmldata.qrz.com` | Enrich from QRZ.com; New QSO lookup set to QRZ.com; Test Sign-In | Your username and password (POST), then the calls looked up |
-| HamQTH | `www.hamqth.com` | Enrich from HamQTH; New QSO lookup set to HamQTH; Test Sign-In | Your username and password, then the calls looked up |
-| LoTW | `lotw.arrl.org` | Import from LoTW; Test Sign-In | Your username and password and the log's date range |
-| QRZ.com Logbook | `logbook.qrz.com` | Upload; Import from QRZ.com Logbook; Test Sign-In | Your API key, the log's date range and the QSOs you upload |
-| Club Log | `clublog.org` | Upload to Club Log | Your email, Application Password, API key and the QSOs you upload |
-| eQSL | `www.eqsl.cc` | Upload to eQSL; Import from eQSL | Your username and password, the log's date range and the QSOs you upload |
+| QRZ.com XML | `xmldata.qrz.com` | Enrich (QRZ.com); New QSO lookup set to QRZ.com; Test Sign-In | Your username and password (POST), then the calls looked up |
+| HamQTH | `www.hamqth.com` | Enrich (HamQTH); New QSO lookup set to HamQTH; Test Sign-In | Your username and password, then the calls looked up |
+| LoTW | `lotw.arrl.org` | Import (LoTW); Test Sign-In | Your username and password and the log's date range |
+| QRZ.com Logbook | `logbook.qrz.com` | Upload and Import (QRZ.com Logbook); Test Sign-In | Your API key, the log's date range and the QSOs you upload |
+| Club Log | `clublog.org` | Upload (Club Log) | Your email, Application Password, API key and the QSOs you upload |
+| eQSL | `www.eqsl.cc` | Upload and Import (eQSL) | Your username and password, the log's date range and the QSOs you upload |
 | POTA | `api.pota.app` | The Spots window (POTA), every minute while it is open | Nothing but the request |
 | WWFF | `spots.wwff.co` | The Spots window (WWFF), every minute while it is open | Nothing but the request |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |

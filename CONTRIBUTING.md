@@ -80,13 +80,14 @@ Also run, before a pull request that touches the plugin or the core:
 | `src/plugin/ADIFLint.mm` | The Nextpad++ glue: menu, indicators, colouring, hover, autocomplete, New QSO and Enrich logic |
 | `src/plugin/*Panel.mm`, `ToolWindow.mm` | The AppKit windows; `ToolWindow` is the general window the log tools are built from |
 | `src/plugin/LogTools.mm`, `Uploads.mm`, `Imports.mm` | The log tools, the upload windows (with the TQSL runner) and the import windows |
+| `src/plugin/CheckLog.mm`, `Families.mm` | Check Log; the Import…, Export… and Upload… menu items and the popup that switches between their windows |
 | `src/plugin/Lookup.mm`, `Country.mm` | Network clients and Keychain storage, the country file |
 | `src/cli/` | The `adiflint` command-line tool |
 | `spec/adif-3.1.7/` | ADIF's JSON export and HTML specification the tables are generated from (see `SOURCE.md`) |
-| `data/` | AD1C's country file, installed beside the plugin (see `SOURCE.md`) |
+| `data/` | AD1C's country file (see `SOURCE.md`) and `toolbar/`, the toolbar icons, all installed beside the plugin |
 | `third_party/` | The Nextpad++ plugin header and Scintilla headers, unchanged (see `README.md` there) |
 | `tests/` | The tests above, their fixtures and the official ADIF test file |
-| `tools/` | The table generator and `make-release.sh` |
+| `tools/` | The table generator, `make-release.sh`, and `make-toolbar-icons.m`, which draws the toolbar icons (run it after changing them) |
 
 ## Guidelines for changes
 

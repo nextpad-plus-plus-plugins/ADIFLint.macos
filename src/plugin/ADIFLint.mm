@@ -33,6 +33,7 @@
 #import <Cocoa/Cocoa.h>
 
 #import "CheckLog.h"
+#import "Families.h"
 #import "Country.h"
 #import "EnrichPanel.h"
 #import "LogTools.h"
@@ -42,6 +43,7 @@
 #import "QsoFieldsPanel.h"
 #import "RecordPanel.h"
 #import "SettingsPanel.h"
+#import "ToolWindow.h"
 #import "Imports.h"
 #import "Uploads.h"
 #include "adif_edit.h"
@@ -75,52 +77,33 @@ NppData nppData;
 enum {
     kCmdNewQso,
     kCmdSpots,
+    kSepLog,
     kCmdLogTable,
-    kCmdTracker,
-    kCmdWorkedBefore,
-    kCmdSummary,
-    kSepTools0,
-    kCmdBulkEdit,
-    kCmdTimeShift,
-    kCmdSort,
-    kCmdOrganize,
-    kCmdDupes,
-    kCmdMerge,
-    kSepImport,
-    kCmdImportCsv,
-    kCmdImportLotw,
-    kCmdImportQrzLog,
-    kCmdImportEqsl,
-    kSepTools1,
-    kCmdExportCsv,
-    kCmdExportPota,
-    kCmdExportCabrillo,
-    kSepUploads,
-    kCmdUploadQrz,
-    kCmdUploadLotw,
-    kCmdUploadClubLog,
-    kCmdUploadEqsl,
-    kSepTools2,
-    kCmdEnrichQrz,
-    kCmdEnrichHamQth,
-    kCmdEnrichCountry,
-    kSep0,
     kCmdCheckLog,
-    kCmdValidate,
     kCmdFixLengths,
     kCmdNextProblem,
     kCmdPreviousProblem,
-    kSep1,
+    kSepEdit,
+    kCmdBulkEdit,
+    kCmdTimeShift,
+    kCmdOrganize,
+    kCmdDupes,
+    kCmdMerge,
+    kSepReports,
+    kCmdSummary,
+    kCmdTracker,
+    kCmdWorkedBefore,
+    kSepServices,
+    kCmdImport,
+    kCmdExport,
+    kCmdUpload,
+    kCmdEnrich,
+    kSepView,
+    kCmdRecordPanel,
     kCmdReformatRecords,
     kCmdReformatFields,
-    kSep2,
-    kCmdRecordPanel,
-    kSep3,
     kCmdAutoValidate,
-    kCmdColour,
-    kCmdAutocomplete,
-    kCmdCountCharacters,
-    kSep4,
+    kSepSettings,
     kCmdSettings,
     kCmdAbout,
     kCmdCount
@@ -143,6 +126,7 @@ static struct {
     bool autocomplete = true;
     bool countCharacters = false;
     bool panelWanted = false;
+    bool firstRun = false;  // no ADIFLint.ini yet: show the welcome
     std::vector<std::string> qsoFieldList;  // New QSO fields; empty: the log's own fields
     bool qsoCarryHidden = true;             // copy station fields that are not listed
     std::map<std::string, std::string> extra;  // other key=value settings (PluginHost setting())
@@ -165,6 +149,11 @@ static struct {
     uint64_t lastEdit = ~0ull;
     intptr_t lastLength = -1;
     uint64_t editCount = 0;  // SCN_MODIFIED insert/delete seen
+    // The Record Panel's line about the whole log, for (buffer, edit).
+    intptr_t healthBuffer = 0, healthLength = -1;
+    uint64_t healthEdit = ~0ull;
+    std::string health;
+    int healthSeverity = -1;
 
     bool tipFromDwell = false;
     int64_t scheduleToken = 0, paintToken = 0, panelToken = 0;
@@ -296,6 +285,7 @@ static void loadSettings() {
     std::string path = configPath();
     if (path.empty()) return;
     std::ifstream in(path);
+    g.firstRun = !in;  // no settings file yet
     std::string line;
     auto flag = [&](const char *key, bool &v) {
         size_t n = std::strlen(key);
@@ -348,6 +338,16 @@ static void saveSettings() {
     out << "\n";
     for (const auto &kv : g.extra)
         if (kv.second.find('\n') == std::string::npos) out << kv.first << "=" << kv.second << "\n";
+}
+
+static std::string upperAscii(std::string s) {
+    for (char &c : s) c = (char)std::toupper((unsigned char)c);
+    return s;
+}
+
+static std::string trimmed(std::string_view s) {
+    size_t b = s.find_first_not_of(" \t\r\n"), e = s.find_last_not_of(" \t\r\n");
+    return b == std::string_view::npos ? std::string() : std::string(s.substr(b, e - b + 1));
 }
 
 static void setCheck(int item, bool on) { app(NPPM_SETMENUITEMCHECK, (uintptr_t)funcItem[item]._cmdID, on); }
@@ -702,16 +702,6 @@ static void schedule(double seconds) {
 }
 
 // ── Commands: validation and lengths ────────────────────────────────────────
-
-static void cmdValidate() {
-    try {
-        NppHandle h = currentScintilla();
-        g.manualBuffers.insert(currentBuffer());
-        const adif::LintResult &r = validateNow(h);
-        showTip(h, sci(h, SCI_GETCURRENTPOS), summary(r));
-    } catch (...) {
-    }
-}
 
 static void cmdFixLengths() {
     try {
@@ -1135,17 +1125,61 @@ static bool panelVisible() {
     return g.panel.view.window != nil;
 }
 
+// The whole log in a line: its problems, the QSOs waiting for each upload service it
+// uses, and today's POTA activation. Rebuilt only when the document changes.
+static void logHealth(NppHandle h, const adif::LintResult &r, std::string *line, int *severity) {
+    intptr_t length = sci(h, SCI_GETLENGTH);
+    if (g.healthBuffer == currentBuffer() && g.healthEdit == g.editCount && g.healthLength == length) {
+        *line = g.health;
+        *severity = g.healthSeverity;
+        return;
+    }
+    auto plural = [](size_t n, const char *word) { return std::to_string(n) + " " + word + (n == 1 ? "" : "s"); };
+    std::string out;
+    if (r.errors || r.warnings) out = plural(r.errors, "error") + ", " + plural(r.warnings, "warning");
+    else out = r.infos ? plural(r.infos, "note") : std::string("No problems");
+    int sev = r.errors ? 2 : r.warnings ? 1 : -1;
+    std::string_view text = docText(h);
+    if (r.structuralErrors == 0 && r.records) {
+        // Uploads: only the services this log has been sent to.
+        std::string waiting;
+        for (adif::UploadService s : {adif::UploadService::QRZ, adif::UploadService::LoTW, adif::UploadService::ClubLog,
+                                      adif::UploadService::EQSL}) {
+            std::vector<adif::UploadItem> items = adif::uploadItems(text, r.model, s);
+            bool used = std::any_of(items.begin(), items.end(), [](const adif::UploadItem &i) { return !i.status.empty(); });
+            size_t n = (size_t)std::count_if(items.begin(), items.end(), [](const adif::UploadItem &i) { return adif::uploadWanted(i); });
+            if (used && n) waiting += (waiting.empty() ? "" : ", ") + std::string(s == adif::UploadService::QRZ ? "QRZ" : adif::uploadServiceName(s)) + " " + std::to_string(n);
+        }
+        if (!waiting.empty()) out += "  ·  to upload: " + waiting;
+        // Today's activation.
+        std::string today = utcNow("%Y%m%d");
+        for (const adif::Activation &a : adif::activations(text, r.model, adifhost::setting("stationCall"))) {
+            if (a.date != today) continue;
+            out += "  ·  " + a.park + " today: " + std::to_string(a.qsos) + (a.activated() ? " QSOs, activated" : " of " + std::to_string(a.needed));
+            break;
+        }
+    }
+    g.healthBuffer = currentBuffer();
+    g.healthEdit = g.editCount;
+    g.healthLength = length;
+    g.health = out;
+    g.healthSeverity = sev;
+    *line = out;
+    *severity = sev;
+}
+
 static ADIFPanelSnapshot buildSnapshot(NppHandle h) {
     ADIFPanelSnapshot s;
     g.panelGroupStart = -1;
     g.panelNames.clear();
     if (!isAdifBuffer(currentBuffer())) {
-        s.title = "Not an ADIF document (.adi). Use Validate Now to treat it as one.";
+        s.title = "Not an ADIF document (.adi). Use Check Log to treat it as one.";
         return s;
     }
     const adif::LintResult &r = freshLint(h);
     const adif::DocModel &m = r.model;
     std::string_view text = docText(h);
+    logHealth(h, r, &s.health, &s.healthSeverity);
     intptr_t caret = sci(h, SCI_GETCURRENTPOS);
     int gi = adif::groupAt(m, (size_t)caret);
     if (gi < 0 && !m.groups.empty()) gi = 0;
@@ -1627,6 +1661,19 @@ static void loadQsoRows(NppHandle h, const adif::LintResult &r, bool keepValues)
         auto it = typed.find(q.name);
         if (it != typed.end() && q.name != "QSO_DATE" && q.name != "TIME_ON") q.value = it->second;
     }
+    // A log that doesn't name your station yet: the callsign and grid from Settings (Your Station).
+    std::vector<std::pair<std::string, std::string>> carried = adif::hiddenStationFields(text, r.model, {});
+    for (const auto &mine : {std::pair<std::string, std::string>{"STATION_CALLSIGN", adifhost::setting("stationCall")},
+                             std::pair<std::string, std::string>{"MY_GRIDSQUARE", adifhost::setting("stationGrid")}}) {
+        const std::string &name = mine.first, &value = mine.second;
+        if (value.empty() || std::any_of(carried.begin(), carried.end(), [&](const auto &c) { return c.first == name; })) continue;
+        auto row = std::find_if(g.qsoFields.begin(), g.qsoFields.end(), [&](const adif::QsoField &q) { return q.name == name; });
+        if (row != g.qsoFields.end()) {
+            if (row->value.empty()) row->value = value;
+        } else if (g.qsoFieldList.empty()) {
+            g.qsoFields.push_back(adif::QsoField{name, value, true});
+        }
+    }
     showQsoRows(h, r);
 }
 
@@ -1747,7 +1794,7 @@ static std::string myGrid() {
             if (f.first == "MY_GRIDSQUARE") return f.second;
     } catch (...) {
     }
-    return "";
+    return adifhost::setting("stationGrid");  // Settings: Your Station
 }
 
 // The line under Look up: what was found, the distance, and what the logs say about the park.
@@ -1935,6 +1982,12 @@ static void enrichUpdateAccount() {
     [g.enrich.panel setCredit:src == ADIFSourceHamQTH ? @"Callbook data from HamQTH.com" : @""];
 }
 
+static void setAutoValidate(bool on);
+static void setColour(bool on);
+static void setAutocomplete(bool on);
+static void setCountCharacters(bool on);
+static void refreshSettingsOptions();
+
 static void openSettings(NSInteger source) {
     if (!g.settings) {
         g.settings = [[ADIFSettingsPanel alloc] init];
@@ -1946,9 +1999,51 @@ static void openSettings(NSInteger source) {
             if (g.enrich.panel && g.enrich.panel.source == changed && !g.enrich.running) g.enrich.client = nil;
             if (g.enrich.panel) enrichUpdateAccount();
         };
+        g.settings.onStationSave = ^(NSString *callText, NSString *gridText) {
+            std::string call = upperAscii(trimmed(callText.UTF8String ?: "")), grid = trimmed(gridText.UTF8String ?: "");
+            if (!grid.empty() && !adif::isAdifGridSquare(grid)) {
+                [g.settings setStationStatus:@"The grid is a 4, 6 or 8 character Maidenhead locator, such as EN52 or EN52wa."
+                                          ok:NO];
+                return;
+            }
+            if (grid.size() >= 2) grid = upperAscii(grid.substr(0, 4)) + grid.substr(4);
+            adifhost::setSetting("stationCall", call);
+            adifhost::setSetting("stationGrid", grid);
+            [g.settings setStationCall:ADIFString(call) grid:ADIFString(grid) logsFolder:ADIFString(adifhost::setting("logsFolder"))];
+            [g.settings setStationStatus:@"Saved." ok:YES];
+        };
+        g.settings.onChooseLogsFolder = ^{
+            NSOpenPanel *panel = [NSOpenPanel openPanel];
+            panel.canChooseDirectories = YES;
+            panel.canChooseFiles = NO;
+            panel.message = @"Choose the folder of logs that Worked Before searches";
+            std::string dir;
+            if (const char *test = getenv("ADIFLINT_TEST_FOLDER")) dir = test;
+            else if ([panel runModal] == NSModalResponseOK) dir = panel.URL.path.UTF8String ?: "";
+            if (dir.empty()) return;
+            adifhost::setSetting("logsFolder", dir);
+            [g.settings setStationCall:ADIFString(adifhost::setting("stationCall")) grid:ADIFString(adifhost::setting("stationGrid"))
+                            logsFolder:ADIFString(dir)];
+        };
+        g.settings.onEditorOption = ^(NSInteger option, BOOL on) {
+            switch (option) {
+                case 0: setAutoValidate(on); break;
+                case 1: setColour(on); break;
+                case 2: setAutocomplete(on); break;
+                case 3: setCountCharacters(on); break;
+                default: break;
+            }
+        };
     }
     [g.settings setCountryStatus:ADIFCountryDataStatus() ok:YES];
+    [g.settings setStationCall:ADIFString(adifhost::setting("stationCall")) grid:ADIFString(adifhost::setting("stationGrid"))
+                    logsFolder:ADIFString(adifhost::setting("logsFolder"))];
+    refreshSettingsOptions();
     [g.settings showSource:source];
+}
+
+static void refreshSettingsOptions() {
+    [g.settings setEditorValidate:g.autoValidate colour:g.colour autocomplete:g.autocomplete characters:g.countCharacters];
 }
 
 static void cmdSettings() { openSettings(-1); }
@@ -2192,6 +2287,7 @@ static void openEnrich(ADIFSource source) {
                 if (g.enrich.running) g.enrich.cancelled = true;
             };
             g.enrich.panel.onApply = ^{ enrichApply(); };
+            g.enrich.panel.onChooseSource = ^(NSInteger chosen) { openEnrich((ADIFSource)chosen); };
         }
         if (g.enrich.running) {  // one lookup at a time
             [g.enrich.panel show];
@@ -2199,6 +2295,7 @@ static void openEnrich(ADIFSource source) {
                 [g.enrich.panel setStatus:@"Stop or finish the current lookup before switching source." severity:1];
             return;
         }
+        adifhost::setSetting("enrichLast", std::to_string((long)source));
         if (g.enrich.panel.source != source || !g.enrich.panel.window.visible) {
             NSString *title = source == ADIFSourceQRZ          ? @"Enrich from QRZ.com"
                               : source == ADIFSourceHamQTH     ? @"Enrich from HamQTH"
@@ -2215,22 +2312,28 @@ static void openEnrich(ADIFSource source) {
     }
 }
 
-static void cmdEnrichQrz() { openEnrich(ADIFSourceQRZ); }
-static void cmdEnrichHamQth() { openEnrich(ADIFSourceHamQTH); }
-static void cmdEnrichCountry() { openEnrich(ADIFSourceCountryData); }
+// Enrich...: the source used last (QRZ.com at first); the window's popup switches.
+static void cmdEnrich() {
+    std::string last = adifhost::setting("enrichLast");
+    long source = last.empty() ? ADIFSourceQRZ : std::atol(last.c_str());
+    if (source != ADIFSourceQRZ && source != ADIFSourceHamQTH && source != ADIFSourceCountryData) source = ADIFSourceQRZ;
+    openEnrich((ADIFSource)source);
+}
 
 // ── Commands: settings and about ────────────────────────────────────────────
 
-static void cmdToggleAutoValidate() {
-    g.autoValidate = !g.autoValidate;
-    setCheck(kCmdAutoValidate, g.autoValidate);
+static void setAutoValidate(bool on) {
+    g.autoValidate = on;
+    setCheck(kCmdAutoValidate, on);
     saveSettings();
     schedule(0.05);
+    refreshSettingsOptions();
 }
 
-static void cmdToggleColour() {
-    g.colour = !g.colour;
-    setCheck(kCmdColour, g.colour);
+static void cmdToggleAutoValidate() { setAutoValidate(!g.autoValidate); }
+
+static void setColour(bool on) {
+    g.colour = on;
     saveSettings();
     try {
         NppHandle h = currentScintilla();
@@ -2244,17 +2347,15 @@ static void cmdToggleColour() {
     }
 }
 
-static void cmdToggleAutocomplete() {
-    g.autocomplete = !g.autocomplete;
-    setCheck(kCmdAutocomplete, g.autocomplete);
+static void setAutocomplete(bool on) {
+    g.autocomplete = on;
     saveSettings();
     endList();
     g.pending.active = false;
 }
 
-static void cmdToggleCountCharacters() {
-    g.countCharacters = !g.countCharacters;
-    setCheck(kCmdCountCharacters, g.countCharacters);
+static void setCountCharacters(bool on) {
+    g.countCharacters = on;
     saveSettings();
     if (isAdifBuffer(currentBuffer())) {
         try {
@@ -2335,52 +2436,33 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     loadSettings();
     setItem(kCmdNewQso, "New QSO...", cmdNewQso);
     setItem(kCmdSpots, "Spots (POTA, WWFF)...", logtools::cmdPotaSpots);
+    setItem(kSepLog, "", nullptr);
     setItem(kCmdLogTable, "Log Table...", logtools::cmdLogTable);
-    setItem(kCmdTracker, "Activation Tracker (POTA, WWFF, SOTA)...", logtools::cmdActivationTracker);
-    setItem(kCmdWorkedBefore, "Worked Before...", logtools::cmdWorkedBefore);
-    setItem(kCmdSummary, "Log Summary...", logtools::cmdSummary);
-    setItem(kSepTools0, "", nullptr);
-    setItem(kCmdBulkEdit, "Bulk Edit...", logtools::cmdBulkEdit);
-    setItem(kCmdTimeShift, "Time Shift...", logtools::cmdTimeShift);
-    setItem(kCmdSort, "Sort Records by Date and Time", logtools::cmdSortByTime);
-    setItem(kCmdOrganize, "Sort and Organize...", logtools::cmdOrganize);
-    setItem(kCmdDupes, "Remove Duplicates...", logtools::cmdRemoveDuplicates);
-    setItem(kCmdMerge, "Merge Another Log...", logtools::cmdMergeLog);
-    setItem(kSepImport, "", nullptr);
-    setItem(kCmdImportCsv, "Import CSV...", logtools::cmdImportCsv);
-    setItem(kCmdImportLotw, "Import from LoTW...", imports::cmdImportLotw);
-    setItem(kCmdImportQrzLog, "Import from QRZ.com Logbook...", imports::cmdImportQrzLogbook);
-    setItem(kCmdImportEqsl, "Import from eQSL...", imports::cmdImportEqsl);
-    setItem(kSepTools1, "", nullptr);
-    setItem(kCmdExportCsv, "Export CSV...", logtools::cmdExportCsv);
-    setItem(kCmdExportPota, "Export Activation Logs...", logtools::cmdExportPota);
-    setItem(kCmdExportCabrillo, "Export Cabrillo...", logtools::cmdExportCabrillo);
-    setItem(kSepUploads, "", nullptr);
-    setItem(kCmdUploadQrz, "Upload to QRZ.com Logbook...", uploads::cmdUploadQrz);
-    setItem(kCmdUploadLotw, "Upload to LoTW (TQSL)...", uploads::cmdUploadLotw);
-    setItem(kCmdUploadClubLog, "Upload to Club Log...", uploads::cmdUploadClubLog);
-    setItem(kCmdUploadEqsl, "Upload to eQSL...", uploads::cmdUploadEqsl);
-    setItem(kSepTools2, "", nullptr);
-    setItem(kCmdEnrichQrz, "Enrich from QRZ.com...", cmdEnrichQrz);
-    setItem(kCmdEnrichHamQth, "Enrich from HamQTH...", cmdEnrichHamQth);
-    setItem(kCmdEnrichCountry, "Enrich from Country Data...", cmdEnrichCountry);
-    setItem(kSep0, "", nullptr);
     setItem(kCmdCheckLog, "Check Log...", checklog::cmdCheckLog);
-    setItem(kCmdValidate, "Validate Now", cmdValidate);
     setItem(kCmdFixLengths, "Fix Lengths", cmdFixLengths);
     setItem(kCmdNextProblem, "Next Problem", cmdNextProblem);
     setItem(kCmdPreviousProblem, "Previous Problem", cmdPreviousProblem);
-    setItem(kSep1, "", nullptr);
+    setItem(kSepEdit, "", nullptr);
+    setItem(kCmdBulkEdit, "Bulk Edit...", logtools::cmdBulkEdit);
+    setItem(kCmdTimeShift, "Time Shift...", logtools::cmdTimeShift);
+    setItem(kCmdOrganize, "Sort and Organize...", logtools::cmdOrganize);
+    setItem(kCmdDupes, "Remove Duplicates...", logtools::cmdRemoveDuplicates);
+    setItem(kCmdMerge, "Merge Another Log...", logtools::cmdMergeLog);
+    setItem(kSepReports, "", nullptr);
+    setItem(kCmdSummary, "Log Summary...", logtools::cmdSummary);
+    setItem(kCmdTracker, "Activation Tracker (POTA, WWFF, SOTA)...", logtools::cmdActivationTracker);
+    setItem(kCmdWorkedBefore, "Worked Before...", logtools::cmdWorkedBefore);
+    setItem(kSepServices, "", nullptr);
+    setItem(kCmdImport, "Import...", families::cmdImport);
+    setItem(kCmdExport, "Export...", families::cmdExport);
+    setItem(kCmdUpload, "Upload...", families::cmdUpload);
+    setItem(kCmdEnrich, "Enrich...", cmdEnrich);
+    setItem(kSepView, "", nullptr);
+    setItem(kCmdRecordPanel, "Record Panel", cmdRecordPanel, g.panelWanted);
     setItem(kCmdReformatRecords, "Reformat: One Record per Line", cmdReformatRecords);
     setItem(kCmdReformatFields, "Reformat: One Field per Line", cmdReformatFields);
-    setItem(kSep2, "", nullptr);
-    setItem(kCmdRecordPanel, "Record Panel", cmdRecordPanel, g.panelWanted);
-    setItem(kSep3, "", nullptr);
-    setItem(kCmdAutoValidate, "Validate .adi Files While Typing", cmdToggleAutoValidate, g.autoValidate);
-    setItem(kCmdColour, "Colour ADIF Syntax", cmdToggleColour, g.colour);
-    setItem(kCmdAutocomplete, "Autocomplete Field Names and Values", cmdToggleAutocomplete, g.autocomplete);
-    setItem(kCmdCountCharacters, "Count Lengths in Characters", cmdToggleCountCharacters, g.countCharacters);
-    setItem(kSep4, "", nullptr);
+    setItem(kCmdAutoValidate, "Check .adi Files While Typing", cmdToggleAutoValidate, g.autoValidate);
+    setItem(kSepSettings, "", nullptr);
     setItem(kCmdSettings, "Settings...", cmdSettings);
     setItem(kCmdAbout, "About ADIF Lint...", cmdAbout);
 }
@@ -2401,9 +2483,6 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 if (app(NPPM_ALLOCATEINDICATOR, kIndCount, (intptr_t)&start)) g.indicatorBase = start;
                 loadSettings();  // in case the config dir was not ready during setInfo
                 setCheck(kCmdAutoValidate, g.autoValidate);
-                setCheck(kCmdColour, g.colour);
-                setCheck(kCmdAutocomplete, g.autocomplete);
-                setCheck(kCmdCountCharacters, g.countCharacters);
                 setCheck(kCmdRecordPanel, g.panelWanted);
                 for (NppHandle h : {nppData._scintillaMainHandle, nppData._scintillaSecondHandle}) {
                     sci(h, SCI_SETMOUSEDWELLTIME, kDwellMs);
@@ -2416,8 +2495,25 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 logtools::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
                 if (g.panelWanted) showPanel(true);
                 schedule(0.1);
+                // First run: a welcome in Settings, asking for the station (never during the tests'
+                // offline runs unless they ask for it).
+                if (g.firstRun && (!ADIFLookupFakeMode() || getenv("ADIFLINT_TEST_WELCOME"))) {
+                    g.firstRun = false;
+                    adifhost::setSetting("firstRunDone", "1");
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        openSettings(-1);
+                        [g.settings showWelcome];
+                    });
+                }
                 break;
             }
+            case NPPN_TBMODIFICATION:
+                // Toolbar buttons: <hint>.png and <hint>_dark.png in the plugin folder.
+                app(NPPM_ADDTOOLBARICON_FORDARKMODE, (uintptr_t)funcItem[kCmdNewQso]._cmdID, (intptr_t) "toolbar-newqso.png");
+                app(NPPM_ADDTOOLBARICON_FORDARKMODE, (uintptr_t)funcItem[kCmdLogTable]._cmdID, (intptr_t) "toolbar-table.png");
+                app(NPPM_ADDTOOLBARICON_FORDARKMODE, (uintptr_t)funcItem[kCmdCheckLog]._cmdID, (intptr_t) "toolbar-check.png");
+                app(NPPM_ADDTOOLBARICON_FORDARKMODE, (uintptr_t)funcItem[kCmdSpots]._cmdID, (intptr_t) "toolbar-spots.png");
+                break;
             case NPPN_SHUTDOWN:
                 g.ready = false;
                 if (g.panelHandle) app(NPPM_DMM_UNREGISTERPANEL, (uintptr_t)g.panelHandle);

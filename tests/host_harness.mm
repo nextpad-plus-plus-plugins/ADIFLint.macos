@@ -60,6 +60,7 @@ static struct Host {
     // docking panel
     NSView *panelView = nil;
     NSWindow *panelWindow = nil;
+    std::vector<std::pair<uintptr_t, std::string>> toolbar;  // NPPM_ADDTOOLBARICON_FORDARKMODE: command, icon hint
     std::vector<uint32_t> unknown;
 } H;
 
@@ -111,6 +112,7 @@ static intptr_t sendMessage(uintptr_t handle, uint32_t msg, uintptr_t w, intptr_
                 return 1;
             case NPPM_DMM_HIDEPANEL: H.panelWindow.contentView = [[NSView alloc] init]; return 1;
             case NPPM_DMM_UNREGISTERPANEL: return 1;
+            case NPPM_ADDTOOLBARICON_FORDARKMODE: H.toolbar.push_back({w, l ? (const char *)l : ""}); return 1;
         }
     } else if (handle == kSciMain || handle == kSciSecond) {
         switch (msg) {
@@ -307,10 +309,27 @@ static NSWindow *windowTitled(NSString *title) {
     return nil;
 }
 
+// The popup offering `item` (a window can have several).
+static NSPopUpButton *findPopupWith(NSView *v, NSString *item) {
+    if ([v isKindOfClass:NSPopUpButton.class] && [(NSPopUpButton *)v itemWithTitle:item]) return (NSPopUpButton *)v;
+    for (NSView *s in v.subviews)
+        if (NSPopUpButton *p = findPopupWith(s, item)) return p;
+    return nil;
+}
+
 static NSPopUpButton *findPopup(NSView *v) {
     if ([v isKindOfClass:NSPopUpButton.class]) return (NSPopUpButton *)v;
     for (NSView *s in v.subviews)
         if (NSPopUpButton *p = findPopup(s)) return p;
+    return nil;
+}
+
+// A visible label containing `text`, or nil.
+static NSString *labelContaining(NSView *v, NSString *text) {
+    if (v.hidden) return nil;
+    if ([v isKindOfClass:NSTextField.class] && [((NSTextField *)v).stringValue containsString:text]) return ((NSTextField *)v).stringValue;
+    for (NSView *s in v.subviews)
+        if (NSString *found = labelContaining(s, text)) return found;
     return nil;
 }
 
@@ -505,7 +524,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 50, "50 menu items, got %d", n);
+        CHECK(n == 31, "31 menu entries (25 commands, 6 separators), got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -513,22 +532,95 @@ int main(int argc, char **argv) {
             byName[items[i]._itemName] = &items[i];
             CHECK(items[i]._pShKey == nullptr, "no default shortcuts (host ignores them)");
         }
-        auto run = [&](const char *name) {
+        auto runItem = [&](const char *name) {
             FuncItem *f = byName.count(name) ? byName[name] : nullptr;
             CHECK(f && f->_pFunc, "menu item %s exists", name);
             if (f && f->_pFunc) f->_pFunc();
         };
-        for (const char *name : {"New QSO...", "Log Table...", "Activation Tracker (POTA, WWFF, SOTA)...", "Spots (POTA, WWFF)...", "Worked Before...", "Log Summary...",
-                                 "Bulk Edit...", "Time Shift...", "Sort Records by Date and Time", "Sort and Organize...", "Remove Duplicates...",
-                                 "Merge Another Log...", "Export CSV...", "Export Activation Logs...", "Import CSV...", "Export Cabrillo...",
-                                 "Import from LoTW...", "Import from QRZ.com Logbook...", "Import from eQSL...",
-                                 "Enrich from Country Data...", "Enrich from QRZ.com...", "Enrich from HamQTH...",
-                                 "Settings...", "Check Log...", "Validate Now", "Fix Lengths", "Next Problem", "Previous Problem", "Reformat: One Record per Line",
-                                 "Reformat: One Field per Line", "Record Panel", "Colour ADIF Syntax",
-                                 "Autocomplete Field Names and Values", "Count Lengths in Characters"})
+        // Windows reached through Import..., Export..., Upload... and Enrich...: the menu
+        // item opens the one used last, and its popup switches (the way a user gets there).
+        struct Hub {
+            const char *old, *menu;
+            NSString *item;
+        };
+        // An item only that family's popup has (Import and Upload both offer eQSL).
+        auto marker = [](const char *menu) {
+            return !std::strcmp(menu, "Import...") ? @"CSV file" : !std::strcmp(menu, "Export...") ? @"Cabrillo"
+                   : !std::strcmp(menu, "Upload...") ? @"Club Log" : @"HamQTH";
+        };
+        static const Hub kHubs[] = {
+            {"Import from LoTW...", "Import...", @"LoTW"},
+            {"Import from QRZ.com Logbook...", "Import...", @"QRZ.com Logbook"},
+            {"Import from eQSL...", "Import...", @"eQSL"},
+            {"Import CSV...", "Import...", @"CSV file"},
+            {"Export Activation Logs...", "Export...", @"Activation logs (POTA, WWFF, SOTA)"},
+            {"Export CSV...", "Export...", @"CSV"},
+            {"Export Cabrillo...", "Export...", @"Cabrillo"},
+            {"Upload to QRZ.com Logbook...", "Upload...", @"QRZ.com Logbook"},
+            {"Upload to LoTW (TQSL)...", "Upload...", @"LoTW (TQSL)"},
+            {"Upload to Club Log...", "Upload...", @"Club Log"},
+            {"Upload to eQSL...", "Upload...", @"eQSL"},
+            {"Enrich from QRZ.com...", "Enrich...", @"QRZ.com"},
+            {"Enrich from HamQTH...", "Enrich...", @"HamQTH"},
+            {"Enrich from Country Data...", "Enrich...", @"Country Data (offline)"},
+        };
+        auto run = [&](const char *name) {
+            for (const Hub &hub : kHubs) {
+                if (std::strcmp(hub.old, name) != 0) continue;
+                runItem(hub.menu);
+                pump(0.05);
+                NSPopUpButton *p = nil;
+                for (NSWindow *w in NSApp.windows) {  // orderedWindows leaves out panels
+                    NSPopUpButton *x = w.visible ? findPopupWith(w.contentView, marker(hub.menu)) : nil;
+                    if (x && [x itemWithTitle:hub.item]) p = x;
+                    if (p && w.isKeyWindow) break;
+                }
+                CHECK(p != nil, "%s: the %s window offers %s", name, hub.menu, hub.item.UTF8String);
+                if (p && ![p.titleOfSelectedItem isEqualToString:hub.item]) {
+                    [p selectItemWithTitle:hub.item];
+                    [p sendAction:p.action to:p.target];
+                    pump(0.05);
+                }
+                if (!std::strcmp(name, "Export CSV...")) {  // the window, then its Save button
+                    NSWindow *cw = nil;
+                    for (NSWindow *w in NSApp.windows)
+                        if (w.visible && [w.title isEqualToString:@"Export CSV"]) cw = w;
+                    [cw.contentView layoutSubtreeIfNeeded];
+                    snapshot(cw, "export-csv");
+                    CHECK(cw && overlaps(cw.contentView) == 0, "Export CSV does not overlap");
+                    [findButton(cw.contentView, @"Save CSV...") performClick:nil];
+                    [cw orderOut:nil];
+                }
+                return;
+            }
+            runItem(name);
+        };
+        // Check Log's headline (it replaced Validate Now): "No problems found." or the counts.
+        auto checkLogHeadline = [&]() -> std::string {
+            run("Check Log...");
+            NSWindow *w = nil;
+            for (NSWindow *x in NSApp.windows)
+                if ([x.title isEqualToString:@"Check Log"]) w = x;
+            std::string h = w ? std::string(labelWithLines(w.contentView, 2).UTF8String ?: "") : "";
+            [w orderOut:nil];
+            return h;
+        };
+        auto noErrors = [&](std::string *h) {
+            *h = checkLogHeadline();
+            return *h == "No problems found." || h->rfind("0 errors", 0) == 0;
+        };
+        auto noWarnings = [&](std::string *h) {
+            *h = checkLogHeadline();
+            return *h == "No problems found." || h->rfind("0 errors, 0 warnings", 0) == 0;
+        };
+        for (const char *name : {"New QSO...", "Spots (POTA, WWFF)...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
+                                 "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
+                                 "Merge Another Log...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...",
+                                 "Import...", "Export...", "Upload...", "Enrich...", "Record Panel", "Reformat: One Record per Line",
+                                 "Reformat: One Field per Line", "Check .adi Files While Typing", "Settings...", "About ADIF Lint..."})
             CHECK(byName.count(name), "menu item %s", name);
-        CHECK(byName["Validate .adi Files While Typing"]->_init2Check && byName["Colour ADIF Syntax"]->_init2Check &&
-                  byName["Autocomplete Field Names and Values"]->_init2Check && !byName["Record Panel"]->_init2Check,
+        CHECK(byName.count("Check .adi Files While Typing") && byName["Check .adi Files While Typing"]->_init2Check &&
+                  byName.count("Record Panel") && !byName["Record Panel"]->_init2Check,
               "default settings");
 
         {   // The layout check itself must catch a real overlap.
@@ -543,8 +635,65 @@ int main(int argc, char **argv) {
             b.frame = NSMakeRect(100, 10, 80, 30);
             CHECK(overlaps(w.contentView) == 0, "and accepts separate ones");
         }
+        setenv("ADIFLINT_TEST_WELCOME", "1", 1);  // a first run: no ADIFLint.ini yet
         notify(NPPN_READY);
+        unsetenv("ADIFLINT_TEST_WELCOME");
         CHECK(H.dwell[kSciMain] == 500 && H.dwell[kSciSecond] == 500, "dwell time armed on both views");
+        {   // The welcome: Settings, with Your Station at the top.
+            pump(0.2);
+            NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+            NSString *welcome = sw ? labelContaining(sw.contentView, @"Welcome to ADIF Lint") : nil;
+            CHECK(sw.visible && welcome != nil, "first run: Settings opens with a welcome");
+            if (sw) {
+                [sw.contentView layoutSubtreeIfNeeded];
+                snapshot(sw, "settings-welcome");
+                CHECK(overlaps(sw.contentView) == 0, "Settings does not overlap (%d)", overlaps(sw.contentView));
+            }
+            // Your Station: saved upper case; a bad grid is refused.
+            NSMutableArray *fields = [NSMutableArray array];
+            collect(sw.contentView, NSTextField.class, fields);
+            NSTextField *callField = nil, *gridField = nil;
+            for (NSTextField *f in fields) {
+                if ([f.placeholderString isEqualToString:@"e.g. KW9D"]) callField = f;
+                if ([f.placeholderString isEqualToString:@"e.g. EN52"]) gridField = f;
+            }
+            NSButton *save = sw ? findButton(sw.contentView, @"Save") : nil;  // the first Save: Your Station's
+            callField.stringValue = @"kw9d";
+            gridField.stringValue = @"EN5";
+            [save performClick:nil];
+            CHECK(labelContaining(sw.contentView, @"Maidenhead locator") != nil, "a bad grid is refused");
+            gridField.stringValue = @"en52";
+            [save performClick:nil];
+            NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                      encoding:NSUTF8StringEncoding
+                                                         error:nil];
+            CHECK([ini containsString:@"stationCall=KW9D\n"] && [ini containsString:@"stationGrid=EN52\n"] &&
+                      [ini containsString:@"firstRunDone=1\n"],
+                  "Your Station saved: %s", ini.UTF8String);
+            callField.stringValue = @"";  // later tests log into logs that name their own station
+            gridField.stringValue = @"";
+            [save performClick:nil];
+            [sw orderOut:nil];
+        }
+        {   // Toolbar buttons: New QSO, Log Table, Check Log, Spots, each with a light and dark icon.
+            notify(NPPN_TBMODIFICATION);
+            std::vector<std::string> hints;
+            for (const auto &t : H.toolbar) hints.push_back(t.second);
+            CHECK(hints == std::vector<std::string>({"toolbar-newqso.png", "toolbar-table.png", "toolbar-check.png", "toolbar-spots.png"}) &&
+                      H.toolbar[0].first == (uintptr_t)byName["New QSO..."]->_cmdID &&
+                      H.toolbar[2].first == (uintptr_t)byName["Check Log..."]->_cmdID,
+                  "four toolbar buttons (%zu)", H.toolbar.size());
+            NSString *fixtures = [NSURL fileURLWithPath:@(argv[2])].URLByStandardizingPath.path;  // <repo>/tests/fixtures/lookup
+            NSString *root = [fixtures.stringByDeletingLastPathComponent.stringByDeletingLastPathComponent.stringByDeletingLastPathComponent
+                stringByAppendingPathComponent:@"data/toolbar"];
+            bool files = true;
+            for (const std::string &h : hints) {
+                NSString *png = [root stringByAppendingPathComponent:@(h.c_str())];
+                NSString *dark = [[png stringByDeletingPathExtension] stringByAppendingString:@"_dark.png"];
+                files &= [[NSFileManager defaultManager] fileExistsAtPath:png] && [[NSFileManager defaultManager] fileExistsAtPath:dark];
+            }
+            CHECK(files, "each icon has a light and a dark PNG in data/toolbar");
+        }
         const int kError = 9, kName = 12, kPunct = 13, kMarker = 14, kComment = 15;
 
         // ── Validation and colouring after READY ──
@@ -744,10 +893,18 @@ int main(int argc, char **argv) {
         }
 
         // ── Settings ──
-        run("Count Lengths in Characters");
-        CHECK(H.checks[(uintptr_t)byName["Count Lengths in Characters"]->_cmdID] == 1, "menu check set");
-        run("Colour ADIF Syntax");
-        CHECK(countFills(kName) == 0, "colours cleared when switched off");
+        {
+            run("Settings...");
+            NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+            NSButton *countBox = sw ? findButton(sw.contentView, @"Count lengths in characters, not bytes (for UTF-8 logs)") : nil;
+            NSButton *colourBox = sw ? findButton(sw.contentView, @"Colour ADIF syntax") : nil;
+            CHECK(countBox && colourBox && countBox.state == NSControlStateValueOff && colourBox.state == NSControlStateValueOn,
+                  "Settings > Editor shows the options");
+            [countBox performClick:nil];
+            [colourBox performClick:nil];
+            CHECK(countFills(kName) == 0, "colours cleared when switched off");
+            [sw orderOut:nil];
+        }
         NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
                                                   encoding:NSUTF8StringEncoding
                                                      error:nil];
@@ -755,8 +912,10 @@ int main(int argc, char **argv) {
                   [ini containsString:@"recordPanel=1"],
               "settings saved: %s", ini.UTF8String);
 
-        run("Validate Now");
-        CHECK(H.tip.find("ADIF 3.1.7: 2 records, 0 errors") == 0, "summary tip: %s", H.tip.c_str());
+        {
+            std::string hl;
+            CHECK(noErrors(&hl), "Check Log headline: %s", hl.c_str());
+        }
 
         // ── New QSO ──
         run("New QSO...");
@@ -823,8 +982,10 @@ int main(int argc, char **argv) {
                   "new log with a header:\n%s", H.doc.c_str());
             CHECK(H.doc.find("<RST_SENT:2>59 ") != std::string::npos, "SSB report defaults to 59");
 
-            run("Validate Now");
-            CHECK(H.tip.find("ADIF 3.1.7: 1 record, 0 errors, 0 warnings") == 0, "new log lints clean: %s", H.tip.c_str());
+            {
+                std::string hl;
+                CHECK(noWarnings(&hl), "new log lints clean: %s", hl.c_str());
+            }
             // ── Choosing the New QSO fields ──
             H.doc = "log\n<ADIF_VER:5>3.1.7\n<EOH>\n<CALL:5>K1ABC <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m "
                     "<MODE:3>SSB <STATION_CALLSIGN:4>KW9D <MY_SIG_INFO:7>US-7929 <EOR>\n";
@@ -966,12 +1127,14 @@ int main(int argc, char **argv) {
             NSTableView *review = findTable(ew.contentView);
             NSButton *findData = findButton(ew.contentView, @"Find Data");
             CHECK(review && findData && findButton(ew.contentView, @"Settings..."), "window controls present");
-            CHECK(findPopup(ew.contentView) == nil, "no source menu: the menu item chose the source");
+            NSPopUpButton *sourcePopup = findPopupWith(ew.contentView, @"HamQTH");
+            CHECK(sourcePopup && sourcePopup.numberOfItems == 3 && [sourcePopup.titleOfSelectedItem isEqualToString:@"QRZ.com"],
+                  "Enrich from: QRZ.com, HamQTH, Country Data");
             [ew.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(ew.contentView) == 0, "Enrich controls do not overlap (%d overlaps)", overlaps(ew.contentView));
             auto choose = [&](NSInteger i) {
                 const char *items[] = {"Enrich from QRZ.com...", "Enrich from HamQTH...", "Enrich from Country Data..."};
-                byName[items[i]]->_pFunc();
+                run(items[i]);
             };
 
             // QRZ: missing fields for AA7BQ, the name only for AA7BQ/P, W1XYZ not found.
@@ -998,8 +1161,10 @@ int main(int argc, char **argv) {
                       H.doc.find("<GRIDSQUARE:6>DM32af") != std::string::npos && H.doc.find("<CNTY:11>AZ,Maricopa") != std::string::npos,
                   "QRZ data written with lengths:\n%s", H.doc.c_str());
             CHECK([labelWithLines(ew.contentView, 3) hasPrefix:@"Applied"], "applied status: %s", labelWithLines(ew.contentView, 3).UTF8String);
-            run("Validate Now");
-            CHECK(H.tip.find("0 errors, 0 warnings") != std::string::npos, "enriched log lints clean: %s", H.tip.c_str());
+            {
+                std::string hl;
+                CHECK(noWarnings(&hl), "enriched log lints clean: %s", hl.c_str());
+            }
 
             // Run again: nothing left to add.
             [findData performClick:nil];
@@ -1212,12 +1377,16 @@ int main(int argc, char **argv) {
 
             // Sort by date and time: one undo step.
             int undo = H.undoActions;
-            run("Sort Records by Date and Time");
-            CHECK(H.doc.find("K1AB") < H.doc.find("K1AC") && H.doc.find("K1AC") < H.doc.find("K1AA") && H.undoActions == undo + 1,
-                  "sorted:\n%s", H.doc.c_str());
-            CHECK(H.tip.find("sorted 11 records") != std::string::npos, "tip: %s", H.tip.c_str());
-            run("Sort Records by Date and Time");
-            CHECK(H.tip.find("already in date and time order") != std::string::npos, "already sorted: %s", H.tip.c_str());
+            run("Sort and Organize...");
+            NSWindow *sow = windowTitled(@"Sort and Organize");
+            NSButton *fieldsBox = sow ? findButton(sow.contentView, @"Put the fields of every record in this order:") : nil;
+            if (fieldsBox.state == NSControlStateValueOn) [fieldsBox performClick:nil];
+            [findButton(sow.contentView, @"Date and Time") performClick:nil];
+            [findButton(sow.contentView, @"Apply") performClick:nil];
+            pump(0.3);
+            CHECK(sow && H.doc.find("K1AB") < H.doc.find("K1AC") && H.doc.find("K1AC") < H.doc.find("K1AA") && H.undoActions == undo + 1,
+                  "sorted by the Date and Time preset:\n%s", H.doc.c_str());
+            [sow orderOut:nil];
             pump(0.4);
             CHECK(tableRows(t) == 11 && [cell(t, 0, @"0") isEqualToString:@"1"], "Log Table followed the edit");
 
@@ -2100,8 +2269,10 @@ int main(int argc, char **argv) {
                 [iw orderOut:nil];
             }
             unsetenv("ADIFLINT_TEST_OPEN_FILE");
-            run("Validate Now");
-            CHECK(H.tip.find("0 errors") != std::string::npos, "the log lints clean after all of that: %s", H.tip.c_str());
+            {
+                std::string hl;
+                CHECK(noErrors(&hl), "the log lints clean after all of that: %s", hl.c_str());
+            }
 
             // Sort and Organize: records by CALL (descending), CALL first in every record.
             run("Sort and Organize...");
@@ -2149,8 +2320,10 @@ int main(int argc, char **argv) {
                       "organize status: %s", status(ow).c_str());
                 CHECK(ini().find("organizeSort=CALL:d\n") != std::string::npos && ini().find("organizeFields=CALL,QSO_DATE,TIME_ON,") != std::string::npos,
                       "the choices are remembered");
-                run("Validate Now");
-                CHECK(H.tip.find("0 errors") != std::string::npos, "still clean after organizing: %s", H.tip.c_str());
+                {
+                    std::string hl;
+                    CHECK(noErrors(&hl), "still clean after organizing: %s", hl.c_str());
+                }
                 [ow orderOut:nil];
             }
             // From the Log Table: its sort fills in the window.
@@ -2227,7 +2400,7 @@ int main(int argc, char **argv) {
                                                                 error:nil];
                     CHECK([sf containsString:@"<MY_SOTA_REF:10>W7A/AE-001"] && [sf containsString:@"<CALL:4>N7AD"], "SOTA file written:\n%s",
                           sf.UTF8String);
-                    NSPopUpButton *ep = findPopup(pw.contentView);
+                    NSPopUpButton *ep = findPopupWith(pw.contentView, @"WWFF");
                     [ep selectItemWithTitle:@"WWFF"];
                     [ep sendAction:ep.action to:ep.target];
                     CHECK(tableRows(pt) == 1 && [cell(pt, 0, @"0") isEqualToString:@"KW9D @ KFF-1234 20261006.adi"], "WWFF file: %s",
@@ -2303,6 +2476,7 @@ int main(int argc, char **argv) {
             H.pos = (intptr_t)H.doc.find("<MODE");
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
             pump(0.5);
+            CHECK(labelContaining(H.panelView, @"1 error, 0 warnings") != nil, "the panel's log line counts the error");
             NSTableView *pt = findTable(H.panelView);
             id panel = pt.menu.delegate;
             NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
@@ -2310,6 +2484,21 @@ int main(int argc, char **argv) {
             if ([panel respondsToSelector:@selector(repairRow:)]) [panel performSelector:@selector(repairRow:) withObject:item];
             pump(0.3);
             CHECK(has("<MODE:4>MFSK <SUBMODE:3>FT4 <EOR>"), "the panel repaired MODE FT4:\n%s", H.doc.c_str());
+            CHECK(labelContaining(H.panelView, @"No problems") != nil, "the log line after the repair");
+
+            // The log line: QSOs waiting for a service the log uses, and today's activation.
+            std::string today = utcDate();
+            H.doc = "health\n<ADIF_VER:5>3.1.7\n<EOH>\n<CALL:4>K1AA <QSO_DATE:8>" + today +
+                    " <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <STATION_CALLSIGN:4>KW9D <MY_POTA_REF:7>US-7929 "
+                    "<QRZCOM_QSO_UPLOAD_STATUS:1>Y <EOR>\n<CALL:4>K1AB <QSO_DATE:8>" + today +
+                    " <TIME_ON:4>1201 <BAND:3>20m <MODE:2>CW <STATION_CALLSIGN:4>KW9D <MY_POTA_REF:7>US-7929 <EOR>\n";
+            H.pos = 0;
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            NSString *line = labelContaining(H.panelView, @"to upload");
+            CHECK([line containsString:@"to upload: QRZ 1"] && [line containsString:@"US-7929 today: 2 of 10"] &&
+                      ![line containsString:@"LoTW"],
+                  "the log line: %s", line.UTF8String);
             [cw close];
         }
 
@@ -2475,8 +2664,10 @@ int main(int argc, char **argv) {
                 CHECK(!has("RST_SENT") && colOf(@"RST_SENT") < 0, "RST_SENT removed from every record");
                 [gw.contentView layoutSubtreeIfNeeded];
                 CHECK(overlaps(gw.contentView) == 0, "Log Table controls do not overlap (%d)", overlaps(gw.contentView));
-                run("Validate Now");
-                CHECK(H.tip.find("0 errors") != std::string::npos, "the log is clean after all that: %s", H.tip.c_str());
+                {
+                    std::string hl;
+                    CHECK(noErrors(&hl), "the log is clean after all that: %s", hl.c_str());
+                }
                 [gw orderOut:nil];
             }
             [NSPasteboard.generalPasteboard clearContents];

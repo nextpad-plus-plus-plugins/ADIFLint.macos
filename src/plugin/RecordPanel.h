@@ -23,6 +23,8 @@ struct ADIFPanelRow {
 struct ADIFPanelSnapshot {
     bool hasGroup = false;     // false: nothing to show (not ADIF, or no record at the caret)
     std::string title;         // "Record 3 of 7 · line 13", "Header", or why nothing is shown
+    std::string health;        // the whole log in a line: problems, QSOs to upload, today's activation
+    int healthSeverity = -1;   // -1 none, 0 note, 1 warning, 2 error
     std::string footer;        // problems that belong to the record as a whole
     int footerSeverity = -1;
     std::string footerRepair;  // the repair of the record-wide problems, or empty

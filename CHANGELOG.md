@@ -24,6 +24,27 @@ Versions before 0.8.0 were development builds and were not published.
 - The **Record Panel** offers a problem's repair on a right-click.
 - `adiflint --fix-all OUT` applies every repair, and each diagnostic line ends with its
   code (`[mode-is-submode]`).
+- **Toolbar buttons** for New QSO, Log Table, Check Log and Spots, with light and dark
+  icons.
+- The **Record Panel** sums up the whole log under its title: problems, QSOs waiting for each
+  upload service the log uses, and today's POTA activation.
+- **Settings** gains **Your Station** (callsign and grid for logs that don't name them, used
+  by New QSO, distances and the exports, and the logs folder), **Editor** (the options that
+  were menu items) and **Keyboard Shortcuts** (where to assign them, with suggestions). The
+  first run opens Settings with a welcome.
+- **Export… → CSV** shows the log as it will be saved before **Save CSV…**.
+
+### Changed
+
+- **A shorter menu**: 25 commands instead of 39. **Import…**, **Export…**, **Upload…** and
+  **Enrich…** each open the window used last, with a popup at its top for the others (Import
+  from: LoTW, QRZ.com Logbook, eQSL, CSV file). Check Log replaces **Validate Now**; Sort
+  and Organize's **Date and Time** button replaces **Sort Records by Date and Time**;
+  colouring, autocomplete and counting characters moved to Settings → Editor, and
+  "Validate .adi Files While Typing" is now **Check .adi Files While Typing**. Nextpad++
+  keeps plugin shortcuts by menu position, so check any you assigned (Edit → Shortcut
+  Mapper…).
+- Sort and Organize remembers a field order only when you apply one.
 
 ### Fixed
 

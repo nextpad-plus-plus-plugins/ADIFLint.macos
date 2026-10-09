@@ -1,5 +1,6 @@
 #import "LogTools.h"
 
+#import "Families.h"
 #import "Lookup.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
@@ -2299,7 +2300,7 @@ void orgApply() {
         for (const adif::SortKey &k : keys) sortSetting += (sortSetting.empty() ? "" : ",") + k.field + (k.descending ? ":d" : ":a");
         for (const std::string &f : org.fields) fieldSetting += (fieldSetting.empty() ? "" : ",") + f;
         setSetting("organizeSort", sortSetting);
-        setSetting("organizeFields", fieldSetting);
+        if (fields) setSetting("organizeFields", fieldSetting);  // only an order you chose to apply
         setSetting("organizeDo", std::string(sort ? "sort" : "") + (fields ? "fields" : ""));
         if (merged == text) {
             [org.w setStatus:@"Already in this order: nothing changed." severity:-1];
@@ -2335,7 +2336,19 @@ void openOrganize(bool seeded, const std::vector<adif::SortKey> &seedKeys, const
                                                                queue:nil
                                                           usingBlock:^(NSNotification *n) { orgStatus(); }];
         }
-        [w addOptionRow:@[ org.doSort, org.key[0], org.dir[0] ]];
+        // The usual order in one click (the old Sort Records by Date and Time).
+        NSButton *byTime = [NSButton buttonWithTitle:@"Date and Time" target:nil action:nil];
+        byTime.toolTip = @"Sort by QSO_DATE, then TIME_ON";
+        ADIFOnAction(byTime, ^{
+            org.doSort.state = NSControlStateValueOn;
+            const char *preset[] = {"QSO_DATE", "TIME_ON", ""};
+            for (size_t i = 0; i < kSortKeys; ++i) {
+                org.key[i].stringValue = i < 3 ? @(preset[i]) : @"";
+                [org.dir[i] selectItemAtIndex:0];
+            }
+            orgStatus();
+        });
+        [w addOptionRow:@[ org.doSort, org.key[0], org.dir[0], byTime ]];
         [w addOptionRow:@[ ADIFLabel(@"then by:"), org.key[1], org.dir[1] ]];
         [w addOptionRow:@[ ADIFLabel(@"then by:"), org.key[2], org.dir[2] ]];
         org.doFields = ADIFCheckbox(@"Put the fields of every record in this order:", NO);
@@ -2638,38 +2651,6 @@ void cmdTimeShift() { openBulkEdit(true, false); }
 
 void cmdOrganize() { openOrganize(false, {}, {}); }
 
-void cmdSortByTime() {
-    try {
-        NppHandle h = scintilla();
-        adif::LintResult r = lint(h);
-        if (!hasRecords(r)) {
-            showTip(h, "ADIF Lint: this document has no ADIF records to sort.");
-            return;
-        }
-        std::string problem = structureProblem(r);
-        if (!problem.empty()) {
-            showTip(h, "ADIF Lint: " + problem);
-            return;
-        }
-        if (readOnly(h)) {
-            showTip(h, "ADIF Lint: this document is read-only.");
-            return;
-        }
-        std::string_view text = adifhost::text(h);
-        bool changed = false;
-        std::string sorted = adif::sortedByTime(text, r.model, eol(h), &changed);
-        if (!changed) {
-            showTip(h, "ADIF Lint: the records are already in date and time order.");
-            return;
-        }
-        adifhost::apply(h, {adif::TextEdit{0, text.size(), sorted}});
-        goTo(h, 0, true);
-        showTip(h, "ADIF Lint: sorted " + plural(adif::recordCount(r.model), "record") +
-                       " by QSO_DATE and TIME_ON (one undo step). Records without a valid date and time are at the end.");
-    } catch (...) {
-    }
-}
-
 void cmdRemoveDuplicates() {
     if (!dupes.w) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Remove Duplicates" size:NSMakeSize(860, 480) headline:NO];
@@ -2724,24 +2705,68 @@ void cmdMergeLog() {
     [merge.w show];
 }
 
-void cmdExportCsv() {
+// ── Export CSV ──
+
+namespace {
+
+struct CsvOut {
+    ADIFToolWindow *w = nil;
+    NSButton *save = nil;
+    std::vector<adif::Record> recs;
+    std::vector<std::string> columns;
+};
+CsvOut csvOut;
+
+// The log's records as the CSV will have them: a column per field, the first 200 rows shown.
+void csvOutPlan() {
+    if (!csvOut.w) return;
     try {
         NppHandle h = scintilla();
         const adif::LintResult &r = lint(h);
-        if (!hasRecords(r)) {
-            showTip(h, "ADIF Lint: this document has no ADIF records to export.");
-            return;
+        [csvOut.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+        csvOut.recs = adif::records(adifhost::text(h), r.model);
+        csvOut.columns = adif::tableColumns(csvOut.recs);
+        std::vector<ADIFToolColumn> cols;
+        for (size_t i = 0; i < csvOut.columns.size(); ++i) cols.push_back({std::to_string(i), csvOut.columns[i], 90});
+        [csvOut.w setColumns:cols checkboxes:NO sortable:NO];
+        std::vector<std::vector<std::string>> rows;
+        for (size_t i = 0; i < csvOut.recs.size() && i < 200; ++i) {
+            std::vector<std::string> row;
+            for (const std::string &c : csvOut.columns) row.push_back(csvOut.recs[i].get(c));
+            rows.push_back(std::move(row));
         }
-        std::vector<adif::Record> recs = adif::records(adifhost::text(h), r.model);
-        exportCsv(recs, adif::tableColumns(recs), nil);
+        [csvOut.w setRows:rows severities:std::vector<int>()];
+        csvOut.save.enabled = !csvOut.recs.empty();
+        [csvOut.w setStatus:csvOut.recs.empty()
+                                ? @"This document has no ADIF records to export."
+                                : ADIFString(plural(csvOut.recs.size(), "record") + ", " + plural(csvOut.columns.size(), "column") +
+                                             (csvOut.recs.size() > 200 ? " (the first 200 shown)" : "") +
+                                             ": a column per field, for Numbers or Excel. The Log Table's Export CSV saves "
+                                             "its own rows and columns.")
+                      severity:-1];
     } catch (...) {
     }
+}
+
+}  // namespace
+
+void cmdExportCsv() {
+    if (!csvOut.w) {
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Export CSV" size:NSMakeSize(860, 480) headline:NO];
+        csvOut.w = w;
+        [w addOptionRow:@[ ADIFLabel(@"Export:"), families::popup(families::kExport, families::kExportCsv) ]];
+        csvOut.save = [w addButton:@"Save CSV..." trailing:YES action:^{ exportCsv(csvOut.recs, csvOut.columns, csvOut.w); }];
+        [w setDefaultButton:csvOut.save];
+    }
+    csvOutPlan();
+    [csvOut.w show];
 }
 
 void cmdImportCsv() {
     if (!csvIn.w) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Import CSV" size:NSMakeSize(860, 520) headline:NO];
         csvIn.w = w;
+        [w addOptionRow:@[ ADIFLabel(@"Import from:"), families::popup(families::kImport, families::kImportCsv) ]];
         csvIn.from = ADIFLabel(@"");
         csvIn.from.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [csvIn.from.widthAnchor constraintLessThanOrEqualToConstant:480].active = YES;
@@ -2773,6 +2798,7 @@ void cmdExportCabrillo() {
         if (!cab.w) {
             ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Export Cabrillo" size:NSMakeSize(900, 600) headline:NO];
             cab.w = w;
+            [w addOptionRow:@[ ADIFLabel(@"Export:"), families::popup(families::kExport, families::kExportCabrillo) ]];
             cab.contest = ADIFComboBox(@[], 220);
             cab.contest.placeholderString = @"e.g. ARRL-SS-CW";
             cab.callsign = ADIFTextField(@"your call", 110);
@@ -2808,7 +2834,10 @@ void cmdExportCabrillo() {
         [cab.contest removeAllItems];
         for (const std::string &c : contests) [cab.contest addItemWithObjectValue:ADIFString(c)];
         if (!cab.contest.stringValue.length && !contests.empty()) cab.contest.stringValue = ADIFString(*contests.begin());
-        if (!cab.callsign.stringValue.length) cab.callsign.stringValue = ADIFString(usualStation(adifhost::text(h), r.model));
+        if (!cab.callsign.stringValue.length) {
+            std::string usual = usualStation(adifhost::text(h), r.model);
+            cab.callsign.stringValue = ADIFString(usual.empty() ? setting("stationCall") : usual);
+        }
         if (!cab.grid.stringValue.length) cab.grid.stringValue = ADIFString(grid.substr(0, std::min<size_t>(grid.size(), 6)));
         cabPlan();
         [cab.w show];
@@ -2832,6 +2861,7 @@ void documentChanged() {
         if (pota.w && pota.w.window.visible) potaPlan();
         if (spots.w && spots.w.window.visible && !spots.all.empty()) spotsShow();
         if (org.w && org.w.window.visible) orgRefresh();
+        if (csvOut.w && csvOut.w.window.visible) csvOutPlan();
     });
 }
 
@@ -2885,6 +2915,7 @@ void openPotaExport(adif::Program program) {
         if (!pota.w) {
             ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Export Activation Logs" size:NSMakeSize(900, 500) headline:NO];
             pota.w = w;
+            [w addOptionRow:@[ ADIFLabel(@"Export:"), families::popup(families::kExport, families::kExportActivations) ]];
             pota.program = ADIFPopup(@[ @"POTA", @"WWFF", @"SOTA" ]);
             ADIFOnAction(pota.program, ^{ potaPlan(); });
             [w addOptionRow:@[ ADIFLabel(@"Program:"), pota.program ]];
@@ -2914,6 +2945,7 @@ void openPotaExport(adif::Program program) {
         }
         [pota.program selectItemAtIndex:program == adif::Program::WWFF ? 1 : program == adif::Program::SOTA ? 2 : 0];
         std::string station = setting("potaStation");
+        if (station.empty()) station = setting("stationCall");  // Settings: Your Station
         std::string usual = usualStation(adifhost::text(h), r.model);
         pota.station.stringValue = ADIFString(usual.empty() ? station : usual);
         potaPlan();

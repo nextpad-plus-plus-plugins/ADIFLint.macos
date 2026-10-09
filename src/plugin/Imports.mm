@@ -1,5 +1,6 @@
 #import "Imports.h"
 
+#import "Families.h"
 #import "Lookup.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
@@ -322,6 +323,7 @@ void openImport(adif::ImportSite s) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:title size:NSMakeSize(900, 560) headline:NO];
         u.w = w;
         Import *pu = &u;
+        [w addOptionRow:@[ ADIFLabel(@"Import from:"), families::popup(families::kImport, (NSInteger)s) ]];
         u.account = ADIFLabel(@"");
         u.account.lineBreakMode = NSLineBreakByTruncatingTail;
         NSButton *settings = [NSButton buttonWithTitle:@"Settings..." target:nil action:nil];

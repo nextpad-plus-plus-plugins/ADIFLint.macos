@@ -85,7 +85,7 @@ add_test(NAME adiflint_tools COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli_tools.sh $
 if(NOT ADIF_SANITIZE)
     add_library(ADIFLint SHARED src/plugin/ADIFLint.mm src/plugin/RecordPanel.mm src/plugin/NewQsoPanel.mm
         src/plugin/EnrichPanel.mm src/plugin/Lookup.mm src/plugin/SettingsPanel.mm src/plugin/QsoFieldsPanel.mm
-        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm
+        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm
         src/plugin/Uploads.mm src/plugin/Imports.mm src/plugin/Country.mm)
     target_include_directories(ADIFLint PRIVATE
         third_party/nextpad
@@ -118,6 +118,8 @@ if(NOT ADIF_SANITIZE)
         execute_process(COMMAND codesign --force --sign - \"\${dir}/ADIFLint.dylib.new\")
         file(RENAME \"\${dir}/ADIFLint.dylib.new\" \"\${dir}/ADIFLint.dylib\")
         file(COPY \"${CMAKE_SOURCE_DIR}/data/cty.csv\" \"${CMAKE_SOURCE_DIR}/data/cty-copyright.txt\" DESTINATION \"\${dir}\")
+        file(GLOB icons \"${CMAKE_SOURCE_DIR}/data/toolbar/*.png\")
+        file(COPY \${icons} DESTINATION \"\${dir}\")
         message(STATUS \"Installed \${dir}/ADIFLint.dylib; restart Nextpad++ to load it\")
     ")
 

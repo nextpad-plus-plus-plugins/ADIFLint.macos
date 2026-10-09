@@ -1,7 +1,9 @@
 # ADIF Lint user guide
 
 Everything ADIF Lint does, window by window. Every command is on the **Plugins → ADIF
-Lint** menu. Every change a command makes to your log is one undo step, and nothing is
+Lint** menu, and New QSO, Log Table, Check Log and Spots also have toolbar buttons.
+**Import…**, **Export…**, **Upload…** and **Enrich…** open the window you used last; the
+popup at the top of each switches to the others, in the same place. Every change a command makes to your log is one undo step, and nothing is
 saved to disk until you save the file.
 
 - [Checking and repairing a log](#checking-and-repairing-a-log)
@@ -26,9 +28,8 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
 - **Marks:** red squiggles for errors, orange for warnings, blue dots for notes. Rest the
   mouse on a mark to read why. **Next Problem** and **Previous Problem** move between
   marks and show the message.
-- **Validate Now** checks the current document whatever its extension, and shows a
-  summary at the caret.
-- **Check Log…** lists every problem in the log, with the record, line, field and, where
+- **Check Log…** checks the current document whatever its extension, and lists every
+  problem in the log, with the record, line, field and, where
   one is known, the repair. Click a row to see it in the editor. The rows with a repair
   start ticked; **Repair N Ticked** applies them all as one undo step, and the list then
   shows what is left (a repair can reveal another). **Show** narrows the list to problems
@@ -61,10 +62,10 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
 - **Reformat: One Record per Line / One Field per Line** re-lays the file. Only the
   whitespace between fields changes: every data specifier and comment is copied byte for
   byte, and the header is kept. It refuses while any length is wrong.
-- **Colour ADIF Syntax** (on by default): field names blue; `<`, `:LENGTH` and `>` grey;
+- **Colour ADIF syntax** (Settings → Editor, on by default): field names blue; `<`, `:LENGTH` and `>` grey;
   `<EOH>` and `<EOR>` purple; comments (header text, notes between records) green. Data
   keeps the theme's text colour.
-- **Autocomplete Field Names and Values** (on by default):
+- **Autocomplete field names and values** (Settings → Editor, on by default):
   - type `<` for a list of field names: QSO fields in records, header fields in the
     header, plus the file's own `USERDEFn` and `APP_` fields;
   - enumerated fields (BAND, MODE, SUBMODE for the record's MODE, STATE for its DXCC, QSL
@@ -79,7 +80,11 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
   heading to sort the rows by field name, value or problem (errors first); click **#** to
   return to the record's own order. Sorting only changes the view, not the record, and the
   choice is remembered.
-- **Validate .adi Files While Typing** (on by default) turns the marks on or off.
+- **Check .adi Files While Typing** (on by default, also in Settings → Editor) turns the
+  marks on or off.
+- The **Record Panel**'s second line sums up the whole log: its problems, the QSOs waiting
+  for each upload service the log has used ("to upload: QRZ 4, LoTW 12"), and today's POTA
+  activation ("US-7929 today: 8 of 10").
 
 ### What is checked
 
@@ -314,10 +319,8 @@ have more errors afterwards; nothing changes until **Apply**.
     UTC time is unknown or ambiguous.
   - **By a fixed amount** of days, hours and minutes, for a clock that was wrong.
   - Dates follow across midnight, month and year ends, and times keep HHMM or HHMMSS.
-- **Sort Records by Date and Time** reorders the records. A comment between records moves
-  with the record after it; records without a valid date and time go last in their old
-  order.
-- **Sort and Organize…**: see [below](#sort-and-organize).
+- **Sort and Organize…**: see [below](#sort-and-organize). Its **Date and Time** button
+  sets the usual order (QSO_DATE, then TIME_ON) in one click.
 - **Remove Duplicates…** finds QSOs logged more than once: the same CALL, band and mode
   starting within 2 minutes (adjustable), and no different STATION_CALLSIGN, MY_SIG_INFO,
   SIG_INFO or POTA reference, so park-to-park lines repeated for each park of a two-fer
@@ -349,7 +352,9 @@ choices are remembered.
 
 ## Importing and exporting
 
-- **Import CSV…** adds the rows of a CSV file (comma, semicolon or tab separated, the
+**Import…** and **Export…** each open one window with a popup for what to import or export.
+
+- **Import… → CSV file** adds the rows of a CSV file (comma, semicolon or tab separated, the
   first row naming the columns), then sorts by date and time if you like. The window lists
   every row and the column mapping before anything is added.
   - Columns named as ADIF fields are used as they are; common names are mapped too
@@ -358,11 +363,12 @@ choices are remembered.
   - Dates must be year first (2026-10-06, 2026/10/06 or 20261006), since 06/10 could be
     either month; times may be 22:30, 2230 or 22:30:15; a frequency in kHz becomes MHz;
     the apostrophe Export CSV puts before a formula is taken off.
-- **Export CSV…** saves the log as CSV (RFC 4180, a column per field used). A value a
+- **Export… → CSV** shows the log as it will be saved, then **Save CSV…** writes it (RFC
+  4180, a column per field used). A value a
   spreadsheet would run as a formula (`=…`, `@…`) gets a leading apostrophe; numbers like
   `-10` are left alone.
-- **Export Activation Logs…**: see [Activations](#activations-pota-wwff-and-sota).
-- **Export Cabrillo…** writes a Cabrillo 3.0 contest log
+- **Export… → Activation logs**: see [Activations](#activations-pota-wwff-and-sota).
+- **Export… → Cabrillo** writes a Cabrillo 3.0 contest log
   ([WWROF specification](https://wwrof.org/cabrillo/)): the header from the contest,
   callsign, category, grid and location you enter, and a QSO line per record with the
   frequency in kHz (or the band for 50 MHz and up), mode CW, PH, FM, RY or DG, date, time,
@@ -372,7 +378,7 @@ choices are remembered.
 
 ## Importing from LoTW, QRZ.com Logbook and eQSL
 
-**Import from LoTW… / QRZ.com Logbook… / eQSL…** download the QSOs a site holds for you
+**Import… → LoTW, QRZ.com Logbook or eQSL** download the QSOs a site holds for you
 and compare them with the open log. Choose **QSOs on the log's dates** (all of them for an
 empty log) or **All your QSOs**, press **Download**, and review the list. Nothing changes
 until **Apply**, which is one undo step.
@@ -419,7 +425,7 @@ What each site gives:
 
 ## Uploading
 
-**Upload to QRZ.com Logbook… / LoTW (TQSL)… / Club Log… / eQSL…** list the QSOs not yet
+**Upload… → QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL** list the QSOs not yet
 sent, by the ADIF status field, with the ones that can't be sent (no MODE…) in red.
 **Nothing is sent until you press Upload.** Each QSO's result is shown, and the accepted
 ones get the status field Y and today's date: QRZCOM_QSO_UPLOAD_STATUS and _DATE,
@@ -455,7 +461,7 @@ unticked while you edit the log.
 
 ## Enrich
 
-**Enrich from QRZ.com… / HamQTH… / Country Data…** add fields a record lacks: NAME, QTH,
+**Enrich…**, from QRZ.com, HamQTH or Country Data (chosen in **Enrich from**), adds fields a record lacks: NAME, QTH,
 STATE, CNTY, GRIDSQUARE, DXCC and COUNTRY, CQZ, ITUZ, IOTA, CONT and, optionally, LAT and
 LON. Every proposed change is listed for review; nothing changes until you press
 **Apply**. Confirmations from LoTW, QRZ.com Logbook and eQSL come in through
@@ -484,8 +490,16 @@ Rules for every source:
 
 ## Settings
 
-**Settings…** has two parts.
+**Settings…** has these sections. The first time ADIF Lint runs, it opens with a welcome.
 
+- **Your Station:** your callsign and grid, used where a log doesn't say: New QSO fills
+  STATION_CALLSIGN and MY_GRIDSQUARE from them in a new log, distances are measured from the
+  grid, and the activation and Cabrillo exports offer the callsign. Also the logs folder
+  Worked Before searches.
+- **Editor:** checking while typing, syntax colouring, autocomplete, and counting lengths
+  in characters instead of bytes.
+- **Keyboard Shortcuts:** where to assign them (Nextpad++'s Edit → Shortcut Mapper…, Plugin
+  commands tab) and suggested keys.
 - **Country Data:** the AD1C country file in use. **Update** downloads the newest Big CTY
   release from country-files.com into the plugin config folder.
 - **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
@@ -544,8 +558,9 @@ The log tools work on one file and never change it.
 ## Limits
 
 - Nextpad++ ignores plugin default shortcuts, so ADIF Lint declares none. Assign your
-  own in Nextpad++'s Shortcut Mapper; it stores them in `shortcuts.xml` under
-  `<PluginCommands>`, keyed by `moduleName="ADIF Lint"` and the command's position.
+  own in Nextpad++'s Edit → Shortcut Mapper…; it stores them in `shortcuts.xml` under
+  `<PluginCommands>`, keyed by `moduleName="ADIF Lint"` and the command's position, so a
+  version that changes the menu (0.10) moves them: check them after updating.
 - Plugins can't write to the status bar, so summaries appear in a tip at the caret.
 - Plugins can't supply a lexer, so colours are painted for the lines on screen as you
   scroll; while you type, they catch up when you pause.

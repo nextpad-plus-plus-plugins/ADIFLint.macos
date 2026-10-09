@@ -1,5 +1,6 @@
-// ADIF Lint Settings: the country data, and accounts and API keys for the
-// online services, stored in the macOS Keychain (see Lookup.h).
+// ADIF Lint Settings: your station, editor options, keyboard shortcuts, the
+// country data, and accounts and API keys for the online services, stored in
+// the macOS Keychain (see Lookup.h).
 // AppKit and Foundation only.
 #pragma once
 
@@ -15,6 +16,18 @@
 @property(nonatomic, copy) void (^onCountryUpdate)(void);
 - (void)setCountryStatus:(NSString *)text ok:(BOOL)ok;
 
+// Your station: the callsign and grid New QSO and the exports use when a log has none,
+// and the folder of logs Worked Before searches.
+@property(nonatomic, copy) void (^onStationSave)(NSString *call, NSString *grid);
+@property(nonatomic, copy) void (^onChooseLogsFolder)(void);
+- (void)setStationCall:(NSString *)call grid:(NSString *)grid logsFolder:(NSString *)folder;
+- (void)setStationStatus:(NSString *)text ok:(BOOL)ok;
+
+// Editor options, by index: 0 validate while typing, 1 colour, 2 autocomplete, 3 count characters.
+@property(nonatomic, copy) void (^onEditorOption)(NSInteger option, BOOL on);
+- (void)setEditorValidate:(BOOL)validate colour:(BOOL)colour autocomplete:(BOOL)autocomplete characters:(BOOL)characters;
+
+- (void)showWelcome;                   // first run: a welcome, and Your Station at the top
 - (void)showSource:(NSInteger)source;  // show the window with that source's first field focused (-3: country data)
 - (void)refresh;                       // reload what is saved
 

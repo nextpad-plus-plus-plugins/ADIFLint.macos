@@ -16,7 +16,6 @@ void cmdActivationTracker();
 void cmdWorkedBefore();
 void cmdBulkEdit();
 void cmdTimeShift();
-void cmdSortByTime();
 void cmdOrganize();  // Sort and Organize: records by any fields, fields in any order
 void cmdRemoveDuplicates();
 void cmdMergeLog();

@@ -1,5 +1,5 @@
-// The Enrich window for one source (QRZ.com, HamQTH or Country Data, chosen by the menu
-// command that opens it): the account in use, which fields to fill, progress,
+// The Enrich window for one source (QRZ.com, HamQTH or Country Data, chosen in its
+// "Enrich from" popup): the account in use, which fields to fill, progress,
 // and a review table of proposed changes. AppKit only; ADIFLint.mm runs the
 // lookups and applies the accepted changes.
 #pragma once
@@ -21,6 +21,7 @@ struct ADIFEnrichRow {
 
 @property(nonatomic, readonly) NSPanel *window;
 @property(nonatomic, copy) void (^onOpenSettings)(void);
+@property(nonatomic, copy) void (^onChooseSource)(NSInteger source);  // the "Enrich from" popup (an ADIFSource)
 @property(nonatomic, copy) void (^onFind)(void);
 @property(nonatomic, copy) void (^onCancel)(void);
 @property(nonatomic, copy) void (^onApply)(void);

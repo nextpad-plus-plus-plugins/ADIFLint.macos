@@ -44,6 +44,7 @@ static const std::vector<FieldOption> &fieldOptions() {
 @implementation ADIFEnrichPanel {
     NSPanel *_window;
     NSTextField *_target, *_account, *_status, *_credit;
+    NSPopUpButton *_sourcePopup;
     NSInteger _source;
     NSButton *_settings, *_selectionOnly, *_skipAway, *_find, *_cancel, *_apply, *_all, *_none, *_close;
     NSMutableArray<NSButton *> *_fieldBoxes;
@@ -79,6 +80,16 @@ static const std::vector<FieldOption> &fieldOptions() {
     _settings = [NSButton buttonWithTitle:@"Settings..." target:self action:@selector(openSettings:)];
     _settings.toolTip = @"Accounts and API keys, kept in your Keychain";
     NSStackView *sourceRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Account:"], _account, _settings ]];
+    _sourcePopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    struct { NSString *title; NSInteger source; } sources[] = {
+        {@"QRZ.com", ADIFSourceQRZ}, {@"HamQTH", ADIFSourceHamQTH}, {@"Country Data (offline)", ADIFSourceCountryData}};
+    for (auto &s : sources) {
+        [_sourcePopup addItemWithTitle:s.title];
+        _sourcePopup.lastItem.tag = s.source;
+    }
+    _sourcePopup.target = self;
+    _sourcePopup.action = @selector(sourceChosen:);
+    NSStackView *fromRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Enrich from:"], _sourcePopup ]];
 
     NSTextField *fieldsLabel = [NSTextField labelWithString:@"Add these fields to records that don't have them:"];
     _fieldBoxes = [NSMutableArray array];
@@ -162,7 +173,8 @@ static const std::vector<FieldOption> &fieldOptions() {
     [bottom addView:_close inGravity:NSStackViewGravityTrailing];
     [bottom addView:_apply inGravity:NSStackViewGravityTrailing];
 
-    NSArray<NSView *> *views = @[ _target, sourceRow, fieldsLabel, fieldGrid, _selectionOnly, _skipAway, findRow, _status, scroll, bottom ];
+    NSArray<NSView *> *views =
+        @[ _target, fromRow, sourceRow, fieldsLabel, fieldGrid, _selectionOnly, _skipAway, findRow, _status, scroll, bottom ];
     for (NSView *v in views) {
         v.translatesAutoresizingMaskIntoConstraints = NO;
         [root addSubview:v];
@@ -172,7 +184,7 @@ static const std::vector<FieldOption> &fieldOptions() {
     NSView *above = nil;
     for (NSView *v in views) {
         [c addObject:[v.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:v == fieldGrid ? m + 12 : m]];
-        if (v != fieldGrid && v != findRow && v != _selectionOnly && v != _skipAway)
+        if (v != fieldGrid && v != findRow && v != _selectionOnly && v != _skipAway && v != fromRow)
             [c addObject:[v.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m]];
         [c addObject:above ? [v.topAnchor constraintEqualToAnchor:above.bottomAnchor constant:(v == scroll || v == fieldGrid) ? 6 : 10]
                            : [v.topAnchor constraintEqualToAnchor:root.topAnchor constant:m]];
@@ -195,9 +207,16 @@ static const std::vector<FieldOption> &fieldOptions() {
     return _source;
 }
 
+- (void)sourceChosen:(NSPopUpButton *)sender {
+    NSInteger chosen = sender.selectedTag;
+    [sender selectItemWithTag:_source];  // stays until the source really changes
+    if (chosen != _source && self.onChooseSource) self.onChooseSource(chosen);
+}
+
 - (void)setSource:(NSInteger)source title:(NSString *)title {
     _source = source;
     _window.title = title;
+    [_sourcePopup selectItemWithTag:source];
     [self updateForSource];
     [self setRows:std::vector<ADIFEnrichRow>()];
     [self setStatus:@"" severity:-1];

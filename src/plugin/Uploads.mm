@@ -1,5 +1,6 @@
 #import "Uploads.h"
 
+#import "Families.h"
 #import "Lookup.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
@@ -497,6 +498,7 @@ void openUpload(adif::UploadService s) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:title size:NSMakeSize(860, 560) headline:NO];
         u.w = w;
         Upload *pu = &u;
+        [w addOptionRow:@[ ADIFLabel(@"Upload to:"), families::popup(families::kUpload, (NSInteger)s) ]];
         if (s != adif::UploadService::LoTW) {
             u.account = ADIFLabel(@"");
             u.account.lineBreakMode = NSLineBreakByTruncatingTail;

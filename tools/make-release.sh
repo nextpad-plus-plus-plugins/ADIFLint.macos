@@ -4,7 +4,7 @@
 #
 #   tools/make-release.sh [OWNER/REPO]        (default ssamjung2/Nextpad_plus_plus_ADIFLint)
 #
-# The zip holds one folder, ADIFLint/, with the dylib and the country file:
+# The zip holds one folder, ADIFLint/, with the dylib, the country file and the toolbar icons:
 # Plugins Admin unpacks the whole zip into its plugins folder (ditto -xk) and
 # then loads ADIFLint/ADIFLint.dylib. No macOS metadata (._ files) goes in.
 # id is the zip's SHA-256 and dylib-id the dylib's, as nppPluginList's
@@ -27,7 +27,7 @@ cmake --build "$build" --target ADIFLint -j > /dev/null
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir "$stage/ADIFLint"
-cp "$build/ADIFLint.dylib" "$root/data/cty.csv" "$root/data/cty-copyright.txt" "$stage/ADIFLint/"
+cp "$build/ADIFLint.dylib" "$root/data/cty.csv" "$root/data/cty-copyright.txt" "$root"/data/toolbar/*.png "$stage/ADIFLint/"
 dylib="$stage/ADIFLint/ADIFLint.dylib"
 # Ad-hoc, as the install step signs it (Nextpad++ disables library validation).
 codesign --force --sign - "$dylib"

@@ -39,7 +39,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     std::vector<size_t> _order;  // table row -> snapshot row, as sorted
     bool _settingSort;           // a sort set by the caller, not a heading click
     NSView *_root;
-    NSTextField *_title;
+    NSTextField *_title, *_health;
     NSButton *_previous, *_next, *_add, *_remove;
     NSTableView *_table;
     NSTextField *_footer;
@@ -57,6 +57,14 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     _title.translatesAutoresizingMaskIntoConstraints = NO;
     [_title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                      forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+    // The log in one line (small, so it never reads as the title).
+    _health = [NSTextField labelWithString:@""];
+    _health.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _health.lineBreakMode = NSLineBreakByTruncatingTail;
+    _health.translatesAutoresizingMaskIntoConstraints = NO;
+    [_health setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                      forOrientation:NSLayoutConstraintOrientationHorizontal];
 
     _previous = symbolButton(@"chevron.up", @"▲", @"Previous record", self, @selector(previousRecord:));
     _next = symbolButton(@"chevron.down", @"▼", @"Next record", self, @selector(nextRecord:));
@@ -106,7 +114,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     [_footer setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                       forOrientation:NSLayoutConstraintOrientationHorizontal];
 
-    for (NSView *v in @[ _title, _previous, _next, scroll, _footer, _add, _remove ]) [_root addSubview:v];
+    for (NSView *v in @[ _title, _health, _previous, _next, scroll, _footer, _add, _remove ]) [_root addSubview:v];
     const CGFloat m = 6;
     [NSLayoutConstraint activateConstraints:@[
         [_title.topAnchor constraintEqualToAnchor:_root.topAnchor constant:m],
@@ -116,7 +124,10 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
         [_next.centerYAnchor constraintEqualToAnchor:_title.centerYAnchor],
         [_previous.trailingAnchor constraintEqualToAnchor:_next.leadingAnchor constant:-2],
         [_previous.centerYAnchor constraintEqualToAnchor:_title.centerYAnchor],
-        [scroll.topAnchor constraintEqualToAnchor:_title.bottomAnchor constant:m],
+        [_health.topAnchor constraintEqualToAnchor:_title.bottomAnchor constant:2],
+        [_health.leadingAnchor constraintEqualToAnchor:_root.leadingAnchor constant:m],
+        [_health.trailingAnchor constraintEqualToAnchor:_root.trailingAnchor constant:-m],
+        [scroll.topAnchor constraintEqualToAnchor:_health.bottomAnchor constant:m - 2],
         [scroll.leadingAnchor constraintEqualToAnchor:_root.leadingAnchor constant:m],
         [scroll.trailingAnchor constraintEqualToAnchor:_root.trailingAnchor constant:-m],
         [_footer.topAnchor constraintEqualToAnchor:scroll.bottomAnchor constant:m],
@@ -153,6 +164,9 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 - (void)update:(const ADIFPanelSnapshot &)snapshot {
     _snapshot = snapshot;
     _title.stringValue = ns(snapshot.title);
+    _health.stringValue = ns(snapshot.health);
+    _health.textColor = snapshot.healthSeverity >= 0 ? severityColor(snapshot.healthSeverity) : NSColor.secondaryLabelColor;
+    _health.toolTip = ns(snapshot.health);
     _footer.stringValue = ns(snapshot.footer);
     _footer.textColor = severityColor(snapshot.footerSeverity);
     _footer.hidden = snapshot.footer.empty();
