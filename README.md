@@ -30,6 +30,13 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   structure, field names, data types, enumerations (BAND, MODE and SUBMODE, QSL statuses,
   STATE for the DXCC entity…), FREQ against BAND, user-defined and `APP_` fields. Hover a
   mark to read why.
+- **Check Log** lists every problem with its repair, and repairs the ones you tick in one
+  undo step: MODE `USB` or `FT4` written as the mode (becomes MODE SSB, SUBMODE USB),
+  dates and times typed as `2026-10-06` and `22:30`, a FREQ written in kHz, BAND missing
+  or not matching FREQ, lowercase calls and states, a satellite QSO without `PROP_MODE
+  SAT`, a POTA record without STATION_CALLSIGN, a repeated field, a missing final
+  `<EOR>`. It also flags QSO dates in the future, which POTA refuses. The Record Panel
+  offers the same repairs on a right-click.
 - **Fix Lengths** corrects every wrong `<FIELD:LENGTH>` in one undo step.
 - Syntax colouring, **Reformat** (one record or one field per line, without touching any
   data), autocomplete of field names and values with automatic lengths, and a docked
@@ -153,6 +160,7 @@ shortcuts, so assign your own in Nextpad++'s Shortcut Mapper.
 | Upload to QRZ.com Logbook… / LoTW (TQSL)… / Club Log… / eQSL… | List what would be sent, upload when you say so, mark it uploaded |
 | Enrich from QRZ.com… / HamQTH… | Fill missing station details from a callbook |
 | Enrich from Country Data… | Fill DXCC, country, zones and continent from the call's prefix, offline |
+| Check Log… | Every problem in one list, with its repair; repair the ticked ones in one step |
 | Validate Now | Check the current document and show a summary |
 | Fix Lengths | Correct every data length |
 | Next Problem / Previous Problem | Move between marks |
@@ -205,7 +213,7 @@ message`; the exit status is 1 when there are errors.
 build/adiflint examples/try-me.adi
 ```
 
-It can also fix lengths, reformat, sort (by date and time or by any fields), put fields in
+It can also fix lengths, repair every problem with a known repair (`--fix-all`), reformat, sort (by date and time or by any fields), put fields in
 order, remove duplicates, convert to and from CSV, print the summary, and write Cabrillo or
 activation files. `build/adiflint --help` lists the
 options, and the [user guide](docs/USER_GUIDE.md#command-line) describes them.

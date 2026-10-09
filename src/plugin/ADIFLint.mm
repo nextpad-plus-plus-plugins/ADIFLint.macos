@@ -32,6 +32,7 @@
 
 #import <Cocoa/Cocoa.h>
 
+#import "CheckLog.h"
 #import "Country.h"
 #import "EnrichPanel.h"
 #import "LogTools.h"
@@ -104,6 +105,7 @@ enum {
     kCmdEnrichHamQth,
     kCmdEnrichCountry,
     kSep0,
+    kCmdCheckLog,
     kCmdValidate,
     kCmdFixLengths,
     kCmdNextProblem,
@@ -430,6 +432,8 @@ static void openSettings(NSInteger source);
 
 // ── PluginHost: what the other plugin files use ─────────────────────────────
 
+static void cmdFixLengths();
+
 namespace adifhost {
 NppHandle scintilla() { return currentScintilla(); }
 intptr_t sci(NppHandle h, uint32_t msg, uintptr_t wp, intptr_t lp) { return ::sci(h, msg, wp, lp); }
@@ -452,6 +456,7 @@ void apply(NppHandle h, const std::vector<adif::TextEdit> &edits) {
     validateNow(h, g.autoValidate);
 }
 bool readOnly(NppHandle h) { return ::sci(h, SCI_GETREADONLY) != 0; }
+void fixLengths() { cmdFixLengths(); }
 void showTip(NppHandle h, const std::string &text) { ::showTip(h, ::sci(h, SCI_GETCURRENTPOS), wrap(text)); }
 void goTo(NppHandle h, size_t pos, bool focus) {
     intptr_t line = ::sci(h, SCI_LINEFROMPOSITION, pos);
@@ -541,6 +546,7 @@ static const adif::LintResult &lintNow(NppHandle h) {
     opt.lengthUnit = lengthUnit();
     opt.utf8 = docUtf8(h);
     opt.buildModel = true;
+    opt.today = adifhost::utcNow("%Y%m%d");
     g.last = adif::lint(docText(h), opt);
     g.lastBuffer = currentBuffer();
     g.lastEdit = g.editCount;
@@ -623,6 +629,7 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics = t
     logtools::documentChanged();
     uploads::documentChanged();
     imports::documentChanged();
+    checklog::documentChanged();
     return r;
 }
 
@@ -675,6 +682,7 @@ static void runScheduled() {
             logtools::documentChanged();
             uploads::documentChanged();
             imports::documentChanged();
+            checklog::documentChanged();
             return;
         }
         if (sci(h, SCI_GETLENGTH) > kAutoValidateMaxBytes && !g.manualBuffers.count(currentBuffer())) return;
@@ -1174,6 +1182,7 @@ static ADIFPanelSnapshot buildSnapshot(NppHandle h) {
                 row.note = d.message;
             }
             problems += severityLabel(d.severity) + d.message + "\n";
+            if (!d.fixes.empty()) row.repair += (row.repair.empty() ? "" : "; ") + d.fixLabel;
         }
         row.tooltip = problems + adif::describeField(m, row.name);
         if ((intptr_t)f.tagB <= caret && caret <= (intptr_t)f.valueE) s.selectedRow = (int)i;
@@ -1187,6 +1196,7 @@ static ADIFPanelSnapshot buildSnapshot(NppHandle h) {
             if (!s.footer.empty()) s.footer += "\n";
             s.footer += d.message;
             s.footerSeverity = std::max(s.footerSeverity, (int)d.severity);
+            if (!d.fixes.empty()) s.footerRepair += (s.footerRepair.empty() ? "" : "; ") + d.fixLabel;
         }
     }
     for (const std::string &n : adif::fieldNameChoices(m, grp.header))
@@ -1275,6 +1285,24 @@ static void createPanel() {
         panelEdit(^(NppHandle h, const adif::LintResult &r, const adif::ModelGroup &grp, std::vector<adif::TextEdit> &edits) {
             if (row < 0 || (size_t)row >= grp.fieldCount) return;
             edits.push_back(adif::removeField(docText(h), r.model, grp, (size_t)row));
+        });
+    };
+    g.panel.onRepairRow = ^(NSInteger row) {
+        panelEdit(^(NppHandle h, const adif::LintResult &r, const adif::ModelGroup &grp, std::vector<adif::TextEdit> &edits) {
+            // The repairs of the problems on that field (row -1: on the record's <EOR>).
+            size_t b, e;
+            if (row >= 0 && (size_t)row < grp.fieldCount) {
+                const adif::ModelField &f = r.model.fields[grp.firstField + (size_t)row];
+                b = f.tagB, e = f.valueE;
+            } else if (row < 0 && grp.markerB != adif::kNoPos) {
+                b = grp.markerB, e = grp.markerE;
+            } else {
+                return;
+            }
+            std::vector<adif::Diagnostic> mine;
+            for (const adif::Diagnostic &d : r.diagnostics)
+                if (!d.fixes.empty() && d.start < e && d.end > b) mine.push_back(d);
+            edits = adif::quickFixEdits(docText(h), r.model, mine, lengthUnit(), docUtf8(h));
         });
     };
     g.panel.onGoToRecord = ^(NSInteger delta) {
@@ -1444,6 +1472,7 @@ static QsoCheck checkQso(NppHandle h) {
     adif::LintOptions opt;
     opt.lengthUnit = lengthUnit();
     opt.utf8 = docUtf8(h);
+    opt.today = adifhost::utcNow("%Y%m%d");
     adif::LintResult r = adif::lint(header + br.text, opt);
     std::vector<std::string> recordProblems;
     for (const adif::Diagnostic &d : r.diagnostics) {
@@ -1456,7 +1485,7 @@ static QsoCheck checkQso(NppHandle h) {
             placed = true;
             break;
         }
-        if (!placed && d.message.find("guideline minimum") == std::string::npos) recordProblems.push_back(d.message);
+        if (!placed && d.code != "minimum-fields") recordProblems.push_back(d.message);
     }
 
     std::string call = get("CALL");
@@ -2241,7 +2270,8 @@ static void cmdAbout() {
     alert.informativeText = [NSString
         stringWithFormat:
             @"Checks and edits ADIF %s (%s) .adi amateur-radio logs: problems marked as you type (red error, "
-            @"orange warning, blue note; hover to read), Fix Lengths, syntax colouring, Reformat, autocomplete and "
+            @"orange warning, blue note; hover to read), Check Log with repairs, Fix Lengths, syntax colouring, Reformat, "
+            @"autocomplete and "
             @"the Record Panel.\n\n"
             @"Logging and log tools: New QSO with callsign lookup and POTA/WWFF spots; a Log Table that edits like "
             @"a spreadsheet; Summary, Activation Tracker and export for POTA, WWFF and SOTA; Worked Before; Bulk Edit "
@@ -2335,6 +2365,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdEnrichHamQth, "Enrich from HamQTH...", cmdEnrichHamQth);
     setItem(kCmdEnrichCountry, "Enrich from Country Data...", cmdEnrichCountry);
     setItem(kSep0, "", nullptr);
+    setItem(kCmdCheckLog, "Check Log...", checklog::cmdCheckLog);
     setItem(kCmdValidate, "Validate Now", cmdValidate);
     setItem(kCmdFixLengths, "Fix Lengths", cmdFixLengths);
     setItem(kCmdNextProblem, "Next Problem", cmdNextProblem);
@@ -2405,6 +2436,7 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 logtools::bufferActivated();
                 uploads::documentChanged();
                 imports::documentChanged();
+                checklog::documentChanged();
                 break;
             case NPPN_DARKMODECHANGED:
                 for (NppHandle h : {nppData._scintillaMainHandle, nppData._scintillaSecondHandle}) styleIndicators(h);

@@ -1777,6 +1777,105 @@ static void testOfficialFile(const char *path) {
     }
 }
 
+// Diagnostic codes and their repairs: each repair, applied alone, removes its
+// problem and leaves the record otherwise valid.
+static void testQuickFixes() {
+    struct Case {
+        const char *code, *rec, *after;
+    };
+    const Case cases[] = {
+        {"mode-is-submode", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:3>USB <EOR>\n",
+         "<MODE:3>SSB <SUBMODE:3>USB <EOR>"},
+        {"mode-is-submode", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:5>PSK31 <EOR>\n",
+         "<MODE:3>PSK <SUBMODE:5>PSK31 <EOR>"},
+        {"submode-mode", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:3>FT8 <SUBMODE:3>FT4 <EOR>\n",
+         "<MODE:4>MFSK <SUBMODE:3>FT4"},
+        {"mode-missing", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <SUBMODE:3>JS8 <EOR>\n",
+         "<SUBMODE:3>JS8 <MODE:4>MFSK <EOR>"},
+        {"date-format", "<CALL:4>K1AB <QSO_DATE:10>2026-10-06 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <EOR>\n",
+         "<QSO_DATE:8>20261006 "},
+        {"time-format", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:8>12:00:30 <BAND:3>20m <MODE:2>CW <EOR>\n",
+         "<TIME_ON:6>120030 "},
+        {"freq-band", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <FREQ:5>14074 <BAND:3>20m <MODE:2>CW <EOR>\n",
+         "<FREQ:6>14.074 <BAND:3>20m"},
+        {"freq-band", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <FREQ:5>7.074 <BAND:3>20m <MODE:2>CW <EOR>\n",
+         "<FREQ:5>7.074 <BAND:3>40m"},
+        {"band-missing", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <FREQ:6>14.074 <MODE:2>CW <EOR>\n",
+         "<MODE:2>CW <BAND:3>20m <EOR>"},
+        {"case", "<CALL:4>k1ab <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <STATE:2>ma <EOR>\n", "<CALL:4>K1AB "},
+        {"sat-prop", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:4>70cm <MODE:3>SSB <SAT_NAME:4>AO-7 <EOR>\n",
+         "<SAT_NAME:4>AO-7 <PROP_MODE:3>SAT <EOR>"},
+        {"dup-field", "<CALL:4>K1AB <CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <EOR>\n",
+         "\n<CALL:4>K1AB <QSO_DATE:8>"},
+        {"no-eor", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW\n", "<MODE:2>CW <EOR>"},
+    };
+    for (const Case &c : cases) {
+        std::string text = std::string(kHeader) + c.rec;
+        LintResult r = lintModel(text);
+        std::vector<Diagnostic> mine;
+        for (const Diagnostic &d : r.diagnostics)
+            if (d.code == c.code) mine.push_back(d);
+        CHECK(!mine.empty() && !mine[0].fixes.empty() && !mine[0].fixLabel.empty(), "%s: a repair is offered\n%s", c.code,
+              dump(r).c_str());
+        size_t applied = 0;
+        std::string fixed = applyTextEdits(text, quickFixEdits(text, r.model, mine, LengthUnit::Bytes, true, &applied));
+        LintResult after = lintModel(fixed);
+        size_t left = 0;
+        for (const Diagnostic &d : after.diagnostics) left += d.code == c.code;
+        CHECK(applied == mine.size() && left == 0 && after.errors == 0 && fixed.find(c.after) != std::string::npos,
+              "%s: repaired to '%s':\n%s%s", c.code, c.after, fixed.c_str(), dump(after).c_str());
+    }
+
+    // No repair where the right value is unknown; the BOM; a future date (with today given).
+    LintResult r = lintModel(std::string(kHeader) + "<CALL:4>K1AB <CALL:4>K1AC <QSO_DATE:8>20261006 <TIME_ON:4>1200 "
+                                                   "<BAND:3>20m <MODE:2>CW <EOR>\n");
+    bool noFix = false;
+    for (const Diagnostic &d : r.diagnostics) noFix |= d.code == "dup-field" && d.fixes.empty();
+    CHECK(noFix, "two different CALLs: no repair offered\n%s", dump(r).c_str());
+    std::string bom = "\xEF\xBB\xBF" + std::string(kHeader) + record("");
+    r = lintModel(bom);
+    std::string unbommed = applyTextEdits(bom, quickFixEdits(bom, r.model, r.diagnostics, LengthUnit::Bytes, true));
+    CHECK(unbommed == std::string(kHeader) + record(""), "the BOM removed");
+    LintOptions opt;
+    opt.today = "20261009";
+    r = lint(std::string(kHeader) + "<CALL:4>K1AB <QSO_DATE:8>20261010 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <EOR>\n", opt);
+    expect("future date", r, Severity::Warning, "is after today");
+    r = lint(std::string(kHeader) + record(""), opt);
+    expectClean("a past date", r);
+
+    // POTA: the log's usual STATION_CALLSIGN fills a record without one.
+    std::string pota = std::string(kHeader) +
+                       "<CALL:4>K1AA <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <STATION_CALLSIGN:4>KW9D "
+                       "<MY_POTA_REF:7>US-7929 <EOR>\n"
+                       "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1201 <BAND:3>20m <MODE:2>CW <MY_POTA_REF:7>US-7929 <EOR>\n";
+    r = lintModel(pota);
+    std::vector<Diagnostic> ps;
+    for (const Diagnostic &d : r.diagnostics)
+        if (d.code == "pota-station") ps.push_back(d);
+    CHECK(ps.size() == 1 && ps[0].fixLabel == "STATION_CALLSIGN KW9D", "pota-station repair: %s",
+          ps.empty() ? "none" : ps[0].fixLabel.c_str());
+    std::string potaFixed = applyTextEdits(pota, quickFixEdits(pota, r.model, ps, LengthUnit::Bytes, true));
+    CHECK(potaFixed.find("<MY_POTA_REF:7>US-7929 <STATION_CALLSIGN:4>KW9D <EOR>") != std::string::npos, "pota-station:\n%s",
+          potaFixed.c_str());
+
+    // A record with a wrong length is left for Fix Lengths.
+    std::string broken = std::string(kHeader) + "<CALL:3>K1AB <QSO_DATE:10>2026-10-06 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <EOR>\n";
+    r = lintModel(broken);
+    CHECK(quickFixEdits(broken, r.model, r.diagnostics, LengthUnit::Bytes, true).empty(), "no repairs in a record with a wrong length");
+
+    // Several repairs in one record, applied together.
+    std::string many = std::string(kHeader) + "<CALL:4>k1ab <QSO_DATE:10>2026-10-06 <TIME_ON:5>12:00 <FREQ:5>14074 <BAND:3>20m "
+                                             "<MODE:3>LSB <EOR>\n";
+    r = lintModel(many);
+    size_t applied = 0;
+    std::string all = applyTextEdits(many, quickFixEdits(many, r.model, r.diagnostics, LengthUnit::Bytes, true, &applied));
+    LintResult after = lintModel(all);
+    CHECK(applied == 5 && after.errors == 0 && after.warnings == 0 &&
+              all.find("<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <FREQ:6>14.074 <BAND:3>20m <MODE:3>SSB <SUBMODE:3>LSB <EOR>") !=
+                  std::string::npos,
+          "five repairs at once (%zu):\n%s%s", applied, all.c_str(), dump(after).c_str());
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -1814,6 +1913,7 @@ int main(int argc, char **argv) {
     testImport();
     testOrganize();
     testGridEdits();
+    testQuickFixes();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

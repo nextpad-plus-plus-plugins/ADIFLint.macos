@@ -30,6 +30,7 @@ void validate(NppHandle h);
 // Apply sorted, non-overlapping edits as one undo step, then re-check.
 void apply(NppHandle h, const std::vector<adif::TextEdit> &edits);
 bool readOnly(NppHandle h);
+void fixLengths();  // Fix Lengths on the active document (the menu command)
 void showTip(NppHandle h, const std::string &text);  // a call tip at the caret
 void goTo(NppHandle h, size_t pos, bool focus);  // caret to pos, scrolled into view; focus: make the editor key
 

@@ -28,6 +28,34 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
   marks and show the message.
 - **Validate Now** checks the current document whatever its extension, and shows a
   summary at the caret.
+- **Check Log…** lists every problem in the log, with the record, line, field and, where
+  one is known, the repair. Click a row to see it in the editor. The rows with a repair
+  start ticked; **Repair N Ticked** applies them all as one undo step, and the list then
+  shows what is left (a repair can reveal another). **Show** narrows the list to problems
+  with a repair, errors, warnings or notes, and the filter box to words. Records with a
+  wrong length wait for **Fix Lengths** (a button in the window), since their boundaries
+  are unclear until then. The repairs:
+
+  | Problem | Repair |
+  |---|---|
+  | MODE is really a submode (`USB`, `LSB`, `FT4`, `JS8`, `PSK31`…) | MODE its mode, SUBMODE the value (`SSB` + `USB`, `MFSK` + `FT4`) |
+  | SUBMODE belongs to another MODE (`FT8` with `FT4`) | MODE set to the submode's mode |
+  | SUBMODE without MODE | MODE added |
+  | Date typed `2026-10-06` (or with `/` or `.`), time typed `22:30` or `22:30:15` | `20261006`, `2230`, `223015` |
+  | FREQ outside BAND | FREQ in MHz when it was written in kHz (`14074` → `14.074`), else BAND from FREQ |
+  | No BAND, but FREQ (POTA reads BAND only) | BAND added |
+  | Lowercase CALL, STATION_CALLSIGN, OPERATOR, STATE or MY_STATE | Upper case |
+  | SAT_NAME without PROP_MODE SAT (LoTW needs both) | PROP_MODE SAT |
+  | A POTA record without STATION_CALLSIGN or OPERATOR | The log's usual STATION_CALLSIGN |
+  | The same field twice with the same value | The second copy removed |
+  | The last record has no `<EOR>` | `<EOR>` added |
+  | A byte-order mark at the start | Removed |
+
+  Problems without a repair need your judgement: a QSO date after today (POTA refuses
+  future dates), PROP_MODE SAT without SAT_NAME, the same field twice with different
+  values, an invalid value with no obvious meaning.
+- **Record Panel** right-click: **Repair** applies the repair of the problem on that row
+  (or **Repair Record** for one on the record as a whole).
 - **Fix Lengths** rewrites every wrong `<FIELD:LENGTH>` to match its data. For example,
   `<CALL:4>W1AW/P` becomes `<CALL:6>W1AW/P`.
 - **Reformat: One Record per Line / One Field per Line** re-lays the file. Only the
@@ -80,6 +108,13 @@ typed by hand.
   occurrence fixes.
 - **Notes:** records lacking ADIF's guideline minimum (QSO_DATE, TIME_ON, CALL, BAND or
   FREQ, MODE), and CONTEST_ID and SUBMODE values not in ADIF's lists.
+- **What services expect** (beyond the specification): BAND present when FREQ is (POTA
+  reads only BAND), callsigns and states in upper case, no QSO dates in the future (POTA,
+  [ADIF for POTA reference](https://docs.pota.app/docs/activator_reference/ADIF_for_POTA_reference.html),
+  modified 2026-07-08), STATION_CALLSIGN or OPERATOR in POTA activation records, and
+  PROP_MODE SAT with SAT_NAME for satellite QSOs
+  ([LoTW](https://lotw.arrl.org/lotw-help/satellite-qsos/), checked 2026-10-09). These are
+  notes, or warnings for a future date and a SAT_NAME without PROP_MODE SAT.
 
 ### Bytes or characters?
 
@@ -483,12 +518,14 @@ parameters of their HTTPS address, as those services document it.
 build/adiflint examples/try-me.adi
 ```
 
-Output is `file:line:column: severity: message`, and the exit status is 1 when there are
-errors.
+Output is `file:line:column: severity: message [code]`, and the exit status is 1 when
+there are errors. The code (`mode-is-submode`, `date-format`, `freq-band`…) names the kind
+of problem, for scripts.
 
 | Option | Does |
 |---|---|
 | `--fix OUT` | Write a copy with corrected lengths |
+| `--fix-all OUT` | Write a copy with corrected lengths and every known repair (Check Log's); exit 1 if errors are left |
 | `--reformat records\|fields OUT` | Write a copy with one record (or field) per line |
 | `--chars` | Count lengths in characters instead of bytes |
 | `--quiet` | Show errors only |

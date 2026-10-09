@@ -9,6 +9,22 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Check Log…**: every problem in one list, with its record, line, field and repair; the
+  ticked repairs are applied together as one undo step. Repairs: a MODE that is really a
+  submode (`USB`, `FT4`, `JS8`, `PSK31`… become MODE SSB, MFSK or PSK with that SUBMODE),
+  a SUBMODE under the wrong MODE or without one, dates and times typed `2026-10-06` and
+  `22:30`, FREQ written in kHz or outside BAND, BAND missing, lowercase calls and states,
+  SAT_NAME without PROP_MODE SAT, a POTA record without STATION_CALLSIGN, a repeated
+  field with the same value, a missing final `<EOR>`, a byte-order mark.
+- New checks for what services expect: BAND when only FREQ is given (POTA reads BAND),
+  upper-case calls and states, QSO dates in the future (POTA refuses them), PROP_MODE SAT
+  with SAT_NAME (LoTW), and STATION_CALLSIGN or OPERATOR in POTA activation records.
+- The **Record Panel** offers a problem's repair on a right-click.
+- `adiflint --fix-all OUT` applies every repair, and each diagnostic line ends with its
+  code (`[mode-is-submode]`).
+
 ### Fixed
 
 - WWFF export files are named as WWFF asks, `KW9D @ KFF-1234 20261006.adi`: spaces around

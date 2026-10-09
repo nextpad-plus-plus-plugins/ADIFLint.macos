@@ -72,6 +72,8 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     _table.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
     _table.target = self;
     _table.doubleAction = @selector(revealRow:);
+    _table.menu = [[NSMenu alloc] initWithTitle:@""];
+    _table.menu.delegate = self;  // right-click: the problem's repair
     if (@available(macOS 11.0, *)) _table.style = NSTableViewStyleFullWidth;
     struct { NSString *ident, *title, *tip; CGFloat width; } cols[] = {
         {kPosColumn, @"#", @"Position in the record: sort by it for the file's order", 30},
@@ -355,6 +357,30 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 - (void)revealRow:(id)sender {
     NSInteger row = [self snapshotRowFor:_table.clickedRow];
     if (row >= 0 && self.onRevealRow) self.onRevealRow(row);
+}
+
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    [menu removeAllItems];
+    NSInteger row = [self snapshotRowFor:_table.clickedRow];
+    if (row >= 0 && !_snapshot.rows[(size_t)row].repair.empty()) {
+        NSMenuItem *item = [menu addItemWithTitle:[@"Repair: " stringByAppendingString:ns(_snapshot.rows[(size_t)row].repair)]
+                                           action:@selector(repairRow:)
+                                    keyEquivalent:@""];
+        item.target = self;
+        item.tag = row;
+    }
+    if (!_snapshot.footerRepair.empty()) {
+        NSMenuItem *item = [menu addItemWithTitle:[@"Repair Record: " stringByAppendingString:ns(_snapshot.footerRepair)]
+                                           action:@selector(repairRow:)
+                                    keyEquivalent:@""];
+        item.target = self;
+        item.tag = -1;
+    }
+    if (menu.numberOfItems == 0) [menu addItemWithTitle:@"No automatic repair here" action:nil keyEquivalent:@""].enabled = NO;
+}
+
+- (void)repairRow:(NSMenuItem *)sender {
+    if (self.onRepairRow) self.onRepairRow(sender.tag);
 }
 
 - (void)removeField:(id)sender {

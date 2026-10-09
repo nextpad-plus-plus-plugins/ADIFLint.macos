@@ -148,6 +148,20 @@ static void checkModel(const std::string &text, const LintResult &r, std::mt1993
             std::printf("FAIL reordering fields changed the number of records\n");
             ++gFailures;
         }
+        // Quick fixes (Check Log, --fix-all): in bounds, ordered, and never losing or splitting
+        // records (adding a missing final <EOR> makes that record count).
+        size_t repaired = 0;
+        bool addsEor = false;
+        for (const Diagnostic &d : r.diagnostics) addsEor |= d.code == "no-eor" && !d.fixes.empty();
+        std::vector<TextEdit> qf = quickFixEdits(text, m, r.diagnostics, LengthUnit::Bytes, true, &repaired);
+        size_t afterRecords = editsOk(qf) ? lint(applyTextEdits(text, qf)).records : 0;
+        if (!editsOk(qf)) {
+            std::printf("FAIL quick-fix edits out of order or bounds\n");
+            ++gFailures;
+        } else if (afterRecords != r.records && !(addsEor && afterRecords == r.records + 1)) {
+            std::printf("FAIL quick fixes changed the number of records: %zu -> %zu\n", r.records, afterRecords);
+            ++gFailures;
+        }
         bool sortedAgain = false;
         std::string byBand = sortedBy(text, m, {{"BAND", false}, {"CALL", true}, {"FREQ", false}}, "\n", &sortedAgain);
         if (lint(byBand).records != r.records) {
@@ -273,7 +287,19 @@ int main(int argc, char **argv) {
         referenceSummary(t.substr(0, 14), ReferenceHistory());
     }
 
-    // Hostile shapes, ~2 MB each: these must stay well under a second.
+    // Hostile shapes, ~2 MB each: these must stay well under a second in a release build.
+    // The unoptimised ASan+UBSan build runs about 25 times slower, so it gets more time;
+    // a quadratic slowdown would still blow far past either limit.
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define ADIF_FUZZ_SANITIZED 1
+#endif
+#endif
+#ifdef ADIF_FUZZ_SANITIZED
+    const double limitMs = 10000;
+#else
+    const double limitMs = 3000;
+#endif
     const size_t big = 2u << 20;
     struct Case { const char *name; std::string text; LintOptions opt; };
     Case cases[] = {
@@ -288,7 +314,7 @@ int main(int argc, char **argv) {
     for (Case &c : cases) {
         double ms = lintMs(c.text, c.opt);
         std::printf("%-26s %6.1f ms\n", c.name, ms);
-        if (ms > 3000) {
+        if (ms > limitMs) {
             std::printf("FAIL %s: %.0f ms is too slow\n", c.name, ms);
             ++gFailures;
         }

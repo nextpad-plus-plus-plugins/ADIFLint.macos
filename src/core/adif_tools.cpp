@@ -3,6 +3,7 @@
 #include "adif_enrich.h"
 #include "adif_geo.h"
 #include "adif_spec.h"
+#include "adif_upload.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1153,6 +1154,61 @@ std::string toTsv(const std::vector<std::vector<std::string>> &rows) {
         out += "\r\n";
     }
     return out;
+}
+
+std::vector<TextEdit> quickFixEdits(std::string_view text, const DocModel &m, const std::vector<Diagnostic> &diagnostics,
+                                    LengthUnit unit, bool utf8, size_t *applied) {
+    auto lengthsOk = [&](int g) {
+        const ModelGroup &grp = m.groups[(size_t)g];
+        for (size_t i = 0; i < grp.fieldCount; ++i)
+            if (!m.fields[grp.firstField + i].lengthOk) return false;
+        return true;
+    };
+    std::vector<CellChange> changes;
+    std::vector<TextEdit> other;
+    size_t used = 0;
+    for (const Diagnostic &d : diagnostics) {
+        if (d.fixes.empty()) continue;
+        int g = groupAt(m, d.start);
+        bool inRecord = g >= 0 && !m.groups[(size_t)g].header && d.start >= groupStart(m, m.groups[(size_t)g]) &&
+                        lengthsOk(g);
+        bool ok = true;
+        std::vector<CellChange> mine;
+        std::vector<TextEdit> edits;
+        for (const FieldFix &fx : d.fixes) {
+            switch (fx.kind) {
+                case FixKind::SetValue:
+                    if (!inRecord || fx.field.empty() || fx.value.empty()) ok = false;
+                    else mine.push_back(CellChange{g, fx.field, fx.value});
+                    break;
+                case FixKind::RemoveField: {
+                    int fi = fieldAt(m, d.start);
+                    const ModelGroup &grp = m.groups[(size_t)std::max(g, 0)];
+                    if (!inRecord || fi < 0 || (size_t)fi < grp.firstField || (size_t)fi >= grp.firstField + grp.fieldCount ||
+                        !equalsNoCase(fieldName(text, m.fields[(size_t)fi]), fx.field))
+                        ok = false;
+                    else
+                        edits.push_back(removeField(text, m, grp, (size_t)fi - grp.firstField));
+                    break;
+                }
+                case FixKind::InsertText:
+                    if (fx.at > text.size()) ok = false;
+                    else edits.push_back(TextEdit{fx.at, fx.at, fx.value});
+                    break;
+                case FixKind::DeleteText:
+                    if (d.end > text.size() || d.end <= d.start) ok = false;
+                    else edits.push_back(TextEdit{d.start, d.end, std::string()});
+                    break;
+            }
+        }
+        if (!ok) continue;
+        changes.insert(changes.end(), mine.begin(), mine.end());
+        other.insert(other.end(), edits.begin(), edits.end());
+        ++used;
+    }
+    std::vector<TextEdit> edits = mergeEdits(cellEdits(text, m, changes, unit, utf8), other);
+    if (applied) *applied = used;
+    return edits;
 }
 
 // ── Merging ─────────────────────────────────────────────────────────────────

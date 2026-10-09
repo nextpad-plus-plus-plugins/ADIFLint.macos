@@ -39,6 +39,9 @@ void usage() {
                  "              write FILE with one record (or one field) per line to OUT (one FILE only;\n"
                  "              needs correct lengths, so combine with --fix only by running twice)\n"
                  "Log tools (one FILE; FILE itself is never changed):\n"
+                 "  --fix-all OUT        data lengths, then every problem with a known repair (e.g. MODE USB\n"
+                 "                       becomes MODE SSB, SUBMODE USB; 2026-10-06 becomes 20261006); exit 1\n"
+                 "                       if errors are left\n"
                  "  --sort OUT           records by QSO_DATE and TIME_ON\n"
                  "  --sort-by KEYS OUT   records by fields, e.g. BAND,CALL:desc,QSO_DATE (bands by frequency,\n"
                  "                       numbers by value; records without a value last)\n"
@@ -106,6 +109,7 @@ int main(int argc, char **argv) {
             i += 2;
         }
         else if ((!std::strcmp(argv[i], "--sort") || !std::strcmp(argv[i], "--dedupe") || !std::strcmp(argv[i], "--csv") ||
+                  !std::strcmp(argv[i], "--fix-all") ||
                   !std::strcmp(argv[i], "--cabrillo") || !std::strcmp(argv[i], "--from-csv")) &&
                  i + 1 < argc && tool.empty()) {
             tool = argv[i] + 2;
@@ -153,6 +157,7 @@ int main(int argc, char **argv) {
         return writeFile(toolOut, out) ? 0 : 2;
     }
 
+    opt.today = utcNow("%Y%m%d");
     int status = 0;
     for (const char *path : files) {
         std::string text;
@@ -172,8 +177,8 @@ int main(int argc, char **argv) {
                     lineStart = scanned + 1;
                 }
             if (quiet && d.severity != adif::Severity::Error) continue;
-            std::printf("%s:%zu:%zu: %s: %s\n", path, line, d.start - lineStart + 1, adif::severityName(d.severity),
-                        d.message.c_str());
+            std::printf("%s:%zu:%zu: %s: %s%s%s%s\n", path, line, d.start - lineStart + 1, adif::severityName(d.severity),
+                        d.message.c_str(), d.code.empty() ? "" : " [", d.code.c_str(), d.code.empty() ? "" : "]");
         }
         std::fprintf(stderr, "%s: %zu record(s), %zu error(s), %zu warning(s), %zu note(s)%s; %zu length fix(es) available\n",
                      path, r.records, r.errors, r.warnings, r.infos, r.truncated ? " (list truncated)" : "",
@@ -188,7 +193,26 @@ int main(int argc, char **argv) {
                 std::fprintf(stderr, "adiflint: fix the data lengths and malformed tags in %s first\n", path);
                 return 2;
             }
-            if (tool == "summary") {
+            if (tool == "fix-all") {
+                // Lengths first, then the repairs; a repair can reveal another, so a few passes.
+                std::string cur = adif::applyFixes(text, r.fixes);
+                size_t repaired = 0;
+                for (int pass = 0; pass < 3; ++pass) {
+                    adif::LintOptions o = opt;
+                    o.buildModel = true;
+                    adif::LintResult rr = adif::lint(cur, o);
+                    size_t n = 0;
+                    std::vector<adif::TextEdit> edits = adif::quickFixEdits(cur, rr.model, rr.diagnostics, opt.lengthUnit, opt.utf8, &n);
+                    if (edits.empty()) break;
+                    cur = adif::applyTextEdits(cur, edits);
+                    repaired += n;
+                }
+                if (!writeFile(toolOut, cur)) return 2;
+                adif::LintResult left = adif::lint(cur, opt);
+                std::fprintf(stderr, "%zu length fix(es), %zu other repair(s); %zu error(s) left\n", r.fixes.size(), repaired,
+                             left.errors);
+                return left.errors ? 1 : 0;  // the result, not the input, decides
+            } else if (tool == "summary") {
                 std::string name = path;
                 std::printf("%s", adif::summaryReport(text, r.model, name.substr(name.find_last_of('/') + 1)).c_str());
             } else if (tool == "sort") {

@@ -26,6 +26,23 @@ struct LintOptions {
     bool utf8 = true;               // text is UTF-8 (Characters mode counts code points)
     size_t maxDiagnostics = 10000;  // stop storing (but keep counting) beyond this
     bool buildModel = false;        // fill LintResult::model
+    std::string today;              // UTC YYYYMMDD: QSO dates after it are flagged; empty: not checked
+};
+
+constexpr size_t kNoPos = SIZE_MAX;
+
+// A suggested repair, applied by quickFixEdits() (adif_tools.h).
+enum class FixKind : unsigned char {
+    SetValue,     // set `field` in the diagnostic's record to `value`, adding the field when missing
+    RemoveField,  // remove the `field` specifier the diagnostic is on
+    InsertText,   // insert `value` at byte offset `at`
+    DeleteText,   // delete the diagnostic's own range
+};
+struct FieldFix {
+    FixKind kind = FixKind::SetValue;
+    std::string field;  // upper case
+    std::string value;
+    size_t at = kNoPos;  // InsertText only
 };
 
 struct Diagnostic {
@@ -34,9 +51,15 @@ struct Diagnostic {
     Severity severity = Severity::Error;
     bool structural = false;  // the file's structure is unclear here (wrong length, malformed tag...)
     std::string message;
+    std::string code;              // stable kind ("length", "freq-band"...); empty for the rest
+    std::string field;             // the field it is about (upper case), when known
+    std::vector<FieldFix> fixes;   // the repair, applied together; empty when there is none
+    std::string fixLabel;          // what the repair does, e.g. "MODE SSB, SUBMODE USB"
 };
-
-constexpr size_t kNoPos = SIZE_MAX;
+// The kinds that have codes: length (Fix Lengths repairs them), mode-is-submode,
+// submode-mode, mode-missing, date-format, time-format, freq-band, band-missing,
+// case, future-date, sat-name, sat-prop, pota-station, dup-field, no-eor, bom,
+// minimum-fields.
 
 // One data specifier, <NAME:LENGTH[:T]>DATA, as byte offsets.
 struct ModelField {

@@ -244,6 +244,15 @@ std::vector<TextEdit> removeRecordsEdits(std::string_view text, const DocModel &
 // quote or line break is quoted, quotes doubled; lines end in CR LF.
 std::string toTsv(const std::vector<std::vector<std::string>> &rows);
 
+// ── Quick fixes ─────────────────────────────────────────────────────────────
+
+// Edits applying the repairs of `diagnostics` (from lint() of `text` with
+// buildModel; see Diagnostic::fixes) as one change. Records with a wrong length
+// are left alone (Fix Lengths first); where two repairs touch the same text the
+// first wins. *applied: how many diagnostics' repairs the edits carry.
+std::vector<TextEdit> quickFixEdits(std::string_view text, const DocModel &m, const std::vector<Diagnostic> &diagnostics,
+                                    LengthUnit unit, bool utf8, size_t *applied = nullptr);
+
 // ── CSV ─────────────────────────────────────────────────────────────────────
 
 // RFC 4180: a header row of field names, CRLF line ends, values with a comma,

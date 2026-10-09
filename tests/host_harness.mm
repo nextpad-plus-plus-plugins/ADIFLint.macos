@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 49, "49 menu items, got %d", n);
+        CHECK(n == 50, "50 menu items, got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -523,7 +523,7 @@ int main(int argc, char **argv) {
                                  "Merge Another Log...", "Export CSV...", "Export Activation Logs...", "Import CSV...", "Export Cabrillo...",
                                  "Import from LoTW...", "Import from QRZ.com Logbook...", "Import from eQSL...",
                                  "Enrich from Country Data...", "Enrich from QRZ.com...", "Enrich from HamQTH...",
-                                 "Settings...", "Validate Now", "Fix Lengths", "Next Problem", "Previous Problem", "Reformat: One Record per Line",
+                                 "Settings...", "Check Log...", "Validate Now", "Fix Lengths", "Next Problem", "Previous Problem", "Reformat: One Record per Line",
                                  "Reformat: One Field per Line", "Record Panel", "Colour ADIF Syntax",
                                  "Autocomplete Field Names and Values", "Count Lengths in Characters"})
             CHECK(byName.count(name), "menu item %s", name);
@@ -2261,6 +2261,56 @@ int main(int argc, char **argv) {
                       "country file updated: %s", countryStatus().c_str());
                 [setw orderOut:nil];
             }
+        }
+
+        // ── Check Log: every problem, and the known repairs applied together ──
+        {
+            H.doc = "check\n<ADIF_VER:5>3.1.7\n<EOH>\n"
+                    "<CALL:4>k1aa <QSO_DATE:10>2026-10-06 <TIME_ON:4>2200 <BAND:3>20m <MODE:3>USB <STATION_CALLSIGN:4>KW9D <EOR>\n"
+                    "<CALL:4>K1BB <QSO_DATE:8>20261006 <TIME_ON:5>22:05 <FREQ:5>14074 <BAND:3>20m <MODE:3>FT8 <SAT_NAME:4>AO-7 "
+                    "<STATION_CALLSIGN:4>KW9D <EOR>\n";
+            H.path = "/tmp/check.adi";
+            H.pos = 0;
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            run("Check Log...");
+            NSWindow *cw = windowTitled(@"Check Log");
+            NSTableView *ct = cw ? findTable(cw.contentView) : nil;
+            long rows = ct ? (long)[ct.dataSource numberOfRowsInTableView:ct] : -1L;
+            NSInteger modeRow = -1;
+            for (NSInteger r = 0; r < rows; ++r)
+                if ([cell(ct, r, @"5") isEqualToString:@"MODE SSB, SUBMODE USB"]) modeRow = r;
+            CHECK(cw && rows == 6 && modeRow >= 0 && [cell(ct, modeRow, @"0") isEqualToString:@"1"],
+                  "Check Log lists 6 problems, MODE USB with its repair (%ld rows)", rows);
+            if (cw) {
+                [cw.contentView layoutSubtreeIfNeeded];
+                snapshot(cw, "check-log");
+                CHECK(overlaps(cw.contentView) == 0, "Check Log does not overlap (%d)", overlaps(cw.contentView));
+            }
+            NSButton *repair = cw ? findButton(cw.contentView, @"Repair 6 Ticked") : nil;
+            CHECK(repair != nil, "the button counts the 6 ticked repairs");
+            [repair performClick:nil];
+            pump(0.5);
+            auto has = [](const std::string &x) { return H.doc.find(x) != std::string::npos; };
+            CHECK(has("<CALL:4>K1AA <QSO_DATE:8>20261006 <TIME_ON:4>2200 <BAND:3>20m <MODE:3>SSB") && has("<SUBMODE:3>USB") &&
+                      has("<TIME_ON:4>2205 <FREQ:6>14.074") && has("<PROP_MODE:3>SAT"),
+                  "the repairs, as one change:\n%s", H.doc.c_str());
+            NSString *head = cw ? labelWithLines(cw.contentView, 2) : nil;
+            CHECK([head isEqualToString:@"No problems found."], "nothing left: %s", head.UTF8String);
+
+            // The Record Panel's right-click repair.
+            H.doc = "panel\n<ADIF_VER:5>3.1.7\n<EOH>\n<CALL:4>K1CC <QSO_DATE:8>20261006 <TIME_ON:4>2200 <BAND:3>20m <MODE:3>FT4 <EOR>\n";
+            H.pos = (intptr_t)H.doc.find("<MODE");
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            NSTableView *pt = findTable(H.panelView);
+            id panel = pt.menu.delegate;
+            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+            item.tag = 4;  // MODE, the record's fifth field
+            if ([panel respondsToSelector:@selector(repairRow:)]) [panel performSelector:@selector(repairRow:) withObject:item];
+            pump(0.3);
+            CHECK(has("<MODE:4>MFSK <SUBMODE:3>FT4 <EOR>"), "the panel repaired MODE FT4:\n%s", H.doc.c_str());
+            [cw close];
         }
 
         // ── Log Table as a spreadsheet ──

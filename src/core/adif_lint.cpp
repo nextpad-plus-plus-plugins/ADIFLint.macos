@@ -91,6 +91,26 @@ std::string fmtNumber(double v) {
     return b;
 }
 
+// MHz for a fix: up to 6 decimals, trailing zeros dropped (14.074, not 14.074000).
+std::string fmtMHz(double v) {
+    char b[48];
+    snprintf(b, sizeof b, "%.6f", v);
+    std::string out = b;
+    while (!out.empty() && out.back() == '0') out.pop_back();
+    if (!out.empty() && out.back() == '.') out.pop_back();
+    return out;
+}
+
+// The band a frequency (MHz) is in, or nullptr.
+const BandDef *bandAt(double mhz) {
+    size_t n = 0;
+    const BandDef *b = bandTable(&n);
+    const double kTol = 1e-9;  // edges are inclusive; absorb binary rounding of decimal MHz
+    for (size_t i = 0; i < n; ++i)
+        if (mhz >= b[i].lowerMHz - kTol && mhz <= b[i].upperMHz + kTol) return &b[i];
+    return nullptr;
+}
+
 std::vector<std::string_view> split(std::string_view s, char sep) {
     std::vector<std::string_view> out;
     size_t b = 0;
@@ -283,7 +303,7 @@ public:
     LintResult run();
 
 private:
-    using Fields = std::map<std::string, const Spec *>;
+    using Fields = std::map<std::string, const Spec *, std::less<>>;
 
     std::string_view t_;
     size_t n_;
@@ -299,11 +319,27 @@ private:
     size_t groupFirstField_ = 0;               // model index of cur_[0]
     std::map<std::string, UserDef> userDefs_;  // by upper-case field name
     std::map<std::string, char> appTypes_;     // APP_ field -> indicator of first occurrence
+    size_t lastDiag_ = npos;                   // index of the diagnostic just stored, npos when not stored
+    std::map<std::string, size_t> stations_;   // STATION_CALLSIGN values, for the pota-station fix
+    std::vector<size_t> potaStation_;          // pota-station diagnostics awaiting that fix
     // Characters mode: code points before each kCpBlock-byte block, built on first use.
     static constexpr size_t kCpBlock = 256;
     mutable std::vector<uint64_t> cpBlocks_;
 
     void diag(Severity s, size_t b, size_t e, std::string msg, bool structural = false);
+    bool stored() const { return lastDiag_ != npos; }  // the diagnostic just made was kept
+    // Give the diagnostic just made its code, field and repair (no-op when it was not stored).
+    void annotate(const char *code, std::string field, std::vector<FieldFix> fixes = {}, std::string label = {}) {
+        if (lastDiag_ == npos) return;
+        Diagnostic &d = r_.diagnostics[lastDiag_];
+        d.code = code;
+        d.field = std::move(field);
+        d.fixes = std::move(fixes);
+        d.fixLabel = std::move(label);
+    }
+    static FieldFix setTo(std::string field, std::string value) {
+        return FieldFix{FixKind::SetValue, std::move(field), std::move(value), kNoPos};
+    }
     void diagTag(Severity s, const Spec &sp, std::string msg) { diag(s, sp.tag.lt, sp.tag.gt + 1, std::move(msg)); }
     void diagValue(Severity s, const Spec &sp, size_t valueEnd, std::string msg) {
         if (valueEnd > sp.valueB) diag(s, sp.valueB, valueEnd, std::move(msg));
@@ -342,6 +378,7 @@ private:
     void checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, const FieldDef &fd, bool strict,
                           const Fields &f);
     void checkFreqInBand(const Fields &f, const char *freqName, const char *bandName);
+    void checkPractice(const std::vector<Spec> &group, const Fields &f, const Tag *eor);
 };
 
 void Linter::diag(Severity s, size_t b, size_t e, std::string msg, bool structural) {
@@ -355,11 +392,15 @@ void Linter::diag(Severity s, size_t b, size_t e, std::string msg, bool structur
         case Severity::Info: ++r_.infos; break;
     }
     if (structural && s == Severity::Error) ++r_.structuralErrors;
+    lastDiag_ = npos;
     if (r_.diagnostics.size() >= opt_.maxDiagnostics) {
         r_.truncated = true;
         return;
     }
-    r_.diagnostics.push_back(Diagnostic{b, e, s, structural, std::move(msg)});
+    Diagnostic d;
+    d.start = b, d.end = e, d.severity = s, d.structural = structural, d.message = std::move(msg);
+    r_.diagnostics.push_back(std::move(d));
+    lastDiag_ = r_.diagnostics.size() - 1;
 }
 
 bool Linter::allWs(size_t b, size_t e) const {
@@ -515,6 +556,8 @@ LintResult Linter::run() {
     if (n_ >= 3 && (unsigned char)t_[0] == 0xEF && (unsigned char)t_[1] == 0xBB && (unsigned char)t_[2] == 0xBF)
         diag(Severity::Warning, 0, 3,
              "UTF-8 byte-order mark at the start of the file. ADI files are ASCII (§II.B); some importers reject it.");
+    if (n_ >= 3 && (unsigned char)t_[0] == 0xEF && (unsigned char)t_[1] == 0xBB && (unsigned char)t_[2] == 0xBF)
+        annotate("bom", "", {FieldFix{FixKind::DeleteText, "", "", kNoPos}}, "remove the byte-order mark");
     startsWithLt_ = n_ > 0 && t_[0] == '<';
     r_.model.hasBom = n_ >= 3 && (unsigned char)t_[0] == 0xEF && (unsigned char)t_[1] == 0xBB &&
                       (unsigned char)t_[2] == 0xBF;
@@ -569,6 +612,17 @@ LintResult Linter::run() {
     }
     ignored(textStart, n_);
     endOfFile();
+
+    // pota-station: the log's usual STATION_CALLSIGN is the repair, when it has one.
+    std::string usual;
+    size_t most = 0;
+    for (const auto &[call, n] : stations_)
+        if (n > most) most = n, usual = call;
+    if (!usual.empty())
+        for (size_t i : potaStation_) {
+            r_.diagnostics[i].fixes = {setTo("STATION_CALLSIGN", usual)};
+            r_.diagnostics[i].fixLabel = "STATION_CALLSIGN " + usual;
+        }
 
     std::stable_sort(r_.diagnostics.begin(), r_.diagnostics.end(), [](const Diagnostic &a, const Diagnostic &b) {
         if (a.start != b.start) return a.start < b.start;
@@ -666,6 +720,7 @@ size_t Linter::readField(const Tag &tag) {
         if (digits.size() > 1 && digits[0] == '0') {
             diag(Severity::Warning, tag.lenB, tag.lenE,
                  "Leading zeros in a data length are import-only (Resources §III.B); exporters must not write them.");
+            annotate("length", upper(view(tag.nameB, tag.nameE)), {}, "Fix Lengths");
             r_.fixes.push_back(LengthFix{tag.lenB, tag.lenE, std::to_string(tag.length)});
         }
         if (swallows) {
@@ -702,6 +757,7 @@ size_t Linter::readField(const Tag &tag) {
         }
         msg += " Fix Lengths corrects it.";
         diag(Severity::Error, tag.lt, tag.gt + 1, std::move(msg), true);
+        annotate("length", upper(view(tag.nameB, tag.nameE)), {}, "Fix Lengths");
         r_.fixes.push_back(LengthFix{tag.lenB, tag.lenE, std::to_string(want)});
     }
     sp.cleanE = sp.valueE;
@@ -775,6 +831,8 @@ void Linter::endOfFile() {
     } else {
         diag(Severity::Error, last.tag.lt, last.tag.gt + 1,
              "The last record is not ended by <EOR>, so importers may drop it (§IV.A.6).");
+        if (last.lengthOk)
+            annotate("no-eor", "", {FieldFix{FixKind::InsertText, "", " <EOR>", last.cleanE}}, "add <EOR>");
         validateRecord(cur_, nullptr);
         closeGroup(false, nullptr);
     }
@@ -783,10 +841,17 @@ void Linter::endOfFile() {
 Linter::Fields Linter::index(const std::vector<Spec> &group, const char *where) {
     Fields f;
     for (const Spec &sp : group) {
-        if (!f.emplace(sp.name, &sp).second)
-            diagTag(Severity::Error, sp,
-                    sp.name + " appears more than once in this " + where +
-                        (std::strcmp(where, "header") == 0 ? " (§III.C.1.a)." : " (§III.C.1.b)."));
+        auto [it, added] = f.emplace(sp.name, &sp);
+        if (added) continue;
+        diagTag(Severity::Error, sp,
+                sp.name + " appears more than once in this " + where +
+                    (std::strcmp(where, "header") == 0 ? " (§III.C.1.a)." : " (§III.C.1.b)."));
+        if (!stored()) continue;
+        // The same value twice: removing this copy loses nothing.
+        bool same = sp.lengthOk && it->second->lengthOk &&
+                    view(sp.valueB, sp.cleanE) == view(it->second->valueB, it->second->cleanE);
+        if (same) annotate("dup-field", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}}, "remove this copy");
+        else annotate("dup-field", sp.name);
     }
     return f;
 }
@@ -916,6 +981,7 @@ void Linter::validateRecord(const std::vector<Spec> &group, const Tag *eor) {
 
     checkFreqInBand(f, "FREQ", "BAND");
     checkFreqInBand(f, "FREQ_RX", "BAND_RX");
+    checkPractice(group, f, eor);
 
     // Resources §III.C: a guideline, not a rule, so only a note.
     std::string missing;
@@ -932,6 +998,78 @@ void Linter::validateRecord(const std::vector<Spec> &group, const Tag *eor) {
                           ". ADIF's guideline minimum for a QSO is QSO_DATE, TIME_ON, CALL, BAND or FREQ, MODE (Resources §III.C).";
         if (eor) diag(Severity::Info, eor->lt, eor->gt + 1, std::move(msg));
         else diagTag(Severity::Info, group.back(), std::move(msg));
+        annotate("minimum-fields", "");
+    }
+}
+
+// What services and award programs expect beyond the spec's rules.
+void Linter::checkPractice(const std::vector<Spec> &group, const Fields &f, const Tag *eor) {
+    auto at = [&](const char *name) -> const Spec * {
+        auto it = f.find(name);
+        return it == f.end() ? nullptr : it->second;
+    };
+    auto onRecord = [&](Severity sev, std::string msg) {
+        if (eor) diag(sev, eor->lt, eor->gt + 1, std::move(msg));
+        else diagTag(sev, group.back(), std::move(msg));
+    };
+    std::string_view stationValue = value(f, "STATION_CALLSIGN");
+    std::string station = stationValue.empty() ? std::string() : upper(stationValue);
+    if (!station.empty()) ++stations_[station];
+
+    // BAND missing while FREQ says it: POTA's log checker reads BAND, not FREQ
+    // (docs.pota.app "ADIF for POTA reference", modified 2026-07-08).
+    double mhz = 0;
+    if (const Spec *fq = at("FREQ"); fq && value(f, "BAND").empty() && parseNumber(value(f, "FREQ"), &mhz)) {
+        if (const BandDef *b = bandAt(mhz)) {
+            diagValue(Severity::Info, *fq, fq->cleanE,
+                      "No BAND; FREQ " + std::string(value(f, "FREQ")) + " MHz is in the " + b->name +
+                          " band. Some services, POTA among them, read BAND only.");
+            if (stored()) annotate("band-missing", "BAND", {setTo("BAND", b->name)}, std::string("BAND ") + b->name);
+        }
+    }
+
+    // Callsigns and states are written in upper case by convention; some services compare them exactly.
+    for (const char *name : {"CALL", "STATION_CALLSIGN", "OPERATOR", "STATE", "MY_STATE"}) {
+        const Spec *sp = at(name);
+        if (!sp || !sp->lengthOk) continue;
+        std::string_view v = view(sp->valueB, sp->cleanE);
+        bool lower = false;
+        for (unsigned char c : v) lower |= c >= 'a' && c <= 'z';
+        if (!lower) continue;
+        diagValue(Severity::Info, *sp, sp->cleanE, std::string(name) + " '" + snippet(v) + "' is usually written in upper case.");
+        if (stored()) annotate("case", name, {setTo(name, upper(v))}, upper(v));
+    }
+
+    // A date after today: POTA's checker refuses future dates (ADIF for POTA reference).
+    std::string_view date = value(f, "QSO_DATE");
+    if (!opt_.today.empty() && !dateProblem(date) && date > std::string_view(opt_.today)) {
+        const Spec *sp = at("QSO_DATE");
+        diagValue(Severity::Warning, *sp, sp->cleanE,
+                  "QSO_DATE " + std::string(date) + " is after today (UTC). POTA and other services refuse future dates.");
+        annotate("future-date", "QSO_DATE");
+    }
+
+    // Satellites: LoTW matches a satellite QSO by PROP_MODE SAT and SAT_NAME
+    // (lotw.arrl.org/lotw-help/satellite-qsos, checked 2026-10-09).
+    std::string_view prop = value(f, "PROP_MODE"), sat = value(f, "SAT_NAME");
+    if (equalsNoCase(prop, "SAT") && sat.empty()) {
+        const Spec *sp = at("PROP_MODE");
+        diagValue(Severity::Info, *sp, sp->cleanE, "PROP_MODE is SAT but SAT_NAME is missing; LoTW needs both for a satellite QSO.");
+        annotate("sat-name", "SAT_NAME");
+    } else if (!sat.empty() && !equalsNoCase(prop, "SAT")) {
+        const Spec *sp = at("SAT_NAME");
+        diagValue(Severity::Warning, *sp, sp->cleanE,
+                  prop.empty() ? std::string("SAT_NAME is set but PROP_MODE is missing; LoTW needs PROP_MODE SAT for a satellite QSO.")
+                               : "SAT_NAME is set but PROP_MODE is " + std::string(prop) + "; a satellite QSO is PROP_MODE SAT.");
+        annotate("sat-prop", "PROP_MODE", {setTo("PROP_MODE", "SAT")}, "PROP_MODE SAT");
+    }
+
+    // POTA activation records need STATION_CALLSIGN or OPERATOR (ADIF for POTA reference).
+    bool pota = !value(f, "MY_POTA_REF").empty() || equalsNoCase(value(f, "MY_SIG"), "POTA");
+    if (pota && station.empty() && value(f, "OPERATOR").empty()) {
+        onRecord(Severity::Info, "POTA needs STATION_CALLSIGN or OPERATOR in each record of an activation log.");
+        annotate("pota-station", "STATION_CALLSIGN");
+        if (lastDiag_ != npos) potaStation_.push_back(lastDiag_);
     }
 }
 
@@ -1010,6 +1148,7 @@ void Linter::validateField(const Spec &sp, const Fields &f, bool inHeader) {
         diagTag(Severity::Error, sp,
                 "The data ends with a line break, so length " + std::string(view(sp.tag.lenB, sp.tag.lenE)) +
                     " is probably too long; it should be " + std::to_string(want) + ". Fix Lengths corrects it.");
+        annotate("length", sp.name, {}, "Fix Lengths");
         r_.fixes.erase(std::remove_if(r_.fixes.begin(), r_.fixes.end(),
                                       [&](const LengthFix &x) { return x.start == sp.tag.lenB; }),
                        r_.fixes.end());
@@ -1077,10 +1216,11 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         std::string scope = normalize(value(f, fd.enumKey));
         if (scope.empty()) {
             if (submode) {
-                if (const EnumValue *ev = findEnumValue(*e, key))
+                if (const EnumValue *ev = findEnumValue(*e, key)) {
                     diagValue(Severity::Warning, sp, vEnd,
                               "SUBMODE is set but MODE is missing; " + std::string(v) + " belongs to MODE " + ev->scope + ".");
-                else
+                    annotate("mode-missing", "MODE", {setTo("MODE", ev->scope)}, std::string("MODE ") + ev->scope);
+                } else
                     diagValue(Severity::Info, sp, vEnd, "'" + std::string(v) + "' is not a registered ADIF submode.");
             }
             return;
@@ -1090,10 +1230,11 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
             return;
         }
         if (submode) {
-            if (const EnumValue *other = findEnumValue(*e, key))
+            if (const EnumValue *other = findEnumValue(*e, key)) {
                 diagValue(Severity::Error, sp, vEnd,
                           "SUBMODE " + std::string(v) + " belongs to MODE " + other->scope + ", not " + scope + ".");
-            else
+                annotate("submode-mode", "MODE", {setTo("MODE", other->scope)}, std::string("MODE ") + other->scope);
+            } else
                 diagValue(Severity::Info, sp, vEnd,
                           "'" + std::string(v) + "' is not a registered ADIF submode of MODE " + scope + ".");
             return;
@@ -1105,6 +1246,17 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         return;
     }
 
+    // A MODE that is really a submode (USB, FT4, JS8, PSK31...): MODE its mode, SUBMODE the value.
+    auto submodeFix = [&]() {
+        if (sp.name != "MODE") return;
+        const EnumDef *sub = findEnum("Submode");
+        const EnumValue *sv = sub ? findEnumValue(*sub, v) : nullptr;
+        if (!sv || !sv->scope) return;
+        std::string_view current = value(f, "SUBMODE");
+        if (!current.empty() && !equalsNoCase(current, sv->value)) return;
+        annotate("mode-is-submode", "MODE", {setTo("MODE", sv->scope), setTo("SUBMODE", sv->value)},
+                 std::string("MODE ") + sv->scope + ", SUBMODE " + sv->value);
+    };
     const EnumValue *ev = findEnumValue(*e, key);
     if (!ev) {
         if (strict)
@@ -1113,9 +1265,11 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
                           " enumeration).");
         else
             diagValue(Severity::Info, sp, vEnd, "'" + std::string(v) + "' is not in ADIF's " + e->name + " list.");
+        submodeFix();
         return;
     }
     importOnly(ev);
+    if (ev->importOnly) submodeFix();
 }
 
 void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_t vEnd, const FieldDef *fd,
@@ -1170,10 +1324,28 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             break;
         }
         case DataType::Date:
-            if (const char *why = dateProblem(v)) bad(Severity::Error, why);
+            if (const char *why = dateProblem(v)) {
+                bad(Severity::Error, why);
+                // 2026-10-06, 2026/10/06, 2026.10.06: year first, so the order is not in doubt.
+                std::string digits;
+                for (char c : v)
+                    if (isDigit((unsigned char)c)) digits += c;
+                bool yearFirst = v.size() == 10 && allDigits(v.substr(0, 4)) && std::strchr("-/.", v[4]) && v[7] == v[4];
+                if (yearFirst && !dateProblem(digits)) annotate("date-format", sp.name, {setTo(sp.name, digits)}, digits);
+                else annotate("date-format", sp.name);
+            }
             break;
         case DataType::Time:
-            if (const char *why = timeProblem(v)) bad(Severity::Error, why);
+            if (const char *why = timeProblem(v)) {
+                bad(Severity::Error, why);
+                // 22:30 or 22:30:15.
+                std::string digits;
+                bool colons = (v.size() == 5 && v[2] == ':') || (v.size() == 8 && v[2] == ':' && v[5] == ':');
+                for (char c : v)
+                    if (isDigit((unsigned char)c)) digits += c;
+                if (colons && !timeProblem(digits)) annotate("time-format", sp.name, {setTo(sp.name, digits)}, digits);
+                else annotate("time-format", sp.name);
+            }
             break;
         case DataType::Enumeration:
             checkChars(sp, v, vEnd, false);  // enumeration values are ASCII (§II.B)
@@ -1284,6 +1456,14 @@ void Linter::checkFreqInBand(const Fields &f, const char *freqName, const char *
         diagValue(Severity::Warning, *sp, sp->cleanE,
                   std::string(freqName) + " " + std::string(freq) + " MHz is outside " + bandName + " " + b->name + " (" +
                       fmtNumber(b->lowerMHz) + "-" + fmtNumber(b->upperMHz) + " MHz).");
+        // Written in kHz (14074 for 14.074 MHz)? Otherwise BAND follows FREQ.
+        double inMHz = mhz / 1000;
+        if (inMHz >= b->lowerMHz - kTolMHz && inMHz <= b->upperMHz + kTolMHz)
+            annotate("freq-band", freqName, {setTo(freqName, fmtMHz(inMHz))}, std::string(freqName) + " " + fmtMHz(inMHz) + " (it was kHz)");
+        else if (const BandDef *right = bandAt(mhz))
+            annotate("freq-band", bandName, {setTo(bandName, right->name)}, std::string(bandName) + " " + right->name);
+        else
+            annotate("freq-band", freqName);
     }
 }
 
