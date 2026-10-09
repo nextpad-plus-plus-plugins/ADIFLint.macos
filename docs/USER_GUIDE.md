@@ -251,8 +251,11 @@ enter, and a `/` in a callsign becomes `_` in the file name.
   `KW9D@US-7929-20261006.adi`, with the state added for a park spanning several
   (`W8MSC@US-4239-20181231-US-MI.adi`). A two-fer gives one file per park, each with
   MY_SIG=POTA and that park in MY_SIG_INFO, since POTA wants a separate log per park.
-- **WWFF:** `KW9D@KFF-1234 20261006.adi`, the name WWFF's log search tutorial (v1.3, April
-  2025) asks for, with MY_WWFF_REF set. Send them to your national WWFF log manager.
+- **WWFF:** `KW9D @ KFF-1234 20261006.adi`, the name WWFF asks for
+  ([confirming and sending a log](https://wwff.co/rules-faq/confirming-and-sending-log/),
+  checked 2026-10-09): a `/` in the call becomes `-` (`KW9D-P`), and an activation over
+  consecutive UTC days is one file named for its first day. MY_WWFF_REF is set. Send them
+  to your national WWFF log manager.
 - **SOTA:** `KW9D_W7A-AE-001_20261006.adi`, with MY_SOTA_REF set. SOTA has no file-name
   rule; this name is ADIF Lint's own.
 

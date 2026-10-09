@@ -2230,7 +2230,7 @@ int main(int argc, char **argv) {
                     NSPopUpButton *ep = findPopup(pw.contentView);
                     [ep selectItemWithTitle:@"WWFF"];
                     [ep sendAction:ep.action to:ep.target];
-                    CHECK(tableRows(pt) == 1 && [cell(pt, 0, @"0") isEqualToString:@"KW9D@KFF-1234 20261006.adi"], "WWFF file: %s",
+                    CHECK(tableRows(pt) == 1 && [cell(pt, 0, @"0") isEqualToString:@"KW9D @ KFF-1234 20261006.adi"], "WWFF file: %s",
                           cell(pt, 0, @"0").UTF8String);
                     [pw.contentView layoutSubtreeIfNeeded];
                     CHECK(overlaps(pw.contentView) == 0, "Export with the program row does not overlap (%d)", overlaps(pw.contentView));

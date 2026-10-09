@@ -1357,13 +1357,25 @@ static void testPrograms() {
           "WWFF: 44 QSOs over two days (%zu, %zu)", a.size(), a.empty() ? 0 : a[0].qsos);
     std::vector<PotaFile> files =
         programExport(Program::WWFF, w, r.model, "", "0", "20261008 000000", "\n", LengthUnit::Bytes, true, "20261008");
-    CHECK(files.size() == 2 && files[0].name == "KW9D@KFF-1234 20261006.adi" && files[1].name == "KW9D@KFF-1234 20261007.adi",
-          "WWFF files per day: %s", files.empty() ? "" : files[0].name.c_str());
-    if (files.size() == 2) {
-        LintResult fr = lintModel(files[1].text);
-        CHECK(fr.errors == 0 && files[1].text.find("<MY_WWFF_REF:8>KFF-1234 <EOR>") != std::string::npos,
-              "MY_WWFF_REF added where only MY_SIG_INFO had it:\n%s%s", files[1].text.substr(0, 400).c_str(), dump(fr).c_str());
+    // One log per activation, its consecutive days joined and named for the first (wwff.co FAQ).
+    CHECK(files.size() == 1 && files[0].name == "KW9D @ KFF-1234 20261006.adi" && files[0].records == 45 &&
+              files[0].qsos == 44 && files[0].text.find("on 2026-10-06 to 2026-10-07 UTC") != std::string::npos,
+          "WWFF: one file for the two-day activation: %s (%zu records)", files.empty() ? "" : files[0].name.c_str(),
+          files.empty() ? 0 : files[0].records);
+    if (files.size() == 1) {
+        LintResult fr = lintModel(files[0].text);
+        CHECK(fr.errors == 0 && files[0].text.find("<MY_WWFF_REF:8>KFF-1234 <EOR>") != std::string::npos,
+              "MY_WWFF_REF added where only MY_SIG_INFO had it:\n%s%s", files[0].text.substr(0, 400).c_str(), dump(fr).c_str());
     }
+    // Days with a gap are separate activations; '/' in the call becomes '-'.
+    std::string w2 = std::string(kHeader) + rec("K1AA", "20261006", "20m", "<MY_WWFF_REF:8>KFF-1234 ") +
+                     rec("K1AB", "20261009", "20m", "<MY_WWFF_REF:8>KFF-1234 ");
+    for (size_t at; (at = w2.find("<STATION_CALLSIGN:4>KW9D ")) != std::string::npos;)
+        w2.replace(at, 25, "<STATION_CALLSIGN:6>KW9D/P ");
+    r = lintModel(w2);
+    files = programExport(Program::WWFF, w2, r.model, "", "0", "20261010 000000", "\n", LengthUnit::Bytes, true, "20261010");
+    CHECK(files.size() == 2 && files[0].name == "KW9D-P @ KFF-1234 20261006.adi" && files[1].name == "KW9D-P @ KFF-1234 20261009.adi",
+          "WWFF: separate days apart, '/' as '-': %s", files.empty() ? "" : files[0].name.c_str());
     // SOTA: different stations; 4 for the points.
     std::string s = std::string(kHeader) + rec("K1AA", "20261006", "20m", "<MY_SOTA_REF:9>W7A/AE-001 ") +
                     rec("K1AA", "20261006", "40m", "<MY_SOTA_REF:9>W7A/AE-001 ") + rec("K1AB", "20261006", "20m", "<MY_SOTA_REF:9>W7A/AE-001 ") +

@@ -1,5 +1,6 @@
 #include "adif_programs.h"
 
+#include "adif_enrich.h"
 #include "adif_lint.h"
 #include "adif_spec.h"
 
@@ -118,17 +119,50 @@ std::vector<PotaFile> programExport(Program p, std::string_view text, const DocM
         return potaExport(text, m, defaultStation, programVersion, utcTimestamp, eol, unit, utf8, todayUtc);
     std::vector<PotaFile> out;
     const char *refField = p == Program::WWFF ? "MY_WWFF_REF" : "MY_SOTA_REF";
-    for (const Activation &a : collect(text, m, p, defaultStation, true)) {
+    std::vector<Activation> acts = collect(text, m, p, defaultStation, true);
+    if (p == Program::WWFF) {
+        // A multi-date activation is one log, named for its first day (wwff.co "Confirming and
+        // sending log", checked 2026-10-09): join a reference's consecutive UTC days. Each day
+        // counts its own QSOs, as collect() did.
+        std::stable_sort(acts.begin(), acts.end(), [](const Activation &x, const Activation &y) {
+            return std::tie(x.park, x.station, x.date) < std::tie(y.park, y.station, y.date);
+        });
+        std::vector<Activation> joined;
+        for (Activation &a : acts) {
+            Activation *prev = joined.empty() ? nullptr : &joined.back();
+            if (prev && prev->park == a.park && prev->station == a.station &&
+                qsoMinutes(a.date, "0000") - qsoMinutes(prev->lastDate, "0000") == 24 * 60) {
+                prev->lastDate = a.lastDate;
+                prev->groups.insert(prev->groups.end(), a.groups.begin(), a.groups.end());
+                prev->qsos += a.qsos, prev->duplicates += a.duplicates, prev->invalid += a.invalid;
+                prev->noStation += a.noStation, prev->p2p += a.p2p;
+                for (const auto &[k, n] : a.bands) prev->bands[k] += n;
+                for (const auto &[k, n] : a.modes) prev->modes[k] += n;
+                prev->last = a.last;
+            } else {
+                joined.push_back(std::move(a));
+            }
+        }
+        for (Activation &a : joined) std::sort(a.groups.begin(), a.groups.end());
+        std::stable_sort(joined.begin(), joined.end(), [](const Activation &x, const Activation &y) {
+            return std::tie(x.date, x.park, x.station) < std::tie(y.date, y.park, y.station);
+        });
+        acts = std::move(joined);
+    }
+    for (const Activation &a : acts) {
         PotaFile f;
         f.station = a.station;
         f.park = a.park;
         f.date = a.date;
-        std::string call = f.station.empty() ? std::string("NOCALL") : fileSafe(f.station, '_');
-        f.name = p == Program::WWFF ? call + "@" + a.park + " " + a.date + ".adi"
+        // WWFF: "{callsign} @ {reference} {date}", '/' in the call as '-' (wwff.co, checked
+        // 2026-10-09; the Logsearch upload form asks for "callsign @ reference YYYYMMDD").
+        std::string call = f.station.empty() ? std::string("NOCALL") : fileSafe(f.station, p == Program::WWFF ? '-' : '_');
+        f.name = p == Program::WWFF ? call + " @ " + fileSafe(a.park, '-') + " " + a.date + ".adi"
                                     : call + "_" + fileSafe(a.park, '-') + "_" + a.date + ".adi";
         std::string h = std::string("ADIF export for ") + (p == Program::WWFF ? "World Wide Flora & Fauna" : "Summits on the Air") +
                         ": " + (f.station.empty() ? std::string("?") : f.station) + " at " + a.park + " on " +
-                        displayDate(a.date) + " UTC";
+                        displayDate(a.date) + (a.lastDate != a.date ? " to " + displayDate(a.lastDate) : std::string()) +
+                        " UTC";
         h += eol;
         h += makeSpecifier("ADIF_VER", kSpecVersion, LengthUnit::Bytes, false) + std::string(eol);
         h += makeSpecifier("PROGRAMID", "ADIF Lint", LengthUnit::Bytes, false) + std::string(eol);
@@ -171,7 +205,7 @@ std::vector<PotaFile> programExport(Program p, std::string_view text, const DocM
         if (f.station.empty()) f.notes.push_back("no STATION_CALLSIGN or OPERATOR: enter your callsign");
         else if (added) f.notes.push_back("STATION_CALLSIGN " + f.station + " added to " + std::to_string(added) +
                                           (added == 1 ? " record" : " records"));
-        if (!todayUtc.empty() && a.date > todayUtc) f.notes.push_back("dated in the future");
+        if (!todayUtc.empty() && a.lastDate > todayUtc) f.notes.push_back("dated in the future");
         out.push_back(std::move(f));
     }
     std::set<std::string> names;

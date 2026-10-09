@@ -9,6 +9,12 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Fixed
+
+- WWFF export files are named as WWFF asks, `KW9D @ KFF-1234 20261006.adi`: spaces around
+  the `@`, a `/` in the call written as `-`, and an activation over consecutive UTC days in
+  one file named for its first day (it was one file per day, `KW9D@KFF-1234 20261006.adi`).
+
 ## [0.9.0] - 2026-10-09
 
 ### Added

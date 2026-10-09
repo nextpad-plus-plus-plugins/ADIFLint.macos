@@ -1714,7 +1714,7 @@ void potaPlan() {
                       severity:2];
         } else {
             std::string what = prog == adif::Program::WWFF
-                                   ? "One file per reference and UTC day, named callsign@reference date as WWFF asks. "
+                                   ? "One file per reference and activation (consecutive UTC days), named callsign @ reference date as WWFF asks. "
                                    : prog == adif::Program::SOTA ? "One file per summit and UTC day. "
                                                                  : "One file per park and UTC day, named callsign@park-date as POTA asks. ";
             std::string where = prog == adif::Program::WWFF ? "Send them to your national WWFF log manager."

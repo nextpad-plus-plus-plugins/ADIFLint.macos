@@ -29,8 +29,9 @@ namespace adif {
 std::vector<Activation> programActivations(std::string_view text, const DocModel &m, Program p,
                                            std::string_view defaultStation = {});
 
-// Upload files. POTA: potaExport(). WWFF: one per station, reference and UTC
-// date, "KW9D@KFF-1234 20261006.adi", MY_WWFF_REF set. SOTA: one per station,
+// Upload files. POTA: potaExport(). WWFF: one per station, reference and run of
+// consecutive UTC days, named for the first, "KW9D @ KFF-1234 20261006.adi" ('/' in
+// the call becomes '-'), MY_WWFF_REF set. SOTA: one per station,
 // summit and date, "KW9D_W7A-AE-001_20261006.adi" ('/' becomes '-'), MY_SOTA_REF set.
 std::vector<PotaFile> programExport(Program p, std::string_view text, const DocModel &m, std::string_view defaultStation,
                                     std::string_view programVersion, std::string_view utcTimestamp, std::string_view eol,
