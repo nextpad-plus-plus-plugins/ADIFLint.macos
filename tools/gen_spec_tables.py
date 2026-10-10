@@ -9,6 +9,7 @@ comes from that file.
 
 Usage:  python3 tools/gen_spec_tables.py [spec/adif-3.1.7/all.json] [src/core/adif_spec_317.cpp]
 """
+import datetime
 import html
 import json
 import re
@@ -131,6 +132,31 @@ def num(v):
         return None
 
 
+def ymd(v, days=0):
+    """'2012-09-11T00:00:00Z' or '2012/01/01' -> '20120911' (plus `days`); None when absent."""
+    m = re.match(r"(\d{4})[-/](\d{2})[-/](\d{2})", v or "")
+    if not m:
+        return None
+    d = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3))) + datetime.timedelta(days=days)
+    return d.strftime("%Y%m%d")
+
+
+def validity(ename, rec):
+    """The QSO dates a value is valid for (spec II.C "Deletion"), as (from, before):
+    from inclusive, before exclusive, YYYYMMDD or None. ARRL_Section has From and
+    Deleted Date columns, Region Start and End Date (End inclusive), and subdivisions
+    say "for contacts made before D" or "for contacts made on or after D"."""
+    if ename == "ARRL_Section":
+        return ymd(rec.get("From Date")), ymd(rec.get("Deleted Date"))
+    if ename == "Region":
+        end = rec.get("End Date")
+        return ymd(rec.get("Start Date")), ymd(end, 1) if end else None
+    comment = rec.get("Comments") or ""
+    before = re.search(r"for contacts made before (\S+)", comment)
+    after = re.search(r"for contacts made on or after (\S+)", comment)
+    return (ymd(after.group(1)) if after else None), (ymd(before.group(1)) if before else None)
+
+
 def main():
     adif = json.loads(SRC.read_text(encoding="utf-8-sig"))["Adif"]
     briefs = html_descriptions(SPEC_HTML)
@@ -194,13 +220,15 @@ def main():
             # Keep the description only where it tells the user what to do instead; subdivision
             # tables put that in Comments ("replaced by CMX"), beside other notes such as local names.
             comment = rec.get("Comments") or ""
-            note = (rec.get("Description") or (comment if comment.lower().startswith("replaced by ") else None)) if imp else None
-            vals.append((sort_key(value), scope, value, note, imp))
+            replaced = comment if comment.lower().startswith("replaced by ") else None
+            since, before = validity(ename, rec)
+            note = (rec.get("Description") or replaced) if imp else replaced if before else None
+            vals.append((sort_key(value), scope, value, note, imp, since, before))
         vals.sort(key=lambda v: v[0])
         ident = "kEnum_" + ename
         lines.append(f"static const EnumValue {ident}[] = {{")
-        for _, scope, value, note, imp in vals:
-            lines.append(f"    {{{cstr(value)}, {cstr(scope)}, {cstr(note)}, {str(imp).lower()}}},")
+        for _, scope, value, note, imp, since, before in vals:
+            lines.append(f"    {{{cstr(value)}, {cstr(scope)}, {cstr(note)}, {str(imp).lower()}, {cstr(since)}, {cstr(before)}}},")
         lines += ["};", ""]
         enum_names.append((ename, ident))
     lines.append("static const EnumDef kEnums[] = {")
@@ -248,7 +276,7 @@ def main():
     ]
     OUT.write_text("\n".join(lines), encoding="ascii")
     print(f"descriptions from the HTML spec: {sum(1 for r in rows if briefs.get(r[0]))} of {len(rows)} fields")
-    print(f"wrote {OUT.relative_to(ROOT)}: {len(rows)} fields, {len(enum_names)} enumerations, "
+    print(f"wrote {OUT}: {len(rows)} fields, {len(enum_names)} enumerations, "
           f"{len(enums['Band']['Records'])} bands (ADIF {version}, {date})")
 
 

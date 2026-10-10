@@ -52,6 +52,22 @@ const EnumValue *findEnumValue(const EnumDef &e, std::string_view value, std::st
     return nullptr;
 }
 
+std::pair<const EnumValue *, const EnumValue *> enumValueRows(const EnumDef &e, std::string_view value) {
+    const EnumValue *end = e.values + e.count;
+    const EnumValue *first = std::lower_bound(e.values, end, value, [](const EnumValue &v, std::string_view key) {
+        return compareNoCase(v.value, key) < 0;
+    });
+    const EnumValue *last = first;
+    while (last != end && compareNoCase(last->value, value) == 0) ++last;
+    return {first, last};
+}
+
+bool validOn(const EnumValue &v, std::string_view date) {
+    if (date.empty()) return true;
+    if (v.from && date < std::string_view(v.from)) return false;
+    return !(v.before && date >= std::string_view(v.before));
+}
+
 bool enumHasScope(const EnumDef &e, std::string_view scope) {
     for (size_t i = 0; i < e.count; ++i)
         if (e.values[i].scope && equalsNoCase(e.values[i].scope, scope)) return true;

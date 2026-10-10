@@ -62,7 +62,10 @@ struct Diagnostic {
 // case, future-date, sat-name, sat-prop, pota-station, dup-field, no-eor, bom,
 // minimum-fields, subdivision (a STATE or CNTY not on the entity's list),
 // power-unit (TX_PWR 30W), placeholder ("none" for IOTA), import-only (a code
-// the spec says was replaced), field-day-class (1D in ARRL_SECT).
+// the spec says was replaced), field-day-class (1D in ARRL_SECT), deleted-code (a
+// code used outside its dates, §II.C), region-dxcc (REGION of another entity),
+// normalize (ANT_AZ 370), grid-ext-length (GRIDSQUARE_EXT over 4 characters),
+// qsl-date (a QSL date its status rules out), depends (STATE without DXCC).
 
 // One data specifier, <NAME:LENGTH[:T]>DATA, as byte offsets.
 struct ModelField {
@@ -126,11 +129,11 @@ std::string applyFixes(std::string_view text, const std::vector<LengthFix> &fixe
 
 size_t measureLength(std::string_view data, LengthUnit unit, bool utf8);
 
-// Parse an ADIF Number (§II.B): optional '-', digits, at most one '.'. Not locale-sensitive.
+// Parse an ADIF Number (§III.A): optional '-', digits, at most one '.'. Not locale-sensitive.
 bool parseAdifNumber(std::string_view v, double *out);
-// A 2, 4, 6 or 8 character Maidenhead locator (§II.B GridSquare).
+// A 2, 4, 6 or 8 character Maidenhead locator (§III.A GridSquare).
 bool isAdifGridSquare(std::string_view v);
-// §II.B WWFFRef (xxFF-nnnn) and SOTARef (association/region-number).
+// §III.A WWFFRef (xxFF-nnnn) and SOTARef (association/region-number).
 bool isAdifWwffRef(std::string_view v);
 bool isAdifSotaRef(std::string_view v);
 const char *severityName(Severity s);

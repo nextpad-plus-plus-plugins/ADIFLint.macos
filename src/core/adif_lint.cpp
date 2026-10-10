@@ -25,6 +25,7 @@
 #include "adif_spec.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -145,7 +146,7 @@ std::vector<std::string_view> split(std::string_view s, char sep) {
     return out;
 }
 
-// ADIF Number (§II.B): optional '-', one or more digits, at most one '.'. Parsed
+// ADIF Number (§III.A): optional '-', one or more digits, at most one '.'. Parsed
 // by hand because strtod is locale-sensitive (Resources §III.A).
 bool parseNumber(std::string_view v, double *out) {
     size_t i = 0;
@@ -179,7 +180,7 @@ bool parseInteger(std::string_view v, bool allowMinus) {
 
 int twoDigits(std::string_view s, size_t at) { return (s[at] - '0') * 10 + (s[at + 1] - '0'); }
 
-// Date (§II.B): YYYYMMDD, 1930 <= YYYY, valid month and day.
+// Date (§III.A): YYYYMMDD, 1930 <= YYYY, valid month and day.
 const char *dateProblem(std::string_view v) {
     if (v.size() != 8 || !allDigits(v)) return "a Date is 8 digits, YYYYMMDD";
     int y = twoDigits(v, 0) * 100 + twoDigits(v, 2), m = twoDigits(v, 4), d = twoDigits(v, 6);
@@ -192,7 +193,21 @@ const char *dateProblem(std::string_view v) {
     return nullptr;
 }
 
-// Time (§II.B): HHMM or HHMMSS.
+// YYYYMMDD -> YYYY-MM-DD, for messages.
+std::string dashedDate(std::string_view d) {
+    return d.size() == 8 ? std::string(d.substr(0, 4)) + "-" + std::string(d.substr(4, 2)) + "-" + std::string(d.substr(6, 2))
+                         : std::string(d);
+}
+
+// The QSO dates an enumeration value is valid for, in words: "before 2012-09-01".
+std::string validityText(const EnumValue &x) {
+    std::string out;
+    if (x.from) out = "from " + dashedDate(x.from);
+    if (x.before) out += (out.empty() ? "" : " and ") + std::string("before ") + dashedDate(x.before);
+    return out;
+}
+
+// Time (§III.A): HHMM or HHMMSS.
 const char *timeProblem(std::string_view v) {
     if ((v.size() != 4 && v.size() != 6) || !allDigits(v)) return "a Time is HHMM or HHMMSS";
     if (twoDigits(v, 0) > 23) return "the hour must be 00-23";
@@ -201,7 +216,7 @@ const char *timeProblem(std::string_view v) {
     return nullptr;
 }
 
-// GridSquare (§II.B): 2, 4, 6 or 8 character Maidenhead locator, case-insensitive.
+// GridSquare (§III.A): 2, 4, 6 or 8 character Maidenhead locator, case-insensitive.
 bool isGridSquare(std::string_view v) {
     if (v.size() != 2 && v.size() != 4 && v.size() != 6 && v.size() != 8) return false;
     for (size_t i = 0; i < v.size(); ++i) {
@@ -215,7 +230,7 @@ bool isGridSquare(std::string_view v) {
     return true;
 }
 
-// GridSquareExt (§II.B): characters 9-10 (A-X) and optionally 11-12 (digits).
+// GridSquareExt (§III.A): characters 9-10 (A-X) and optionally 11-12 (digits).
 bool isGridSquareExt(std::string_view v) {
     if (v.size() != 2 && v.size() != 4) return false;
     for (size_t i = 0; i < 2; ++i) {
@@ -225,7 +240,7 @@ bool isGridSquareExt(std::string_view v) {
     return v.size() == 2 || (isDigit((unsigned char)v[2]) && isDigit((unsigned char)v[3]));
 }
 
-// Location (§II.B): XDDD MM.MMM, X in {E,W,N,S}, 0 <= DDD <= 180, 00.000 <= MM.MMM <= 59.999.
+// Location (§III.A): XDDD MM.MMM, X in {E,W,N,S}, 0 <= DDD <= 180, 00.000 <= MM.MMM <= 59.999.
 const char *locationProblem(std::string_view v) {
     if (v.size() != 11) return "a Location is 11 characters, XDDD MM.MMM";
     unsigned char x = up((unsigned char)v[0]);
@@ -235,12 +250,38 @@ const char *locationProblem(std::string_view v) {
         return "the form is XDDD MM.MMM";
     int deg = (v[1] - '0') * 100 + twoDigits(v, 2);
     if (deg > 180) return "degrees must be 000-180";
-    if ((x == 'N' || x == 'S') && deg > 90) return "a latitude cannot exceed 90 degrees";
     if (twoDigits(v, 5) > 59) return "minutes must be below 60";
+    bool minutes = twoDigits(v, 5) > 0 || v.substr(8) != "000";
+    if ((x == 'N' || x == 'S') && (deg > 90 || (deg == 90 && minutes))) return "a latitude cannot exceed 90 degrees";
+    if (deg == 180 && minutes) return "a longitude cannot exceed 180 degrees";
     return nullptr;
 }
 
-// IOTARefNo (§II.B): CC-XXX, CC a Continent, 001 <= XXX <= 999.
+// A Maidenhead locator of 4 or 6 characters as (east, north) steps of its own size.
+std::pair<long, long> gridCell(std::string_view g) {
+    long x = (up(g[0]) - 'A') * 10 + (g[2] - '0'), y = (up(g[1]) - 'A') * 10 + (g[3] - '0');
+    if (g.size() == 6) x = x * 24 + (up(g[4]) - 'A'), y = y * 24 + (up(g[5]) - 'A');
+    return {x, y};
+}
+
+// VUCC_GRIDS (§III.A.1): two adjacent locators side by side, or four in a square.
+bool vuccAdjacent(const std::vector<std::string_view> &grids) {
+    const long width = grids[0].size() == 6 ? 180 * 24 : 180;  // longitude steps around the world
+    std::set<std::pair<long, long>> cells;
+    std::set<long> xs, ys;
+    for (std::string_view g : grids) {
+        auto c = gridCell(g);
+        cells.insert(c), xs.insert(c.first), ys.insert(c.second);
+    }
+    auto next = [&](long a, long b) { return (b - a + width) % width == 1 || (a - b + width) % width == 1; };
+    auto nextY = [](long a, long b) { return a - b == 1 || b - a == 1; };
+    if (cells.size() != grids.size() || xs.size() > 2 || ys.size() > 2) return false;
+    if (xs.size() == 2 && !next(*xs.begin(), *xs.rbegin())) return false;
+    if (ys.size() == 2 && !nextY(*ys.begin(), *ys.rbegin())) return false;
+    return grids.size() == 2 ? xs.size() + ys.size() == 3 : xs.size() == 2 && ys.size() == 2;
+}
+
+// IOTARefNo (§III.A): CC-XXX, CC a Continent, 001 <= XXX <= 999.
 bool isIota(std::string_view v) {
     if (v.size() != 6 || v[2] != '-' || !allDigits(v.substr(3))) return false;
     const EnumDef *cont = findEnum("Continent");
@@ -248,7 +289,7 @@ bool isIota(std::string_view v) {
     return v.substr(3) != "000";
 }
 
-// POTARef (§II.B): xxxx-nnnnn[@yyyyyy], 6-17 characters.
+// POTARef (§III.A): xxxx-nnnnn[@yyyyyy], 6-17 characters.
 bool isPotaRef(std::string_view v) {
     if (v.size() < 6 || v.size() > 17) return false;
     size_t dash = v.find('-');
@@ -267,7 +308,7 @@ bool isPotaRef(std::string_view v) {
     return true;
 }
 
-// WWFFRef (§II.B): xxFF-nnnn, 8-11 characters, xx 1-4 characters.
+// WWFFRef (§III.A): xxFF-nnnn, 8-11 characters, xx 1-4 characters.
 bool isWwffRef(std::string_view v) {
     if (v.size() < 8 || v.size() > 11) return false;
     size_t ff = v.size() - 7;  // "FF-nnnn" is the last 7 characters
@@ -277,7 +318,7 @@ bool isWwffRef(std::string_view v) {
     return up(v[ff]) == 'F' && up(v[ff + 1]) == 'F' && v[ff + 2] == '-' && allDigits(v.substr(ff + 3));
 }
 
-// SOTARef (§II.B): association, '/', region-number, e.g. W2/WE-003, G/LD-003.
+// SOTARef (§III.A): association, '/', region-number, e.g. W2/WE-003, G/LD-003.
 // The spec's wording is loose, so a mismatch is only a warning.
 bool isSotaRef(std::string_view v) {
     size_t slash = v.find('/');
@@ -335,6 +376,9 @@ private:
     bool startsWithLt_ = false;
     bool sawTag_ = false;
     bool sawEOH_ = false;
+    size_t eohB_ = 0, eohE_ = 0;               // the first <EOH>
+    size_t dependsCount_[4] = {};              // records with STATE, CNTY, MY_STATE, MY_CNTY but no (MY_)DXCC
+    size_t dependsDiag_[4] = {npos, npos, npos, npos};
     bool sawRecord_ = false;
     size_t firstTag_ = 0;
     std::vector<Spec> cur_;                    // specifiers since the last <EOH>/<EOR>
@@ -399,6 +443,8 @@ private:
     void checkChars(const Spec &sp, std::string_view v, size_t vEnd, bool multiline);
     void checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, const FieldDef &fd, bool strict,
                           const Fields &f);
+    void checkSubdivisionAlt(const Spec &sp, std::string_view v, size_t vEnd, const Fields &f);
+    void checkRelations(const Fields &f, const std::vector<Spec> &group, const Tag *eor);
     void checkFreqInBand(const Fields &f, const char *freqName, const char *bandName);
     void checkPractice(const std::vector<Spec> &group, const Fields &f, const Tag *eor);
 };
@@ -577,7 +623,7 @@ const char *Linter::unitWord(size_t count) const {
 LintResult Linter::run() {
     if (n_ >= 3 && (unsigned char)t_[0] == 0xEF && (unsigned char)t_[1] == 0xBB && (unsigned char)t_[2] == 0xBF)
         diag(Severity::Warning, 0, 3,
-             "UTF-8 byte-order mark at the start of the file. ADI files are ASCII (§II.B); some importers reject it.");
+             "UTF-8 byte-order mark at the start of the file. ADI files are ASCII (§III.A); some importers reject it.");
     if (n_ >= 3 && (unsigned char)t_[0] == 0xEF && (unsigned char)t_[1] == 0xBB && (unsigned char)t_[2] == 0xBF)
         annotate("bom", "", {FieldFix{FixKind::DeleteText, "", "", kNoPos}}, "remove the byte-order mark");
     startsWithLt_ = n_ > 0 && t_[0] == '<';
@@ -633,7 +679,19 @@ LintResult Linter::run() {
         textStart = pos;
     }
     ignored(textStart, n_);
+    bool openRecord = !cur_.empty();
     endOfFile();
+    if (r_.records == 0 && sawEOH_ && !openRecord)
+        diag(Severity::Info, eohB_, eohE_, "The file has a header but no records yet; an ADI file holds one or more (§IV.A.2).");
+    static const char *const kDependsText[][2] = {{"STATE", "DXCC"}, {"CNTY", "DXCC"}, {"MY_STATE", "MY_DXCC"}, {"MY_CNTY", "MY_DXCC"}};
+    for (size_t i = 0; i < 4; ++i) {
+        if (dependsDiag_[i] == npos) continue;
+        const char *dep = kDependsText[i][0], *on = kDependsText[i][1];
+        size_t n = dependsCount_[i];
+        r_.diagnostics[dependsDiag_[i]].message =
+            std::string(dep) + " depends on " + on + ", which " + (n == 1 ? std::string("this record lacks") : std::to_string(n) + " records lack, this one first") +
+            "; ADIF exports " + on + " with it (§I.E), and without it " + dep + " cannot be checked.";
+    }
 
     // pota-station: the log's usual STATION_CALLSIGN is the repair, when it has one.
     std::string usual;
@@ -812,6 +870,7 @@ void Linter::endHeader(const Tag &tag) {
     }
     validateHeader(cur_);
     closeGroup(true, &tag);
+    if (!sawEOH_) eohB_ = tag.lt, eohE_ = tag.gt + 1;
     sawEOH_ = true;
     r_.hasHeader = true;
 }
@@ -928,8 +987,8 @@ void Linter::validateHeader(const std::vector<Spec> &group) {
 // <USERDEFn:L:T>FIELDNAME[,{A,B,C}|,{low:high}]  (§IV.A.5)
 void Linter::defineUserField(const Spec &sp) {
     std::string_view n = std::string_view(sp.name).substr(7);
-    if (n[0] == '0')
-        diagTag(Severity::Warning, sp, "In USERDEFn, n must be a positive integer without leading zeros (§IV.A.5).");
+    if (n.find_first_not_of('0') == npos)
+        diagTag(Severity::Warning, sp, "In USERDEFn, n must be a positive integer (§IV.A.5).");
     UserDef ud;
     if (sp.tag.typePos == npos) {
         diagTag(Severity::Warning, sp, sp.name + " should give a data type indicator, e.g. <" + sp.name + ":8:N> (§IV.A.5).");
@@ -1003,6 +1062,7 @@ void Linter::validateRecord(const std::vector<Spec> &group, const Tag *eor) {
 
     checkFreqInBand(f, "FREQ", "BAND");
     checkFreqInBand(f, "FREQ_RX", "BAND_RX");
+    checkRelations(f, group, eor);
     checkPractice(group, f, eor);
 
     // Resources §III.C: a guideline, not a rule, so only a note.
@@ -1117,10 +1177,12 @@ DataType Linter::appFieldType(const Spec &sp) {
     if (it == appTypes_.end()) {
         appTypes_[sp.name] = ind;
         if (opt_.buildModel) r_.model.appFields.emplace_back(sp.name, ind);
-    } else if (ind && it->second && ind != it->second) {
+    } else if (ind && ind != (it->second ? it->second : 'M')) {
+        // Untyped, the first occurrence was a MultilineString: that is its type too.
         diagTag(Severity::Error, sp,
-                std::string("This APP_ field was first typed '") + it->second + "'; later occurrences must not change "
-                "the type (§IV.A.4).");
+                (it->second ? std::string("This APP_ field was first typed '") + it->second + "'"
+                            : std::string("This APP_ field first appeared without a type, so it is a MultilineString")) +
+                    "; later occurrences must not change the type (§IV.A.4).");
     } else if (!ind) {
         ind = it->second;
     }
@@ -1200,13 +1262,13 @@ void Linter::checkChars(const Spec &sp, std::string_view v, size_t vEnd, bool mu
         snprintf(b, sizeof b, "0x%02X", bad);
         diagValue(Severity::Error, sp, vEnd,
                   std::string("Control character ") + b + " is not allowed in " + (multiline ? "a MultilineString" : "a String") +
-                      (multiline ? "; only CR LF line breaks are (§II.B)." : "; only ASCII 32-126 is (§II.B)."));
+                      (multiline ? "; only CR LF line breaks are (§III.A)." : "; only ASCII 32-126 is (§III.A)."));
     }
     if (bareBreak)
-        diagValue(Severity::Warning, sp, vEnd, "Line breaks in a MultilineString must be CR LF (§II.B); this one is a bare CR or LF.");
+        diagValue(Severity::Warning, sp, vEnd, "Line breaks in a MultilineString must be CR LF (§III.A); this one is a bare CR or LF.");
     if (nonAscii)
         diagValue(Severity::Warning, sp, vEnd,
-                  "Non-ASCII text. ADI fields are ASCII only (§II.B), and programs disagree on whether such lengths "
+                  "Non-ASCII text. ADI fields are ASCII only (§III.A), and programs disagree on whether such lengths "
                   "count bytes or characters. International text belongs in _INTL fields in ADX files.");
 }
 
@@ -1226,6 +1288,40 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         return std::string(s);
     };
     std::string key = dxccCodes ? normalize(v) : std::string(v);
+    std::string_view qsoDate = value(f, "QSO_DATE");
+    if (dateProblem(qsoDate)) qsoDate = {};
+    // Deleted values (§II.C) are valid only for QSOs in their dates: ARRL sections,
+    // regions and some subdivisions carry them. A code may have several rows (PM
+    // was one Russian oblast before 2005-12-01 and another since): any one will do.
+    auto dated = [&](std::string_view scope) {
+        if (qsoDate.empty()) return;
+        auto [first, last] = enumValueRows(*e, key);
+        std::string when;
+        const char *note = nullptr;
+        for (const EnumValue *x = first; x != last; ++x) {
+            if (!scope.empty() && !(x->scope && equalsNoCase(x->scope, scope))) continue;
+            if (validOn(*x, qsoDate)) return;
+            when += (when.empty() ? "" : ", or ") + validityText(*x);
+            if (x->note) note = x->note;
+        }
+        if (when.empty()) return;
+        std::string msg = sp.name + " " + std::string(v) + " is valid only for QSOs " + when + " (§II.C); this QSO is on " +
+                          dashedDate(qsoDate) + ".";
+        if (note) msg += std::string(" ADIF: ") + note + ".";
+        diagValue(Severity::Warning, sp, vEnd, std::move(msg));
+        // "replaced by GH": one code, valid on this date, is the repair.
+        std::string_view n = note ? std::string_view(note) : std::string_view();
+        if (startsWithNoCase(n, "replaced by ") && n.find_first_of(" ,", 12) == npos) {
+            std::string to(n.substr(12));
+            auto [rf, rl] = enumValueRows(*e, to);
+            for (const EnumValue *x = rf; x != rl; ++x)
+                if ((scope.empty() || (x->scope && equalsNoCase(x->scope, scope))) && validOn(*x, qsoDate)) {
+                    annotate("deleted-code", sp.name, {setTo(sp.name, to)}, sp.name + " " + to);
+                    return;
+                }
+        }
+        annotate("deleted-code", sp.name);
+    };
     auto importOnly = [&](const EnumValue *ev) {
         if (!ev->importOnly) return;
         std::string msg = "'" + std::string(v) + "' is an import-only (deprecated) " + sp.name + " value; exporters must not write it.";
@@ -1256,6 +1352,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         }
         if (const EnumValue *ev = findEnumValue(*e, key, scope)) {
             importOnly(ev);
+            if (!submode) dated(scope);
             return;
         }
         if (submode) {
@@ -1327,8 +1424,31 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
                      "move to CLASS " + upper(v));
         return;
     }
+    // REGION: each code is a region of one DXCC entity (§III.B.21), KO of three over time; NONE of any.
+    if (equalsNoCase(e->name, "Region") && !equalsNoCase(key, "NONE")) {
+        std::string dxcc = normalize(value(f, "DXCC"));
+        if (!dxcc.empty() && !findEnumValue(*e, key, dxcc)) {
+            std::string within;
+            auto [first, last] = enumValueRows(*e, key);
+            for (const EnumValue *x = first; x != last; ++x) {
+                if (!x->scope) continue;
+                const char *name = dxccEntityName(x->scope);
+                within += (within.empty() ? "" : " or ") + std::string("DXCC ") + x->scope +
+                          (name && std::strcmp(x->scope, "0") != 0 ? " (" + titleCase(name) + ")" : std::string());
+            }
+            const char *here = dxccEntityName(dxcc);
+            diagValue(Severity::Warning, sp, vEnd,
+                      "REGION " + std::string(v) + " is within " + within + ", not DXCC " + dxcc +
+                          (here && dxcc != "0" ? " (" + titleCase(here) + ")" : std::string()) + " (§III.B.21).");
+            annotate("region-dxcc", "REGION");
+            return;
+        }
+        dated(dxcc);
+        return;
+    }
     importOnly(ev);
     if (ev->importOnly) submodeFix();
+    dated("");
 }
 
 void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_t vEnd, const FieldDef *fd,
@@ -1345,6 +1465,24 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             std::string limits = hasMin && hasMax ? fmtNumber(lo) + " to " + fmtNumber(hi)
                                  : hasMin       ? "at least " + fmtNumber(lo)
                                                 : "at most " + fmtNumber(hi);
+            // ANT_AZ and ANT_EL: "Values outside this range are import-only and must be
+            // normalized for export (e.g. 370 is exported as 10)" (and 100 as 80).
+            if (fd && (sp.name == "ANT_AZ" || sp.name == "ANT_EL")) {
+                double n = std::fmod(x, 360);
+                if (sp.name == "ANT_AZ") {
+                    if (n < 0) n += 360;
+                } else {
+                    if (n > 180) n -= 360;
+                    if (n <= -180) n += 360;
+                    if (n > 90) n = 180 - n;
+                    if (n < -90) n = -180 - n;
+                }
+                std::string to = fmtMHz(n == 0 ? 0 : n);
+                diagValue(Severity::Warning, sp, vEnd,
+                          sp.name + " outside " + limits + " is import-only; exporters write it normalized, " + snippet(v) + " as " + to + ".");
+                annotate("normalize", sp.name, {setTo(sp.name, to)}, sp.name + " " + to);
+                return;
+            }
             diagValue(Severity::Error, sp, vEnd, sp.name + " must be " + limits + "; got " + snippet(v) + ".");
         }
     };
@@ -1363,9 +1501,33 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
 
     switch (type) {
         case DataType::String:
-        case DataType::SecondarySubdivisionList:
+            checkChars(sp, v, vEnd, false);
+            break;
+        case DataType::SecondarySubdivisionList: {
+            // "a colon-delimited list of two or more members of the Secondary_Administrative_Subdivision
+            // enumeration", here US counties as <state>,<county> (§III.A, §III.B.22): MA,Franklin:MA,Hampshire.
+            checkChars(sp, v, vEnd, false);
+            auto items = split(v, ':');
+            if (items.size() < 2) {
+                bad(Severity::Error, "it lists two or more counties separated by ':', such as MA,Franklin:MA,Hampshire");
+                break;
+            }
+            const EnumDef *states = findEnum("Primary_Administrative_Subdivision");
+            for (std::string_view item : items) {
+                size_t comma = item.find(',');
+                std::string_view st = item.substr(0, comma);
+                bool usState = states && (findEnumValue(*states, st, "291") || findEnumValue(*states, st, "6") ||
+                                          findEnumValue(*states, st, "110"));
+                if (comma == npos || comma + 1 >= item.size() || !usState) {
+                    bad(Severity::Warning, "'" + snippet(item) + "' is not a US county written as state,county (MA,Franklin)");
+                    break;
+                }
+            }
+            break;
+        }
         case DataType::SecondaryAdministrativeSubdivisionListAlt:
             checkChars(sp, v, vEnd, false);
+            checkSubdivisionAlt(sp, v, vEnd, f);
             break;
         case DataType::MultilineString:
             checkChars(sp, v, vEnd, true);
@@ -1438,7 +1600,7 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             }
             break;
         case DataType::Enumeration:
-            checkChars(sp, v, vEnd, false);  // enumeration values are ASCII (§II.B)
+            checkChars(sp, v, vEnd, false);  // enumeration values are ASCII (§III.A)
             if (fd) {
                 checkEnumeration(sp, v, vEnd, *fd, true, f);
             } else if (ud && !ud->values.empty()) {
@@ -1455,17 +1617,54 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             if (!isGridSquare(v)) bad(Severity::Error, "expected a 2, 4, 6 or 8 character Maidenhead locator such as FN31pr");
             break;
         case DataType::GridSquareExt:
-            if (!isGridSquareExt(v)) bad(Severity::Error, "expected locator characters 9-10 (A-X) and optionally 11-12 (digits)");
+            // "On export, the field length must be 2 or 4. On import, if the field length is
+            // greater than 4, the additional characters must be ignored." (GRIDSQUARE_EXT)
+            if (v.size() > 4 && isGridSquareExt(v.substr(0, 4))) {
+                diagValue(Severity::Warning, sp, vEnd,
+                          sp.name + " has " + std::to_string(v.size()) + " characters; it is 2 or 4, and importers ignore the rest.");
+                annotate("grid-ext-length", sp.name, {setTo(sp.name, std::string(v.substr(0, 4)))}, sp.name + " " + std::string(v.substr(0, 4)));
+            } else if (!isGridSquareExt(v)) {
+                bad(Severity::Error, "expected locator characters 9-10 (A-X) and optionally 11-12 (digits)");
+            }
             break;
-        case DataType::GridSquareList:
-            for (std::string_view g : split(v, ','))
+        case DataType::GridSquareList: {
+            auto grids = split(v, ',');
+            bool ok = true;
+            for (std::string_view g : grids)
                 if (!isGridSquare(g)) {
                     bad(Severity::Error, "'" + snippet(g) + "' is not a 2, 4, 6 or 8 character locator");
+                    ok = false;
                     break;
                 }
+            // VUCC_GRIDS, MY_VUCC_GRIDS: "two or four adjacent Maidenhead grid locators, each four
+            // or six characters long" (field definitions; §III.A.1).
+            if (ok && fd && (sp.name == "VUCC_GRIDS" || sp.name == "MY_VUCC_GRIDS")) {
+                for (std::string_view g : grids)
+                    if (g.size() != 4 && g.size() != 6) {
+                        bad(Severity::Error, "'" + snippet(g) + "' has " + std::to_string(g.size()) +
+                                                 " characters; " + sp.name + " locators have 4 or 6");
+                        ok = false;
+                        break;
+                    }
+                if (ok && grids.size() != 2 && grids.size() != 4)
+                    diagValue(Severity::Warning, sp, vEnd,
+                              sp.name + " lists two or four adjacent locators; this has " + std::to_string(grids.size()) + ".");
+                else if (ok && std::all_of(grids.begin(), grids.end(), [&](std::string_view g) { return g.size() == grids[0].size(); }) &&
+                         !vuccAdjacent(grids))
+                    diagValue(Severity::Warning, sp, vEnd,
+                              sp.name + " " + snippet(v) + ": the locators are not adjacent (two side by side, or four in a square).");
+            }
             break;
+        }
         case DataType::Location:
-            if (const char *why = locationProblem(v)) bad(Severity::Error, why);
+            if (const char *why = locationProblem(v)) {
+                bad(Severity::Error, why);
+            } else if (fd) {  // LAT and MY_LAT are latitudes (N, S); LON and MY_LON longitudes (E, W)
+                bool lat = sp.name == "LAT" || sp.name == "MY_LAT", lon = sp.name == "LON" || sp.name == "MY_LON";
+                unsigned char x = up((unsigned char)v[0]);
+                if (lat && x != 'N' && x != 'S') bad(Severity::Error, sp.name + " is a latitude, so it starts with N or S");
+                if (lon && x != 'E' && x != 'W') bad(Severity::Error, sp.name + " is a longitude, so it starts with E or W");
+            }
             break;
         case DataType::IOTARefNo:
             if (!isIota(v)) bad(Severity::Error, "expected CC-XXX, e.g. NA-001 (continent, dash, 3 digits)");
@@ -1531,6 +1730,111 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
     if (fd && fd->enumeration && type != DataType::Enumeration && type != DataType::CreditList &&
         type != DataType::SponsoredAwardList)
         checkEnumeration(sp, v, vEnd, *fd, false, f);
+}
+
+// SecondaryAdministrativeSubdivisionListAlt (§III.A, §III.B.23): "enumeration-name:enumeration-code"
+// items separated by ';', each enumeration-name at most once, e.g. NZ_Regions:Hawkes Bay/Wairoa.
+void Linter::checkSubdivisionAlt(const Spec &sp, std::string_view v, size_t vEnd, const Fields &f) {
+    const EnumDef *alt = findEnum("Secondary_Administrative_Subdivision_Alt");
+    std::string dxcc(value(f, sp.name == "MY_CNTY_ALT" ? "MY_DXCC" : "DXCC"));
+    while (dxcc.size() > 1 && dxcc[0] == '0') dxcc.erase(0, 1);
+    std::set<std::string> names;
+    for (std::string_view item : split(v, ';')) {
+        size_t colon = item.find(':');
+        if (colon == npos || colon == 0 || colon + 1 >= item.size()) {
+            diagValue(Severity::Error, sp, vEnd,
+                      "'" + snippet(item) + "' in " + sp.name + " is not enumeration-name:code, such as NZ_Regions:Hawkes Bay/Wairoa (§III.A).");
+            return;
+        }
+        std::string_view name = item.substr(0, colon);
+        if (!names.insert(upper(name)).second) {
+            diagValue(Severity::Error, sp, vEnd, sp.name + " lists " + std::string(name) + " more than once; each enumeration-name appears once (§III.A).");
+            return;
+        }
+        if (!alt) continue;
+        const char *scope = nullptr;
+        bool known = false;
+        for (size_t i = 0; i < alt->count && !known; ++i) {
+            std::string_view c = alt->values[i].value;
+            if (c.size() > colon && c[colon] == ':' && equalsNoCase(c.substr(0, colon), name)) known = true, scope = alt->values[i].scope;
+        }
+        if (!known) {
+            diagValue(Severity::Info, sp, vEnd, "ADIF " + std::string(kSpecVersion) + " lists no " + std::string(name) + " codes (§III.B.23).");
+        } else if (!dxcc.empty() && scope && dxcc != scope) {
+            const char *country = dxccEntityName(scope);
+            diagValue(Severity::Warning, sp, vEnd,
+                      std::string(name) + " codes are for DXCC " + scope + (country ? " (" + titleCase(country) + ")" : std::string()) +
+                          ", not DXCC " + dxcc + " (§III.B.23).");
+        } else if (!findEnumValue(*alt, item)) {
+            diagValue(Severity::Warning, sp, vEnd, "'" + snippet(item) + "' is not one of ADIF's " + std::string(name) + " codes (§III.B.23).");
+        }
+    }
+}
+
+// Fields whose meaning depends on another field (their definitions; §III.A.1).
+void Linter::checkRelations(const Fields &f, const std::vector<Spec> &group, const Tag *eor) {
+    (void)group, (void)eor;
+    auto at = [&](const char *name) -> const Spec * {
+        auto it = f.find(name);
+        return it == f.end() ? nullptr : it->second;
+    };
+    // "STATE depends on DXCC ... if STATE is exported, DXCC should be exported too" (§I.E):
+    // without it the code means nothing and cannot be checked.
+    // Logs often lack it in every record (QRZ.com writes MY_STATE without MY_DXCC), so one
+    // note per field at its first record, counted when the file is done.
+    static const char *const kDepends[][2] = {{"STATE", "DXCC"}, {"CNTY", "DXCC"}, {"MY_STATE", "MY_DXCC"}, {"MY_CNTY", "MY_DXCC"}};
+    for (size_t i = 0; i < 4; ++i) {
+        const char *dep = kDepends[i][0], *on = kDepends[i][1];
+        const Spec *sp = at(dep);
+        if (!sp || value(f, dep).empty() || !value(f, on).empty()) continue;
+        if (dependsCount_[i]++) continue;
+        diagValue(Severity::Info, *sp, sp->cleanE, std::string());
+        annotate("depends", on);
+        dependsDiag_[i] = lastDiag_;
+    }
+    // GRIDSQUARE_EXT holds characters 9-12 of a locator whose first 8 are in GRIDSQUARE.
+    for (auto [ext, grid] : {std::pair<const char *, const char *>{"GRIDSQUARE_EXT", "GRIDSQUARE"}, {"MY_GRIDSQUARE_EXT", "MY_GRIDSQUARE"}}) {
+        const Spec *sp = at(ext);
+        std::string_view g = value(f, grid);
+        if (!sp || value(f, ext).empty() || g.size() == 8) continue;
+        diagValue(Severity::Warning, *sp, sp->cleanE,
+                  std::string(ext) + " holds characters 9 and on of a locator, so " + grid + " should hold the first 8" +
+                      (g.empty() ? std::string("; it is missing.") : "; it has " + std::to_string(g.size()) + "."));
+    }
+    // "If both GRIDSQUARE and VUCC_GRIDS are exported in a QSO record, the locator in GRIDSQUARE
+    // should be consistent with the locators in VUCC_GRIDS" (§III.A.1).
+    for (auto [vucc, grid] : {std::pair<const char *, const char *>{"VUCC_GRIDS", "GRIDSQUARE"}, {"MY_VUCC_GRIDS", "MY_GRIDSQUARE"}}) {
+        std::string_view list = value(f, vucc), g = value(f, grid);
+        if (list.empty() || !isGridSquare(g)) continue;
+        bool consistent = false, valid = true;
+        for (std::string_view item : split(list, ',')) {
+            valid &= isGridSquare(item);
+            size_t n = std::min(item.size(), g.size());
+            consistent |= equalsNoCase(item.substr(0, n), g.substr(0, n));
+        }
+        if (!valid || consistent) continue;
+        const Spec *sp = at(grid);
+        diagValue(Severity::Warning, *sp, sp->cleanE,
+                  std::string(grid) + " " + std::string(g) + " is not in " + vucc + " " + snippet(list) + "; the two should agree (§III.A.1).");
+    }
+    // QSL dates: "date QSL received (only valid if QSL_RCVD is Y, I, or V)", "date QSL sent
+    // (only valid if QSL_SENT is Y, Q, or I)"; each status defaults to N.
+    static const struct { const char *date, *status, *allowed, *words; } kQsl[] = {
+        {"QSLRDATE", "QSL_RCVD", "YIV", "Y, I or V"},           {"QSLSDATE", "QSL_SENT", "YQI", "Y, Q or I"},
+        {"LOTW_QSLRDATE", "LOTW_QSL_RCVD", "YIV", "Y, I or V"}, {"LOTW_QSLSDATE", "LOTW_QSL_SENT", "YQI", "Y, Q or I"},
+        {"EQSL_QSLRDATE", "EQSL_QSL_RCVD", "YIV", "Y, I or V"}, {"EQSL_QSLSDATE", "EQSL_QSL_SENT", "YQI", "Y, Q or I"},
+        {"DCL_QSLRDATE", "DCL_QSL_RCVD", "YIV", "Y, I or V"},   {"DCL_QSLSDATE", "DCL_QSL_SENT", "YQI", "Y, Q or I"},
+    };
+    for (const auto &q : kQsl) {
+        const Spec *sp = at(q.date);
+        if (!sp || value(f, q.date).empty()) continue;
+        std::string status = upper(value(f, q.status));
+        if (status.size() == 1 && std::strchr(q.allowed, status[0])) continue;
+        diagValue(Severity::Warning, *sp, sp->cleanE,
+                  std::string(q.date) + " is only valid when " + q.status + " is " + q.words + "; here it is " +
+                      (status.empty() ? std::string("N (the default: ") + q.status + " is missing)." : status + "."));
+        annotate("qsl-date", q.status);
+    }
 }
 
 void Linter::checkFreqInBand(const Fields &f, const char *freqName, const char *bandName) {

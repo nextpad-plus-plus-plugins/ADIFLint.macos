@@ -229,7 +229,7 @@ static NSXMLElement *child(NSXMLElement *parent, NSString *localName) {
     return nil;
 }
 
-// ASCII only (ADI §II.B): transliterate accented letters ("Jürg" -> "Jurg").
+// ASCII only (ADI §III.A): transliterate accented letters ("Jürg" -> "Jurg").
 static std::string asciiValue(NSString *s) {
     NSString *t = [s stringByApplyingTransform:@"Any-Latin; Latin-ASCII" reverse:NO] ?: s;
     return t.UTF8String ?: "";

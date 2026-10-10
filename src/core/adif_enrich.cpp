@@ -29,7 +29,7 @@ std::string trimmed(std::string_view s) {
     return out;
 }
 
-// ADI fields are ASCII 32-126 (§II.B): drop anything else rather than corrupt the log.
+// ADI fields are ASCII 32-126 (§III.A): drop anything else rather than corrupt the log.
 bool printableAscii(std::string_view s) {
     for (unsigned char c : s)
         if (c < 32 || c > 126) return false;

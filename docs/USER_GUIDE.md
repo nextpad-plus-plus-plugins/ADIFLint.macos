@@ -101,8 +101,10 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
 ### What is checked
 
 Every rule comes from the ADIF 3.1.7 specification. Every field, data type, enumeration
-value, band edge and import-only flag is generated from ADIF's official JSON export, not
-typed by hand.
+value, band edge, import-only flag and deletion date is generated from ADIF's official
+JSON export, not typed by hand. ADIF's own test file (6,197 QSOs using every field and
+value) lints with no errors or warnings; [ADIF conformance](ADIF_CONFORMANCE.md) lists
+each rule with its section.
 
 - **Structure** (§IV.A): data specifier syntax, data lengths (too short, too long, past
   the end of file, including the line break), leading zeros in lengths (import-only),
@@ -110,25 +112,42 @@ typed by hand.
   record, a stray `<`, and a field missing its `<`.
 - **Fields:** unknown names, header fields in records and the reverse, import-only fields,
   `_INTL` fields (which ADI cannot carry), and type indicators that don't match the field.
-- **Data types** (§II.B): Date, Time, Number (no `+`, no `,`), Integer, PositiveInteger,
+- **Data types** (§III.A): Date, Time, Number (no `+`, no `,`), Integer, PositiveInteger,
   Boolean, String and MultilineString characters (ASCII only, CR LF line breaks),
-  GridSquare, GridSquareExt, GridSquareList, Location, IOTA, POTA, SOTA, WWFF, CreditList,
-  SponsoredAwardList, and minimum and maximum values (CQZ, ITUZ, AGE, K_INDEX…).
+  GridSquare, GridSquareExt, GridSquareList, Location (LAT and MY_LAT north or south, LON
+  and MY_LON east or west), IOTA, POTA, SOTA, WWFF, CreditList, SponsoredAwardList,
+  USACA_COUNTIES (two or more `state,county` separated by `:`), CNTY_ALT
+  (`NZ_Regions:Hawkes Bay/Wairoa`, each list name once, codes from ADIF's table), and
+  minimum and maximum values (CQZ, ITUZ, AGE, K_INDEX…). ANT_AZ and ANT_EL outside their
+  ranges are import-only, so a warning offers the normalized value (370 → 10, 100 → 80).
+- **Field rules** from their definitions: VUCC_GRIDS and MY_VUCC_GRIDS hold two or four
+  adjacent locators of 4 or 6 characters; GRIDSQUARE_EXT is 2 or 4 characters (longer
+  ones are cut to 4) after an 8-character GRIDSQUARE.
 - **Enumerations:** BAND, MODE, QSL statuses, DXCC, ARRL section, continent, propagation
   mode and the rest, plus deprecated values with the specification's advice (for example
-  `MODE C4FM` → `DIGITALVOICE` with `SUBMODE C4FM`).
+  `MODE C4FM` → `DIGITALVOICE` with `SUBMODE C4FM`). Codes ADIF deleted are valid only for
+  QSOs in their dates (§II.C): ARRL sections (`ON` until 2012-09-01, `GH` from
+  2023-01-01), the Kosovo region, and Russian and Austrian districts. When the
+  specification names one replacement that is valid on the QSO's date (`GTA` → `GH`), that
+  is the repair.
 - **Between fields:** SUBMODE must belong to MODE; FREQ must lie in BAND, and FREQ_RX in
   BAND_RX (band edges included). STATE and CNTY are checked against the record's own DXCC
   entity, for the 66 entities ADIF lists subdivisions for: Hungary's are counties (`BP`
   Budapest, `PE` Pest…), Italy's provinces, Brazil's states. A value not on that list is a
   warning that names the country and its codes; callbooks often put something else there
   (QRZ.com Logbook copies the other station's profile, such as `H` for Hungary). Other
-  entities' values, and STATE without a DXCC, are not checked.
+  entities' values are not checked, nor is STATE without a DXCC: one note per file counts
+  the records where STATE, CNTY, MY_STATE or MY_CNTY lacks its DXCC (§I.E).
+  REGION must be a region of the record's DXCC entity (`SY` is Sicily, in Italy). VUCC_GRIDS
+  should agree with GRIDSQUARE (§III.A.1). A QSL date needs the status that makes it valid:
+  QSLRDATE (and LoTW's, eQSL's, DCL's) when the received status is Y, I or V, QSLSDATE when
+  the sent status is Y, Q or I; a missing status means N.
 - **User fields:** `USERDEFn` definitions in the header, with their enumerations
   `{S,M,L}` or ranges `{5:20}`, and `APP_PROGRAMID_FIELDNAME` fields, whose type the first
   occurrence fixes.
 - **Notes:** records lacking ADIF's guideline minimum (QSO_DATE, TIME_ON, CALL, BAND or
-  FREQ, MODE), and CONTEST_ID and SUBMODE values not in ADIF's lists.
+  FREQ, MODE), CONTEST_ID and SUBMODE values not in ADIF's lists, and a header with no
+  records yet (an ADI file has one or more, §IV.A.2).
 - **What services expect** (beyond the specification): BAND present when FREQ is (POTA
   reads only BAND), callsigns and states in upper case, no QSO dates in the future (POTA,
   [ADIF for POTA reference](https://docs.pota.app/docs/activator_reference/ADIF_for_POTA_reference.html),
@@ -139,7 +158,7 @@ typed by hand.
 
 ### Bytes or characters?
 
-ADI files are ASCII only (§II.B), where a length counts bytes and characters equally.
+ADI files are ASCII only (§III.A), where a length counts bytes and characters equally.
 Some programs write UTF-8 anyway (`Jürg` is 4 characters but 5 bytes), and they disagree
 on which to count. ADIF Lint warns about non-ASCII text, and when a length is wrong it
 also says whether the length would be right in the other unit. Turn on **Count Lengths in

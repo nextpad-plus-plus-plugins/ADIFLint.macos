@@ -176,7 +176,7 @@ static void testHeader() {
 }
 
 static void testTypes() {
-    // Date §II.B
+    // Date §III.A
     expectClean("leap day", lintRecord("<QSO_DATE_OFF:8>20240229 "));
     expect("not leap", lintRecord("<QSO_DATE_OFF:8>21000229 "), Severity::Error, "day is not in that month");
     expect("Feb 30", lintRecord("<QSO_DATE_OFF:8>20230230 "), Severity::Error, "day is not in that month");
@@ -206,7 +206,7 @@ static void testTypes() {
     expectClean("grid", lintRecord("<GRIDSQUARE:6>FN31pr "));
     expect("grid odd", lintRecord("<GRIDSQUARE:3>FN3 "), Severity::Error, "Maidenhead");
     expect("grid letters", lintRecord("<GRIDSQUARE:4>SS00 "), Severity::Error, "Maidenhead");
-    expectClean("grid ext", lintRecord("<GRIDSQUARE_EXT:4>AB12 "));
+    expectClean("grid ext", lintRecord("<GRIDSQUARE:8>FN01MH42 <GRIDSQUARE_EXT:4>AB12 "));
     expectClean("vucc", lintRecord("<VUCC_GRIDS:9>FN31,FN32 "));
     expectClean("location", lintRecord("<LAT:11>N040 06.150 "));
     expect("latitude 91", lintRecord("<LAT:11>N091 00.000 "), Severity::Error, "cannot exceed 90");
@@ -300,6 +300,113 @@ static void testUserAndAppFields() {
     expect("app type change", lint(std::string(kHeader) + record("<APP_X_WPM:2:N>18 ") + record("<APP_X_WPM:2:S>18 ")),
            Severity::Error, "must not change the type");
     expect("app typed value", lintRecord("<APP_X_DATE:8:D>20241301 "), Severity::Error, "month must be 01-12");
+}
+
+// <NAME:length>value, with the length counted.
+static std::string F(const std::string &name, const std::string &value) {
+    return "<" + name + ":" + std::to_string(value.size()) + ">" + value + " ";
+}
+
+// Rules the generated tables don't carry: the dates deleted codes are valid for (§II.C),
+// regions' entities (§III.B.21), locator rules (§III.A.1) and field definitions.
+static void testDefinitionRules() {
+    auto onDate = [](const char *date, const std::string &extra) {
+        return lint(std::string(kHeader) + F("QSO_DATE", date) + "<TIME_ON:4>1830 <CALL:4>WF1B <BAND:3>20m <MODE:2>CW " + extra + "<EOR>\n");
+    };
+    auto fixOf = [](const LintResult &r, const char *code) -> std::string {
+        for (const Diagnostic &d : r.diagnostics)
+            if (d.code == code) return d.fixes.empty() ? std::string("(none)") : d.fixes[0].value;
+        return "(no diagnostic)";
+    };
+    // §II.C: ARRL_Section From and Deleted dates (ON until 2012-09-01, GH from 2023-01-01).
+    expect("ARRL ON late", onDate("20200627", F("ARRL_SECT", "ON")), Severity::Warning,
+           "ARRL_SECT ON is valid only for QSOs before 2012-09-01 (§II.C); this QSO is on 2020-06-27");
+    expectClean("ARRL ON early", onDate("20100627", F("ARRL_SECT", "ON")));
+    expect("ARRL GH early", onDate("20200627", F("ARRL_SECT", "GH")), Severity::Warning, "valid only for QSOs from 2023-01-01");
+    expectClean("ARRL GH", onDate("20240627", F("ARRL_SECT", "gh")));
+    CHECK(fixOf(onDate("20240627", F("ARRL_SECT", "GTA")), "deleted-code") == "GH", "GTA is replaced by GH");
+    CHECK(fixOf(onDate("20240627", F("ARRL_SECT", "NWT")), "deleted-code") == "(none)", "NWT's successor NT is gone by 2024");
+    CHECK(fixOf(onDate("20100627", F("ARRL_SECT", "NWT")), "deleted-code") == "NT", "NWT is NT in 2010");
+    // Subdivisions "for contacts made before" a date; PM is one oblast before 2005-12-01 and another since.
+    expect("RU AB late", onDate("20200101", F("DXCC", "15") + F("STATE", "AB")), Severity::Warning,
+           "STATE AB is valid only for QSOs before 2008-03-01");
+    expectClean("RU AB early", onDate("20050101", F("DXCC", "15") + F("STATE", "AB")));
+    expectClean("RU PM early", onDate("20040101", F("DXCC", "15") + F("STATE", "PM")));
+    expectClean("RU PM late", onDate("20200101", F("DXCC", "15") + F("STATE", "PM")));
+    // §III.B.21: KO is within DXCC 296 until 2012-09-11, 0 until 2018-01-20, 522 since; NONE anywhere.
+    expect("KO 296 late", onDate("20200101", F("DXCC", "296") + F("REGION", "KO")), Severity::Warning,
+           "REGION KO is valid only for QSOs before 2012-09-12");
+    expectClean("KO 522", onDate("20200101", F("DXCC", "522") + F("REGION", "KO")));
+    expectClean("KO 0", onDate("20150101", F("DXCC", "0") + F("REGION", "KO")));
+    expect("region elsewhere", lintRecord(F("DXCC", "291") + F("REGION", "SY")), Severity::Warning,
+           "REGION SY is within DXCC 248 (Italy), not DXCC 291");
+    expectClean("region NONE", lintRecord(F("DXCC", "248") + F("REGION", "NONE")));
+    // ANT_AZ and ANT_EL outside their ranges are import-only and exported normalized (370 -> 10, 100 -> 80).
+    {
+        LintResult r = lintRecord(F("ANT_AZ", "370") + F("ANT_EL", "100"));
+        expect("ANT_AZ 370", r, Severity::Warning, "ANT_AZ outside 0 to 360 is import-only; exporters write it normalized, 370 as 10");
+        expect("ANT_EL 100", r, Severity::Warning, "100 as 80");
+        CHECK(r.errors == 0 && fixOf(r, "normalize") == "10", "normalized, not refused\n%s", dump(r).c_str());
+    }
+    expect("ANT_AZ -10", lintRecord(F("ANT_AZ", "-10")), Severity::Warning, "-10 as 350");
+    // GRIDSQUARE_EXT: 2 or 4 characters after an 8-character GRIDSQUARE; importers ignore more.
+    expect("grid ext short grid", lintRecord(F("GRIDSQUARE", "FN01") + F("GRIDSQUARE_EXT", "BQ")), Severity::Warning,
+           "GRIDSQUARE should hold the first 8; it has 4");
+    expect("grid ext no grid", lintRecord(F("MY_GRIDSQUARE_EXT", "BQ")), Severity::Warning, "MY_GRIDSQUARE should hold the first 8; it is missing");
+    {
+        LintResult r = lintRecord(F("GRIDSQUARE", "FN01MH42") + F("GRIDSQUARE_EXT", "BQ12XY"));
+        expect("grid ext long", r, Severity::Warning, "importers ignore the rest");
+        CHECK(r.errors == 0 && fixOf(r, "grid-ext-length") == "BQ12", "long GRIDSQUARE_EXT is cut to 4\n%s", dump(r).c_str());
+    }
+    // VUCC_GRIDS: two or four adjacent locators of 4 or 6 characters, agreeing with GRIDSQUARE (§III.A.1).
+    expectClean("vucc four", lintRecord(F("VUCC_GRIDS", "EM98,FM08,EM97,FM07")));
+    expectClean("vucc six", lintRecord(F("MY_VUCC_GRIDS", "IO83UG,IO83UF")));
+    expectClean("vucc agrees", lintRecord(F("GRIDSQUARE", "EM97AB") + F("VUCC_GRIDS", "EM98,FM08,EM97,FM07")));
+    expectClean("vucc across 180", lintRecord(F("VUCC_GRIDS", "RL99,AL09")));
+    expect("vucc one", lintRecord(F("VUCC_GRIDS", "EM98")), Severity::Warning, "two or four adjacent locators; this has 1");
+    expect("vucc 2 chars", lintRecord(F("VUCC_GRIDS", "EM,FM")), Severity::Error, "locators have 4 or 6");
+    expect("vucc apart", lintRecord(F("VUCC_GRIDS", "EM98,EM96")), Severity::Warning, "not adjacent");
+    expect("vucc four apart", lintRecord(F("VUCC_GRIDS", "EM98,FM08,EM97,FM06")), Severity::Warning, "not adjacent");
+    expect("vucc disagrees", lintRecord(F("GRIDSQUARE", "FN31") + F("VUCC_GRIDS", "EM98,FM08")), Severity::Warning, "should agree");
+    // LAT and MY_LAT are latitudes, LON and MY_LON longitudes; 90 and 180 degrees are the most.
+    expect("LAT east", lintRecord(F("LAT", "E045 30.000")), Severity::Error, "LAT is a latitude");
+    expect("MY_LON north", lintRecord(F("MY_LON", "N045 30.000")), Severity::Error, "MY_LON is a longitude");
+    expect("lat 90 and a bit", lintRecord(F("LAT", "N090 00.001")), Severity::Error, "cannot exceed 90");
+    expectClean("lat 90", lintRecord(F("LAT", "S090 00.000")));
+    expect("lon 180 and more", lintRecord(F("LON", "W180 30.000")), Severity::Error, "cannot exceed 180");
+    // USACA_COUNTIES: "a colon-delimited list of two or more" counties, state,county (§III.A, §III.B.22).
+    expectClean("usaca", lintRecord(F("USACA_COUNTIES", "MA,Franklin:MA,Hampshire")));
+    expect("usaca one", lintRecord(F("USACA_COUNTIES", "MA,Franklin")), Severity::Error, "two or more counties");
+    expect("usaca form", lintRecord(F("MY_USACA_COUNTIES", "Franklin:Hampshire")), Severity::Warning, "state,county");
+    // CNTY_ALT: enumeration-name:code items separated by ';', each name once (§III.A, §III.B.23).
+    expectClean("cnty alt", lintRecord(F("DXCC", "170") + F("CNTY_ALT", "NZ_Regions:Hawkes Bay/Wairoa")));
+    expectClean("cnty alt case", lintRecord(F("DXCC", "170") + F("CNTY_ALT", "nz_regions:hawkes bay/wairoa")));
+    expect("cnty alt form", lintRecord(F("CNTY_ALT", "Hawkes Bay")), Severity::Error, "not enumeration-name:code");
+    expect("cnty alt twice", lintRecord(F("CNTY_ALT", "NZ_Regions:Northland/Far North;NZ_Regions:Auckland/Rodney")),
+           Severity::Error, "more than once");
+    expect("cnty alt code", lintRecord(F("DXCC", "170") + F("CNTY_ALT", "NZ_Regions:Nowhere/None")), Severity::Warning,
+           "not one of ADIF's NZ_Regions codes");
+    expect("cnty alt entity", lintRecord(F("DXCC", "291") + F("CNTY_ALT", "NZ_Regions:Hawkes Bay/Wairoa")), Severity::Warning,
+           "NZ_Regions codes are for DXCC 170 (New Zealand)");
+    expect("cnty alt unlisted", lintRecord(F("DXCC", "170") + F("MY_CNTY_ALT", "NZ_Islands:North Island")), Severity::Info,
+           "lists no NZ_Islands codes");
+    // QSL dates: "only valid if" their status says so; each status defaults to N.
+    expectClean("qslrdate Y", lintRecord(F("QSL_RCVD", "Y") + F("QSLRDATE", "20240201")));
+    expect("qslrdate N", lintRecord(F("QSL_RCVD", "N") + F("QSLRDATE", "20240201")), Severity::Warning,
+           "QSLRDATE is only valid when QSL_RCVD is Y, I or V; here it is N.");
+    expect("lotw date alone", lintRecord(F("LOTW_QSLSDATE", "20240201")), Severity::Warning, "N (the default: LOTW_QSL_SENT is missing)");
+    expectClean("eqsl sent q", lintRecord(F("EQSL_QSL_SENT", "q") + F("EQSL_QSLSDATE", "20240201")));
+    // §I.E: STATE without DXCC can't be checked; one note per file, counted.
+    expect("state depends", lint(std::string(kHeader) + record(F("STATE", "MA")) + record(F("STATE", "CT")) + record(F("DXCC", "291") + F("STATE", "RI"))),
+           Severity::Info, "STATE depends on DXCC, which 2 records lack, this one first");
+    // §IV.A.2 one or more records; §IV.A.5 n is a positive integer (leading zeros allowed, 0 is not).
+    expect("no records", lint(std::string(kHeader)), Severity::Info, "header but no records");
+    expectClean("userdef01", lint("x <USERDEF01:3:N>EPC <EOH>" + record(F("EPC", "12"))));
+    expect("userdef0", lint("x <USERDEF0:3:N>EPC <EOH>" + record("")), Severity::Warning, "positive integer");
+    // §IV.A.4: an untyped APP_ field is a MultilineString, and later occurrences keep that type.
+    expect("app untyped, then N", lint(std::string(kHeader) + record(F("APP_X_V", "abc")) + record("<APP_X_V:1:N>1 ")),
+           Severity::Error, "first appeared without a type");
+    expectClean("app untyped, then M", lint(std::string(kHeader) + record(F("APP_X_V", "abc")) + record("<APP_X_V:1:M>1 ")));
 }
 
 static void testNonAscii() {
@@ -709,7 +816,7 @@ static std::string valueOf(const std::string &t, int recordNo, const char *field
 }
 
 static void testToolsBasics() {
-    // Dates: ADIF Date is YYYYMMDD of a real calendar date (§II.B); Time is HHMM or HHMMSS.
+    // Dates: ADIF Date is YYYYMMDD of a real calendar date (§III.A); Time is HHMM or HHMMSS.
     long d = 0;
     CHECK(parseAdifDate("20240229", &d) && formatAdifDate(d) == "20240229", "leap day round-trips");
     CHECK(!parseAdifDate("20230229", nullptr) && !parseAdifDate("20241301", nullptr) && !parseAdifDate("2024011", nullptr),
@@ -1825,6 +1932,15 @@ static void testQuickFixes() {
          "<CALL:4>K1AB <QSO_DATE:8>"},
         {"import-only", "<CALL:5>XE1AA <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <DXCC:2>50 <STATE:2>DF <EOR>\n",
          "<STATE:3>CMX <EOR>"},
+        {"deleted-code", "<CALL:4>VE3A <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <ARRL_SECT:3>GTA <EOR>\n",
+         "<ARRL_SECT:2>GH <EOR>"},
+        {"normalize", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <ANT_AZ:3>370 <EOR>\n",
+         "<ANT_AZ:2>10 <EOR>"},
+        {"normalize", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <ANT_EL:4>-100 <EOR>\n",
+         "<ANT_EL:3>-80 <EOR>"},
+        {"grid-ext-length", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:8>FN01MH42 "
+                            "<GRIDSQUARE_EXT:6>BQ12XY <EOR>\n",
+         "<GRIDSQUARE_EXT:4>BQ12 <EOR>"},
     };
     for (const Case &c : cases) {
         std::string text = std::string(kHeader) + c.rec;
@@ -2459,6 +2575,7 @@ int main(int argc, char **argv) {
     testTypes();
     testEnumerations();
     testUserAndAppFields();
+    testDefinitionRules();
     testNonAscii();
     testModel();
     testReformat();

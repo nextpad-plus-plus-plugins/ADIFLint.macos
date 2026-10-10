@@ -33,7 +33,7 @@ bool isPortableCall(std::string_view call);
 // Fields that describe where the station is: grid, state, county, QTH, lat/lon,
 // DXCC, country, zones, IOTA, continent.
 bool isLocationField(std::string_view field);
-// Decimal degrees -> ADIF Location "XDDD MM.MMM" (§II.B), e.g. 34.23456 -> "N034 14.074".
+// Decimal degrees -> ADIF Location "XDDD MM.MMM" (§III.A), e.g. 34.23456 -> "N034 14.074".
 std::string adifLocation(double degrees, bool latitude);
 
 // QSO_DATE + TIME_ON -> minutes since 1970, or -1 when malformed.

@@ -146,7 +146,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 }
 
 + (std::string)valueFromDisplay:(NSString *)display {
-    // ADIF line breaks are CR LF (§II.B MultilineString).
+    // ADIF line breaks are CR LF (§III.A MultilineString).
     NSString *s = [display stringByReplacingOccurrencesOfString:kLineBreakGlyph withString:@"\r\n"];
     return s.UTF8String ?: "";
 }

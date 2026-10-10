@@ -228,7 +228,7 @@ std::vector<SiteQso> siteQsos(ImportSite site, std::string_view text, const DocM
         SiteQso q = site == ImportSite::LoTW         ? fromLotw(text, m, g, today)
                     : site == ImportSite::QRZLogbook ? fromQrz(text, m, g, today)
                                                      : fromEqsl(text, m, g, today);
-        // Values must be ASCII (ADI is ASCII only, §II.B); anything else is left out.
+        // Values must be ASCII (ADI is ASCII only, §III.A); anything else is left out.
         SiteQso clean = q;
         clean.fields.clear();
         for (const auto &kv : q.fields) {

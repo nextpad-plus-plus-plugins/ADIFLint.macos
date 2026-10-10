@@ -307,7 +307,7 @@ std::vector<std::string> valueChoicesWith(const DocModel &m, std::string_view na
     }
     for (size_t i = 0; i < e->count; ++i) {
         const EnumValue &v = e->values[i];
-        if (v.importOnly) continue;
+        if (v.importOnly || v.before) continue;  // deprecated, or deleted (only for QSOs before a date)
         if (!scope.empty() && !(v.scope && equalsNoCase(v.scope, scope))) continue;
         out.emplace_back(v.value);
     }

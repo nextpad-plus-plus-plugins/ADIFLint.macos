@@ -8,10 +8,11 @@
 
 #include <cstddef>
 #include <string_view>
+#include <utility>
 
 namespace adif {
 
-// ADIF 3.1.7 section II.B "Data Types".
+// ADIF 3.1.7 section III.A "Data Types".
 enum class DataType : unsigned char {
     Unknown,
     AwardList,
@@ -60,8 +61,12 @@ struct FieldDef {
 struct EnumValue {
     const char *value;        // spelling as in the spec
     const char *scope;        // Submode: its Mode; subdivisions/regions: DXCC entity code; else nullptr
-    const char *note;         // spec guidance for import-only values, or nullptr
+    const char *note;         // spec guidance for import-only or deleted values ("replaced by GH"), or nullptr
     bool importOnly;
+    // The QSO dates the value is valid for (section II.C "Deletion"), YYYYMMDD or nullptr:
+    // from inclusive, before exclusive (ARRL sections, regions, some subdivisions).
+    const char *from;
+    const char *before;
 };
 
 struct EnumDef {
@@ -95,6 +100,10 @@ const FieldDef *findField(std::string_view name);
 const EnumDef *findEnum(std::string_view name);
 // Any value matching `value`; when `scope` is non-empty, only one with that scope.
 const EnumValue *findEnumValue(const EnumDef &e, std::string_view value, std::string_view scope = {});
+// Every row spelling `value` (a code can have several: one per entity or per date range), as [first, last).
+std::pair<const EnumValue *, const EnumValue *> enumValueRows(const EnumDef &e, std::string_view value);
+// Whether `v` may be used for a QSO on `date` (YYYYMMDD; empty: any date).
+bool validOn(const EnumValue &v, std::string_view date);
 // True when at least one value of `e` has this scope (e.g. a DXCC entity has subdivisions listed).
 bool enumHasScope(const EnumDef &e, std::string_view scope);
 const BandDef *findBand(std::string_view name);

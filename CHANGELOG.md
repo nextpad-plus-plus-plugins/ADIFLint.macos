@@ -85,6 +85,24 @@ Versions before 0.8.0 were development builds and were not published.
   were menu items) and **Keyboard Shortcuts** (where to assign them, with suggestions). The
   first run opens Settings with a welcome.
 - **Export… → CSV** shows the log as it will be saved before **Save CSV…**.
+- **More of ADIF 3.1.7 checked** (every rule verified against the specification text,
+  2026-10-10; see [docs/ADIF_CONFORMANCE.md](docs/ADIF_CONFORMANCE.md)):
+  - codes ADIF deleted are valid only for QSOs in their dates (§II.C): ARRL sections (`ON`
+    until 2012-09-01, `GTA` and `NT` until 2023, `GH`, `NB`, `NS`, `TER` from 2023), the
+    Kosovo region and Russian and Austrian districts; a single named replacement valid on
+    the QSO's date is the repair (`GTA` → `GH`). Autocomplete no longer offers them.
+  - REGION must belong to the record's DXCC entity (§III.B.21).
+  - VUCC_GRIDS and MY_VUCC_GRIDS: two or four adjacent locators of 4 or 6 characters,
+    agreeing with GRIDSQUARE (§III.A.1).
+  - GRIDSQUARE_EXT after an 8-character GRIDSQUARE; one longer than 4 characters is cut
+    to 4, as importers ignore the rest.
+  - LAT and MY_LAT start with N or S, LON and MY_LON with E or W.
+  - USACA_COUNTIES (two or more `state,county`) and CNTY_ALT (`NZ_Regions:...` items, each
+    list name once, codes from ADIF's table).
+  - QSL dates need the status that makes them valid (QSLRDATE when QSL_RCVD is Y, I or V;
+    QSLSDATE when QSL_SENT is Y, Q or I; LoTW, eQSL and DCL alike; a missing status is N).
+  - A note, once per file, when STATE, CNTY, MY_STATE or MY_CNTY lacks its DXCC (§I.E),
+    and when a file has a header but no records (§IV.A.2).
 
 ### Changed
 
@@ -120,6 +138,15 @@ Versions before 0.8.0 were development builds and were not published.
   one file named for its first day (it was one file per day, `KW9D@KFF-1234 20261006.adi`).
 - The LoTW window looked for TQSL's Station Locations only in
   `~/Library/Application Support/TrustedQSL`; TQSL keeps them in `~/.tqsl` on a Mac.
+- Messages cited §II.B for data types, the section number in older ADIF versions; in ADIF
+  3.1.7 it is §III.A.
+- ANT_AZ and ANT_EL outside 0-360 and -90-90 were errors; the specification calls them
+  import-only, to be normalized on export, so they are warnings with the normalized value
+  as the repair (370 → 10, 100 → 80).
+- `USERDEF01` was flagged for its leading zero; n only has to be a positive integer.
+- An APP_ field that first appears without a type (so a MultilineString) and later with
+  another type is now reported, as the specification forbids changing it.
+- A latitude of 90 degrees with minutes, or a longitude of 180 with minutes, was accepted.
 
 ## [0.9.0] - 2026-10-09
 
