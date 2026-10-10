@@ -59,7 +59,7 @@ constexpr double kMaxZoom = 64;
 // The map: equirectangular. Scroll or pinch to zoom (a trackpad's two-finger scroll pans),
 // drag to pan, double-click to zoom in, + and - keys, 0 for the whole world.
 @interface ADIFMapView : NSView
-@property(nonatomic) BOOL showSquares, showEntities, showParks;
+@property(nonatomic) BOOL showSquares, showEntities, showParks, showOthers;
 @property(nonatomic, readonly) double zoom;
 @property(nonatomic, copy) void (^onHover)(const ADIFMapHit &hit);
 @property(nonatomic, copy) void (^onSelect)(const ADIFMapHit &hit);
@@ -84,6 +84,7 @@ constexpr double kMaxZoom = 64;
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
         _showSquares = _showEntities = _showParks = YES;
+        _showOthers = NO;
         _zoom = 1;
     }
     return self;
@@ -325,25 +326,34 @@ constexpr double kMaxZoom = 64;
             dot.lineWidth = lit ? 2 : 1;
             [dot stroke];
         }
-    if (_showParks)
-        for (size_t i = 0; i < _data.parks.size(); ++i) {
-            double lat = 0, lon = 0;
-            if (!adif::gridToLatLon(_data.parks[i].grid, &lat, &lon)) continue;
-            NSPoint p = [self viewPointForLon:lon lat:lat];
-            NSBezierPath *tri = [NSBezierPath bezierPath];
+    for (size_t i = 0; i < _data.parks.size(); ++i) {
+        const adif::MapPark &pk = _data.parks[i];
+        if (!(pk.park() ? _showParks : _showOthers)) continue;
+        double lat = 0, lon = 0;
+        if (!adif::gridToLatLon(pk.grid, &lat, &lon)) continue;
+        NSPoint p = [self viewPointForLon:lon lat:lat];
+        NSBezierPath *tri = [NSBezierPath bezierPath];
+        if (pk.park()) {  // a park: a purple triangle
             [tri moveToPoint:NSMakePoint(p.x, p.y + 6)];
             [tri lineToPoint:NSMakePoint(p.x - 5, p.y - 4)];
             [tri lineToPoint:NSMakePoint(p.x + 5, p.y - 4)];
-            [tri closePath];
             [NSColor.systemPurpleColor setFill];
-            [tri fill];
-            bool lit = (_hover.kind == ADIFMapHit::Park && _hover.index == i) || (_selected.kind == ADIFMapHit::Park && _selected.index == i);
-            if (lit) {
-                [NSColor.whiteColor setStroke];
-                tri.lineWidth = 1.5;
-                [tri stroke];
-            }
+        } else {  // another program's reference (IOTA, SOTA, GMA...): a diamond
+            [tri moveToPoint:NSMakePoint(p.x, p.y + 5)];
+            [tri lineToPoint:NSMakePoint(p.x - 4.5, p.y)];
+            [tri lineToPoint:NSMakePoint(p.x, p.y - 5)];
+            [tri lineToPoint:NSMakePoint(p.x + 4.5, p.y)];
+            [[NSColor colorWithCalibratedRed:0.95 green:0.75 blue:0.2 alpha:1] setFill];
         }
+        [tri closePath];
+        [tri fill];
+        bool lit = (_hover.kind == ADIFMapHit::Park && _hover.index == i) || (_selected.kind == ADIFMapHit::Park && _selected.index == i);
+        if (lit) {
+            [NSColor.whiteColor setStroke];
+            tri.lineWidth = 1.5;
+            [tri stroke];
+        }
+    }
     for (const std::string &g : _data.mine) {  // your station: a star
         double lat = 0, lon = 0;
         if (!adif::gridToLatLon(g, &lat, &lon)) continue;
@@ -382,13 +392,13 @@ constexpr double kMaxZoom = 64;
     [self lonLatAt:p lon:&lon lat:&lat];
     h.square = adif::squareAt(lon, lat);
     if (h.square.empty()) return h;
-    if (_showParks)
-        for (size_t i = 0; i < _data.parks.size(); ++i) {
-            double plat, plon;
-            if (!adif::gridToLatLon(_data.parks[i].grid, &plat, &plon)) continue;
-            NSPoint q = [self viewPointForLon:plon lat:plat];
-            if (std::hypot(q.x - p.x, q.y - p.y) <= 7) return h.kind = ADIFMapHit::Park, h.index = i, h;
-        }
+    for (size_t i = 0; i < _data.parks.size(); ++i) {
+        if (!(_data.parks[i].park() ? _showParks : _showOthers)) continue;
+        double plat, plon;
+        if (!adif::gridToLatLon(_data.parks[i].grid, &plat, &plon)) continue;
+        NSPoint q = [self viewPointForLon:plon lat:plat];
+        if (std::hypot(q.x - p.x, q.y - p.y) <= 7) return h.kind = ADIFMapHit::Park, h.index = i, h;
+    }
     if (_showEntities)
         for (size_t i = 0; i < _entities.size(); ++i) {
             NSPoint q = [self viewPointForLon:_entities[i].lon lat:_entities[i].lat];
@@ -516,7 +526,7 @@ struct {
     ADIFMapView *view = nil;
     ADIFMapList *list = nil;
     NSTableView *table = nil;
-    NSButton *squares = nil, *entities = nil, *parks = nil;
+    NSButton *squares = nil, *entities = nil, *parks = nil, *others = nil;
     NSPopUpButton *band = nil, *mode = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
     adif::MapData data;
@@ -558,9 +568,9 @@ std::string describe(const ADIFMapHit &h) {
         case ADIFMapHit::Park: {
             const adif::MapPark &p = mw.data.parks[h.index];
             size_t n = 0;
-            for (const adif::MapPark &o : mw.data.parks) n += o.reference == p.reference;
+            for (const adif::MapPark &o : mw.data.parks) n += o.reference == p.reference && o.program == p.program;
             const adif::MapQso &q = mw.data.qsos[p.qso];
-            return p.reference + ": " + plural(n, "QSO") + ", in " + p.grid + " (" + q.call + " " + q.date + ")";
+            return p.program + " " + p.reference + ": " + plural(n, "QSO") + ", in " + p.grid + " (" + q.call + " " + q.date + ")";
         }
         case ADIFMapHit::Empty: return h.square + ": no QSOs";
         case ADIFMapHit::None: break;
@@ -586,7 +596,7 @@ void selected(const ADIFMapHit &h) {
     else if (h.kind == ADIFMapHit::Dxcc) qsos = mw.dxcc[h.index].qsos;
     else if (h.kind == ADIFMapHit::Park)
         for (const adif::MapPark &p : mw.data.parks)
-            if (p.reference == mw.data.parks[h.index].reference) qsos.push_back(p.qso);
+            if (p.reference == mw.data.parks[h.index].reference && p.program == mw.data.parks[h.index].program) qsos.push_back(p.qso);
     showList(qsos);
     mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : ". Double-click a QSO to go to it in the log.");
     setStatus(mw.chosen.empty() ? mw.summary : mw.chosen);
@@ -644,13 +654,15 @@ void refresh() {
         mw.view.showSquares = mw.squares.state == NSControlStateValueOn;
         mw.view.showEntities = mw.entities.state == NSControlStateValueOn;
         mw.view.showParks = mw.parks.state == NSControlStateValueOn;
+        mw.view.showOthers = mw.others.state == NSControlStateValueOn;
         [mw.view setData:mw.data entities:mw.dxcc];
         showList({});
-        std::set<std::string> parkRefs;
-        for (const adif::MapPark &p : mw.data.parks) parkRefs.insert(p.reference);
+        std::set<std::string> parkRefs, otherRefs;
+        for (const adif::MapPark &p : mw.data.parks) (p.park() ? parkRefs : otherRefs).insert(p.program + " " + p.reference);
         mw.summary = plural(mw.data.squares.size(), "grid square") + " (" + std::to_string(confirmedSquares) +
                      " confirmed: green, else orange), " + std::to_string(mw.dxcc.size()) + " DXCC (" + std::to_string(confirmedDxcc) +
-                     " confirmed: teal, else blue), " + plural(parkRefs.size(), "park") + " where the QSO has a grid (purple)" +
+                     " confirmed: teal, else blue), " + plural(parkRefs.size(), "park") + " (POTA, WWFF) where the QSO has a grid (purple), " +
+                     plural(otherRefs.size(), "other reference") + " (IOTA, SOTA, GMA... yellow, under Other programs)" +
                      (mw.data.mine.empty() ? "" : ", your grid as a red star") + ". " +
                      (mw.data.withoutGrid ? plural(mw.data.withoutGrid, "QSO") + " without GRIDSQUARE " + (mw.data.withoutGrid == 1 ? "isn't" : "aren't") +
                                                 " on the squares. "
@@ -737,9 +749,13 @@ void cmdMap() {
         mw.squares = ADIFCheckbox(@"Grid squares", YES);
         mw.entities = ADIFCheckbox(@"DXCC", YES);
         mw.parks = ADIFCheckbox(@"Parks", YES);
+        mw.parks.toolTip = @"POTA and WWFF parks you hunted, where the QSO has a grid";
+        mw.others = ADIFCheckbox(@"Other programs", NO);
+        mw.others.toolTip = @"Other programs' references: IOTA islands, SOTA summits, GMA, bunkers... (IOTA is often filled in by a "
+                            @"callbook for every island station)";
         mw.band = ADIFPopup(@[ @"All bands" ]);
         mw.mode = ADIFPopup(@[ @"All modes" ]);
-        for (NSControl *c in @[ mw.squares, mw.entities, mw.parks, mw.band, mw.mode ]) ADIFOnAction(c, ^{ refresh(); });
+        for (NSControl *c in @[ mw.squares, mw.entities, mw.parks, mw.others, mw.band, mw.mode ]) ADIFOnAction(c, ^{ refresh(); });
         mw.zoomLabel = ADIFLabel(@"1.0×");
         [mw.zoomLabel.widthAnchor constraintEqualToConstant:40].active = YES;
         NSButton *out = smallButton(@"−", @"Zoom out (−)", ^{ [mw.view zoomBy:1 / 1.5]; });
@@ -747,7 +763,7 @@ void cmdMap() {
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now", ^{ exportPng(); });
-        NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Show:"), mw.squares, mw.entities, mw.parks, mw.band, mw.mode ]];
+        NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Show:"), mw.squares, mw.entities, mw.parks, mw.others, mw.band, mw.mode ]];
         row.spacing = 10;
         NSStackView *row2 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, save ]];
         row2.spacing = 8;

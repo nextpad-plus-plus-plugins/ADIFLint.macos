@@ -117,21 +117,26 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
         }
         std::string theirGrid = trimmed(r.get("GRIDSQUARE"));
         if (!square4(theirGrid).empty()) {
-            std::vector<std::string> refs;
+            std::vector<std::pair<std::string, std::string>> refs;  // (program, reference)
             for (Program p : {Program::POTA, Program::WWFF, Program::SOTA})
-                for (const std::string &ref : programRefs(r, p, false)) refs.push_back(ref);
+                for (const std::string &ref : programRefs(r, p, false)) refs.emplace_back(programName(p), ref);
             std::string sig = upper(trimmed(r.get("SIG")));
             if (!sig.empty() && sig != "POTA" && sig != "WWFF" && sig != "SOTA") {  // other programs: SIG_INFO's list
                 std::string info = r.get("SIG_INFO");
                 for (size_t b = 0; b < info.size();) {
                     size_t e = info.find(',', b);
                     if (e == std::string::npos) e = info.size();
-                    if (std::string ref = upper(trimmed(info.substr(b, e - b))); !ref.empty()) refs.push_back(ref);
+                    if (std::string ref = upper(trimmed(info.substr(b, e - b))); !ref.empty()) refs.emplace_back(sig, ref);
                     b = e + 1;
                 }
             }
-            if (std::string iota = upper(trimmed(r.get("IOTA"))); !iota.empty()) refs.push_back(iota);
-            for (const std::string &ref : refs) out.parks.push_back({ref, theirGrid, index});
+            // IOTA: an island group, often filled in by a callbook for every island station, so not a park.
+            if (std::string iota = upper(trimmed(r.get("IOTA"))); !iota.empty()) refs.emplace_back("IOTA", iota);
+            for (const auto &[program, ref] : refs) {
+                MapPark p;
+                p.reference = ref, p.grid = theirGrid, p.program = program, p.qso = index;
+                out.parks.push_back(std::move(p));
+            }
         }
         std::string my = upper(trimmed(r.get("MY_GRIDSQUARE")));
         if (!square4(my).empty() && std::find(out.mine.begin(), out.mine.end(), my) == out.mine.end()) out.mine.push_back(my);

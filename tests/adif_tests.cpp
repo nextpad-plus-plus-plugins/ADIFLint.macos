@@ -2429,6 +2429,16 @@ static void testWorld() {
               all.calls.size() == 4,
           "map data: %zu squares, %zu parks", all.squares.size(), all.parks.size());
     CHECK(twenty.records == 2 && twenty.squares.size() == 1 && twenty.squares[0].qsos == 1, "band and mode filters");
+    {
+        std::string islands = std::string(kHeader) +
+                              "<CALL:5>G4ABC <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:4>IO91 <IOTA:6>EU-005 <EOR>\n"
+                              "<CALL:4>K1PK <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:4>FN31 <SIG:4>POTA "
+                              "<SIG_INFO:7>US-0070 <EOR>\n";
+        MapData md = mapData(islands, lintModel(islands).model, "", "");
+        CHECK(md.parks.size() == 2 && md.parks[0].program == "IOTA" && !md.parks[0].park() && md.parks[1].program == "POTA" &&
+                  md.parks[1].park(),
+              "an IOTA island is another program's reference, not a park");
+    }
     CHECK(all.qsos.size() == 4 && all.qsos[1].record == 2 && all.qsos[1].date == "2026-10-09" && all.parks[0].qso == 1 &&
               all.squares[2].qsoIndex == std::vector<size_t>({0, 1}) && all.qsos[0].confirmed && all.qsos[2].mode == "FT8",
           "map QSOs, and the squares' and parks' links to them");

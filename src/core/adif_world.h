@@ -44,8 +44,10 @@ struct MapSquare {
     std::vector<size_t> qsoIndex;    // into MapData::qsos
 };
 struct MapPark {
-    std::string reference, grid;  // their park and the QSO's grid
+    std::string reference, grid;  // their reference and the QSO's grid
+    std::string program;          // POTA, WWFF, SOTA, IOTA, or the SIG of another program
     size_t qso = 0;               // into MapData::qsos
+    bool park() const { return program == "POTA" || program == "WWFF"; }  // the Map's Parks layer; the rest are other programs'
 };
 struct MapData {
     std::vector<MapSquare> squares;   // from GRIDSQUARE and VUCC_GRIDS

@@ -360,7 +360,7 @@ with band and mode filters and a search box. The popup at the top chooses where 
 - The **Worked** column says **NEW** (green) for a park or reference that isn't in this
   log or your logs folder, **worked** for one that is, and **today** (blue) for a station
   already worked today on that band. References logged in SIG_INFO for any program, and
-  in IOTA, count as worked, and show on the Map's Parks layer where the QSO has a grid.
+  in IOTA, count as worked, and show on the Map's Other programs layer where the QSO has a grid.
 
 ## Log Table, Summary and Worked Before
 
@@ -431,8 +431,11 @@ provinces, Australian states...). On it:
   the square is confirmed (QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V);
 - **DXCC**: each DXCC entity worked, from the call's prefix in the country data, as a dot
   at its centre (teal when confirmed);
-- **Parks** you hunted (POTA, WWFF, SOTA or ZLOTA references), placed at the QSO's
-  GRIDSQUARE, since there is no offline list of where parks are;
+- **Parks** you hunted (POTA and WWFF), placed at the QSO's GRIDSQUARE, since there is no
+  offline list of where parks are;
+- **Other programs** (off at first): other references the other station gave, such as IOTA
+  islands, SOTA summits, GMA or bunkers, as yellow diamonds. A callbook such as QRZ.com
+  often fills IOTA in for every island station, so a log can hold many of these;
 - your **MY_GRIDSQUARE** as a red star.
 
 Moving around:

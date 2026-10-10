@@ -3446,7 +3446,7 @@ int main(int argc, char **argv) {
             H.doc = "map\n<ADIF_VER:5>3.1.7\n<EOH>\n"
                     "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:6>FN31pr <MY_GRIDSQUARE:6>EN52wa "
                     "<LOTW_QSL_RCVD:1>Y <EOR>\n"
-                    "<CALL:5>G4ABC <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>IO91 <EOR>\n"
+                    "<CALL:5>G4ABC <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>IO91 <IOTA:6>EU-005 <EOR>\n"
                     "<CALL:5>JA1XY <QSO_DATE:8>20261009 <TIME_ON:4>1220 <BAND:3>15m <MODE:3>FT8 <GRIDSQUARE:4>PM95 <EOR>\n"
                     "<CALL:4>W2CD <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>FN20 <POTA_REF:7>US-1234 <EOR>\n"
                     "<CALL:4>1A0C <QSO_DATE:8>20261009 <TIME_ON:4>1240 <BAND:3>20m <MODE:2>CW <QSL_RCVD:1>Y <EOR>\n";  // in the test country file
@@ -3457,7 +3457,8 @@ int main(int argc, char **argv) {
             run("Map (Grids, DXCC, Parks)...");
             NSWindow *mapw = windowTitled(@"Map");
             NSString *mapStatus = mapw ? labelContaining(mapw.contentView, @"grid square") : nil;
-            CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 park"] &&
+            CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 park (POTA, WWFF)"] &&
+                      [mapStatus containsString:@"1 other reference (IOTA"] && findButton(mapw.contentView, @"Other programs").state == NSControlStateValueOff &&
                       [mapStatus containsString:@"1 DXCC (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"],
                   "the map's summary: %s", mapStatus.UTF8String);
             NSString *mapDir = [tmp stringByAppendingPathComponent:@"mapout"];
