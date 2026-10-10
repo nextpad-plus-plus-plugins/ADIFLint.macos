@@ -2297,6 +2297,28 @@ static void testContestAndZlota() {
     CHECK(contestDupes(log, r.model, "ARRL-FIELD-DAY", q) == std::vector<int>({2}), "K1AB/P is K1AB");
     q.fields = {{"CALL", "K1AB"}, {"BAND", "20m"}, {"MODE", "FT8"}};
     CHECK(contestDupes(log, r.model, "ARRL-FIELD-DAY", q).empty() && modeCategory("RTTY") == "DG", "Digital is its own mode");
+    auto rule = [](ContestPreset p, FieldList f) {
+        Record rec;
+        rec.fields = std::move(f);
+        return contestRuleProblem(p, rec);
+    };
+    CHECK(rule(ContestPreset::FieldDay, {{"BAND", "20m"}, {"MODE", "FT8"}}).empty() &&
+              rule(ContestPreset::FieldDay, {{"BAND", "2m"}, {"MODE", "FM"}}).empty() &&
+              rule(ContestPreset::FieldDay, {{"FREQ", "10.136"}, {"MODE", "FT8"}}).find("not 30m") != std::string::npos &&
+              !rule(ContestPreset::FieldDay, {{"BAND", "60m"}}).empty() && !rule(ContestPreset::FieldDay, {{"BAND", "8m"}}).empty() &&
+              !rule(ContestPreset::FieldDay, {{"BAND", "2m"}, {"PROP_MODE", "rpt"}}).empty() &&
+              rule(ContestPreset::FieldDay, {{"BAND", "70cm"}, {"PROP_MODE", "SAT"}}).empty(),
+          "ARRL Field Day: bands 160-10 m and 6 m up, no repeaters, satellites count");
+    CHECK(rule(ContestPreset::WinterFieldDay, {{"BAND", "40m"}, {"MODE", "RTTY"}}).empty() &&
+              rule(ContestPreset::WinterFieldDay, {{"BAND", "630m"}, {"MODE", "CW"}}).empty() &&
+              !rule(ContestPreset::WinterFieldDay, {{"BAND", "17m"}, {"MODE", "SSB"}}).empty() &&
+              rule(ContestPreset::WinterFieldDay, {{"BAND", "20m"}, {"MODE", "MFSK"}, {"SUBMODE", "FT4"}}).find("FT4") != std::string::npos &&
+              !rule(ContestPreset::WinterFieldDay, {{"BAND", "6m"}, {"MODE", "JT65"}, {"SUBMODE", "JT65A"}}).empty() &&
+              !rule(ContestPreset::WinterFieldDay, {{"BAND", "20m"}, {"MODE", "MFSK"}, {"SUBMODE", "Q65"}}).empty() &&
+              rule(ContestPreset::WinterFieldDay, {{"BAND", "20m"}, {"MODE", "MFSK"}, {"SUBMODE", "JS8"}}).empty() &&
+              !rule(ContestPreset::WinterFieldDay, {{"BAND", "70cm"}, {"PROP_MODE", "SAT"}}).empty() &&
+              rule(ContestPreset::Serial, {{"BAND", "30m"}, {"MODE", "FT8"}}).empty(),
+          "Winter Field Day 2027: no 12/17/30/60 m, no WSJT modes, direct contacts only");
 
     {
         std::string fdLog = std::string(kHeader) + "<CALL:5>K1ABC <QSO_DATE:8>20260627 <TIME_ON:4>1800 <FREQ:6>14.250 <MODE:3>SSB "

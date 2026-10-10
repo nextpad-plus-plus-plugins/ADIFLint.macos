@@ -214,10 +214,15 @@ what the last lookup filled, unless you edited it.
   and theirs in SRX_STRING (`3A EMA`). A DX station sends `DX`, which goes into SRX_STRING
   only, since it isn't an ARRL section. A station counts once per band and mode, the modes
   being CW, Phone and Digital ([ARRL Field Day rules](https://www.arrl.org/field-day-rules),
-  revised 2026-03-01), and New QSO warns of a repeat by that rule.
-- **Winter Field Day:** the same with your category, class and section (`2O IL`); the class
-  letter is H, I, O or M, and MX or DX stand for Mexico and elsewhere. New QSO warns that FT4
-  and FT8 don't count (Winter Field Day 2025 rules).
+  revised 2026-03-01), and New QSO warns of a repeat by that rule. It also warns of a QSO on
+  a band Field Day doesn't count (it counts 160, 80, 40, 20, 15 and 10 m and 6 m and up) or
+  through a repeater (PROP_MODE `RPT`).
+- **Winter Field Day:** the same with your class, category and section (`2O IL`): the number
+  of transmitters, then H, I, O or M, and MX or DX stand for Mexico and elsewhere. New QSO
+  warns of a QSO on 12, 17, 30 or 60 m, in a WSJT mode (FT8, FT4, FST4, Q65, JT65, MSK144 and
+  the others the rules list), or through a repeater, satellite or the internet (PROP_MODE
+  `RPT`, `SAT`, `ECH`, `INTERNET`, `IRL`)
+  ([Winter Field Day 2027 rules](https://winterfieldday.org/sop.php), for January 23–24, 2027).
 - **Serial numbers:** an optional CONTEST_ID (such as `CQ-WPX-SSB`); New QSO asks for the
   received **SRX** and writes STX, counting up from the log's highest for that contest.
 
@@ -374,6 +379,8 @@ editor), each field with its length, and an uploaded QSO whose data changes beco
   20m), dates and times in time order, numbers by value, and empty cells last.
 - Selecting a row shows that record in the editor; double-clicking the # goes there.
 - Right-click the headings to choose the columns shown; drag a heading to move a column.
+  With **LoTW Users** on in Settings, **LoTW (last upload)** adds a read-only column with
+  the date each station last uploaded to LoTW (empty when not on ARRL's list).
 
 Editing:
 
@@ -736,8 +743,8 @@ Rules for every source:
   release from country-files.com into the plugin config folder.
 - **LoTW Users:** off until you tick **Show LoTW users**. **Update** downloads ARRL's list
   of LoTW users and their last upload (`lotw.arrl.org`, about 6 MB, updated weekly); it is
-  downloaded again when a week old, and used in New QSO's lookup line and the Spots window's
-  LoTW column. No terms of use for the list were found; it is only fetched while on.
+  downloaded again when a week old, and used in New QSO's lookup line, the Spots window's
+  LoTW column and the Log Table's optional LoTW column. No terms of use for the list were found; it is only fetched while on.
 - **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
   and New QSO's lookup); LoTW (your LoTW website login, for Import); QRZ.com Logbook (API
   key); Club Log (email and Application Password) and Club

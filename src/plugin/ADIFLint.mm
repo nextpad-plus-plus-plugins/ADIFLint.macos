@@ -1612,10 +1612,9 @@ static QsoCheck checkQso(NppHandle h) {
                         "): a station counts once per band and mode.";
             c.severity = 1;
         }
-        std::string sub = get("SUBMODE"), mode = get("MODE");
-        if (contestNow.preset == adif::ContestPreset::WinterFieldDay &&
-            (adif::equalsNoCase(sub, "FT4") || adif::equalsNoCase(mode, "FT8") || adif::equalsNoCase(mode, "FT4"))) {
-            c.summary += (c.summary.empty() ? "" : "\n") + std::string("Winter Field Day doesn't count FT4 or FT8 (2025 rules).");
+        std::string rule = adif::contestRuleProblem(contestNow.preset, qso);
+        if (!rule.empty()) {
+            c.summary += (c.summary.empty() ? "" : "\n") + rule;
             c.severity = std::max(c.severity, 1);
         }
     } else if (!call.empty()) {

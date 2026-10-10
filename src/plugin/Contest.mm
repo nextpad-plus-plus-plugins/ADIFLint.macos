@@ -92,8 +92,9 @@ void refresh() {
              (id.empty() ? "" : ", with CONTEST_ID " + id) + ". " + plural(total, "QSO") + " so far.";
     else
         st = std::string("New QSO asks for their CLASS and ARRL_SECT and writes CONTEST_ID ") + id + ", your exchange in STX_STRING " +
-             "and theirs in SRX_STRING. A station counts once per band and mode (CW, Phone, Digital)" +
-             (s.preset == adif::ContestPreset::WinterFieldDay ? "; FT4 and FT8 don't count (2025 rules)" : "") + ". " +
+             "and theirs in SRX_STRING. A station counts once per band and mode (CW, Phone, Digital). " +
+             (s.preset == adif::ContestPreset::WinterFieldDay ? "Not on 12, 17, 30 or 60 m, and no WSJT modes such as FT8 (2027 rules). "
+                                                               : "Bands 160, 80, 40, 20, 15 and 10 m and 6 m up (2026 rules). ") +
              plural(total, "QSO") + " in this log.";
     if (running) st = "Running: " + st;
     [cw.w setStatus:ADIFString(st) severity:severity];

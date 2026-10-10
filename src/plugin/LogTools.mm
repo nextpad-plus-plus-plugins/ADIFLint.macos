@@ -209,7 +209,11 @@ struct {
     NSInteger menuColumn = -1;        // the column the headings' menu opened over
     NSStackView *addRow = nil;        // Add Field: the name to add
     NSComboBox *addName = nil;
+    bool lotwShown = false;           // the LoTW column (each call's last LoTW upload) after the fields
 } table;
+
+// The LoTW column: asked for in the headings' menu, and only while Settings → LoTW Users is on.
+bool tableLotwWanted() { return ADIFLotwUsersOn() && setting("tableLotw") == "1"; }
 
 // Hidden columns and the sort, kept in ADIFLint.ini.
 std::set<std::string> tableHidden() {
@@ -267,14 +271,17 @@ void tableRefresh() {
         std::vector<std::string> cols;
         for (const std::string &c : table.all)
             if (!hidden.count(c)) cols.push_back(c);
-        if (cols != table.columns || table.w.window.isVisible == NO) {
+        bool lotw = tableLotwWanted();
+        if (cols != table.columns || lotw != table.lotwShown || table.w.window.isVisible == NO) {
             table.columns = cols;
+            table.lotwShown = lotw;
             std::vector<ADIFToolColumn> tc{{"#", "#", 44}};
             for (const std::string &c : cols) {
                 CGFloat w = c == "QSO_DATE" ? 76 : c == "TIME_ON" || c == "TIME_OFF" ? 58 : c == "CALL" ? 84 : c == "BAND" ? 48
                           : c == "MODE" || c == "SUBMODE" ? 56 : c == "FREQ" ? 68 : c.rfind("RST_", 0) == 0 ? 52 : 96;
                 tc.push_back({c, c, w});
             }
+            if (lotw) tc.push_back({"lotw", "LoTW", 84});  // not a field: read only, left out of copy, export and Organize
             [table.w setColumns:tc checkboxes:NO sortable:YES];
             std::vector<size_t> editable;
             for (size_t i = 1; i <= cols.size(); ++i) editable.push_back(i);
@@ -304,6 +311,14 @@ void tableRefresh() {
                 tableRefresh();
             });
         }
+        if (ADIFLotwUsersOn()) {
+            NSMenuItem *item = [table.menu addItemWithTitle:@"LoTW (last upload)" action:nil keyEquivalent:@""];
+            item.state = table.lotwShown ? NSControlStateValueOn : NSControlStateValueOff;
+            ADIFBlockMenuItem(item, ^{
+                setSetting("tableLotw", tableLotwWanted() ? "0" : "1");
+                tableRefresh();
+            });
+        }
         [table.menu addItem:NSMenuItem.separatorItem];
         ADIFBlockMenuItem([table.menu addItemWithTitle:@"Add Field..." action:nil keyEquivalent:@""], ^{ tableShowAddField(); });
         table.removeItem = [table.menu addItemWithTitle:@"Remove Field from Every Record" action:nil keyEquivalent:@""];
@@ -317,6 +332,7 @@ void tableRefresh() {
                 const std::string &v = rec.get(c);
                 row.push_back(isDateField(c) ? adif::displayDate(v) : isTimeField(c) ? adif::displayTime(v) : v);
             }
+            if (table.lotwShown) row.push_back(ADIFLotwLastUpload(rec.get("CALL")));
             rows.push_back(std::move(row));
             table.starts.push_back(adif::groupStart(r.model, r.model.groups[(size_t)rec.group]));
         }

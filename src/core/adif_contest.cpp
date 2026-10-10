@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <iterator>
 
 namespace adif {
 namespace {
@@ -81,7 +82,7 @@ std::string classProblem(ContestPreset p, std::string_view cls) {
     bool ok = digits >= 1 && digits <= 2 && c[0] != '0';
     if (p == ContestPreset::WinterFieldDay) {
         ok = ok && letters.size() == 1 && std::string("HIOM").find(letters[0]) != std::string::npos;
-        return ok ? "" : "A Winter Field Day class is the number of transmitters and H, I, O or M, such as 2O.";
+        return ok ? "" : "Winter Field Day sends the number of transmitters and a category, H, I, O or M, such as 2O.";
     }
     ok = ok && !letters.empty() && letters.size() <= 2 && std::all_of(letters.begin(), letters.end(), [](char ch) { return ch >= 'A' && ch <= 'F'; });
     return ok ? "" : "A Field Day class is the number of transmitters and a letter A to F, such as 3A.";
@@ -99,7 +100,7 @@ std::string sentProblem(const ContestSetup &s) {
     if (s.preset != ContestPreset::FieldDay && s.preset != ContestPreset::WinterFieldDay) return "";
     auto [cls, sect] = splitExchange(s.sent);
     if (cls.empty() || sect.empty())
-        return s.preset == ContestPreset::FieldDay ? "Type your class and section, such as 1D IL." : "Type your category, class and section, such as 2O IL.";
+        return s.preset == ContestPreset::FieldDay ? "Type your class and section, such as 1D IL." : "Type your class, category and section, such as 2O IL.";
     std::string p = classProblem(s.preset, cls);
     if (p.empty()) p = sectionProblem(s.preset, sect);
     return p;
@@ -142,6 +143,30 @@ std::string modeCategory(std::string_view mode) {
     if (m == "CW") return "CW";
     if (m == "SSB" || m == "AM" || m == "FM" || m == "DIGITALVOICE" || m == "USB" || m == "LSB") return "PH";
     return "DG";
+}
+
+std::string contestRuleProblem(ContestPreset p, const Record &qso) {
+    if (p != ContestPreset::FieldDay && p != ContestPreset::WinterFieldDay) return "";
+    std::string band = effectiveBand(qso), prop = upper(trimmed(qso.get("PROP_MODE")));
+    if (p == ContestPreset::FieldDay) {
+        static const char *const hf[] = {"160m", "80m", "40m", "20m", "15m", "10m"};
+        const BandDef *b = findBand(band);
+        bool counted = !b || b->lowerMHz >= 50 || std::find(std::begin(hf), std::end(hf), band) != std::end(hf);
+        if (!counted) return "ARRL Field Day counts 160, 80, 40, 20, 15 and 10 m and 6 m and up, not " + band + ".";
+        if (prop == "RPT") return "ARRL Field Day doesn't count repeater contacts.";
+        return "";
+    }
+    if (band == "12m" || band == "17m" || band == "30m" || band == "60m")
+        return "Winter Field Day doesn't use 12, 17, 30 or 60 m.";
+    static const char *const wsjt[] = {"FT2", "FST4", "FT4", "FT8", "JT4", "JT9", "JT65", "Q65", "MSK144", "WSPR", "FST4W", "ECHO"};
+    for (const char *m : {"MODE", "SUBMODE"}) {
+        std::string v = upper(trimmed(qso.get(m)));
+        if (std::find(std::begin(wsjt), std::end(wsjt), v) != std::end(wsjt))
+            return "Winter Field Day doesn't count WSJT modes such as " + v + ".";
+    }
+    if (prop == "RPT" || prop == "SAT" || prop == "ECH" || prop == "INTERNET" || prop == "IRL")
+        return "Winter Field Day counts only direct simplex contacts, not through a repeater, satellite or the internet.";
+    return "";
 }
 
 std::vector<int> contestDupes(std::string_view text, const DocModel &m, std::string_view contestId, const Record &qso) {

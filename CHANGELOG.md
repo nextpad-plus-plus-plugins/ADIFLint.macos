@@ -36,17 +36,19 @@ Versions before 0.8.0 were development builds and were not published.
 - **Contest…** in New QSO: ARRL Field Day, Winter Field Day or serial numbers. New QSO asks
   for the other station's exchange (CLASS and ARRL_SECT, or SRX), writes CONTEST_ID, the
   exchanges (STX_STRING, SRX_STRING, MY_ARRL_SECT) or the next STX, and warns of duplicates
-  by the Field Day rule (once per band and mode: CW, Phone, Digital). Export Cabrillo writes
-  Field Day lines without reports.
-- **Map (Grids, DXCC, Parks)…**: the log on a world map, offline (Natural Earth's land
-  land, lakes, rivers, borders and state lines, public domain): worked and confirmed grid squares, DXCC, hunted
-  parks and your grid. Zoom (pinch, wheel, double-click, buttons) and drag around, with
+  by the Field Day rule (once per band and mode: CW, Phone, Digital) and of a band, mode or
+  repeater the rules don't count (ARRL Field Day 2026; Winter Field Day 2027: no 12, 17, 30
+  or 60 m, no WSJT modes, direct contacts only). Export Cabrillo writes Field Day lines
+  without reports.
+- **Map (Grids, DXCC, Parks)…**: the log on a world map, offline (Natural Earth's land,
+  lakes, rivers, borders and state lines, public domain): worked and confirmed grid
+  squares, DXCC, hunted parks and your grid. Zoom (pinch, wheel, double-click, buttons) and drag around, with
   field and square names as you zoom in; point at anything to read it, click it to list
   its QSOs, double-click one to go to its record. Band and mode filters, PNG export.
 - **Export… → QSL labels (PDF)**: a label per station for the cards to send (QSL_SENT R or
   Q), on Avery 5160, 5163 or L7163 sheets, then Mark as Sent (QSL_SENT Y and QSLSDATE).
 - **LoTW Users** (Settings, off by default): ARRL's weekly list of LoTW users, shown in New
-  QSO's lookup line and a Spots column.
+  QSO's lookup line, a Spots column and an optional Log Table column.
 - **LoTW pre-flight**: the upload window checks each QSO's call, DXCC, grid, state, county
   and zones against the TQSL Station Location as TQSL does, and names a location that
   matches the ones it would refuse. Station Locations are read from TQSL's folder

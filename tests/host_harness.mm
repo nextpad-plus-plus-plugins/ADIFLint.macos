@@ -3311,6 +3311,13 @@ int main(int argc, char **argv) {
             std::string dupSummary = logOne(@"K1ABC", @"20m", @"FM", @"3A", @"EMA");
             CHECK(dupSummary.find("already in the contest on 20m Phone") != std::string::npos, "FM after SSB is a Field Day dupe: %s",
                   dupSummary.c_str());
+            qsoControl(qwc, @"CALL").stringValue = @"W9XY";
+            qsoControl(qwc, @"BAND").stringValue = @"30m";
+            qsoControl(qwc, @"MODE").stringValue = @"FT8";
+            [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qwc, @"CALL")];
+            pump(0.3);
+            std::string bandRule = summaryLabel(qwc.contentView).stringValue.UTF8String;
+            CHECK(bandRule.find("not 30m") != std::string::npos, "New QSO warns of a band Field Day doesn't count: %s", bandRule.c_str());
             std::string hl;
             CHECK(noErrors(&hl), "the Field Day log is clean: %s", hl.c_str());
             if (cwin) {
@@ -3438,6 +3445,32 @@ int main(int argc, char **argv) {
                       old.find("LoTW: last upload 2019-01-02") != std::string::npos && none.find("LoTW") == std::string::npos,
                   "LoTW in the lookup line: %s | %s | %s", recent.c_str(), old.c_str(), none.c_str());
             [qwl orderOut:nil];
+
+            // The Log Table's LoTW column, from the headings' menu.
+            H.doc = "lotw\n<ADIF_VER:5>3.1.7\n<EOH>\n<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <EOR>\n"
+                    "<CALL:5>W9ZZZ <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:2>CW <EOR>\n";
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.3);
+            run("Log Table...");
+            NSWindow *ltw = windowTitled(@"Log Table");
+            NSTableView *ltt = ltw ? findTable(ltw.contentView) : nil;
+            NSMenu *headings = ltt.headerView.menu;
+            NSInteger lotwItem = [headings indexOfItemWithTitle:@"LoTW (last upload)"];
+            CHECK(lotwItem >= 0, "the headings' menu offers the LoTW column");
+            if (lotwItem >= 0) [headings performActionForItemAtIndex:lotwItem];
+            NSString *callId = nil, *lotwId = nil;
+            for (NSTableColumn *c in ltt.tableColumns) {
+                if ([c.title isEqualToString:@"CALL"]) callId = c.identifier;
+                if ([c.title isEqualToString:@"LoTW"]) lotwId = c.identifier;
+            }
+            std::map<std::string, std::string> lotwOf;
+            for (NSInteger row = 0; lotwId && row < [ltt.dataSource numberOfRowsInTableView:ltt]; ++row)
+                lotwOf[cell(ltt, row, callId).UTF8String] = cell(ltt, row, lotwId).UTF8String;
+            CHECK(lotwId && lotwOf["K1AB"] == "2026-09-30" && lotwOf["W9ZZZ"].empty(), "the LoTW column: K1AB %s",
+                  lotwOf["K1AB"].c_str());
+            lotwItem = [headings indexOfItemWithTitle:@"LoTW (last upload)"];
+            if (lotwItem >= 0) [headings performActionForItemAtIndex:lotwItem];  // off again
+            [ltw orderOut:nil];
         }
 
 
