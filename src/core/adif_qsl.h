@@ -57,4 +57,19 @@ struct ServiceSummary {
 };
 ServiceSummary serviceSummary(std::string_view text, const DocModel &m, UploadService s);
 
+// Who uploads to LoTW: ARRL's lotw-user-activity.csv, lines "CALL,YYYY-MM-DD,HH:MM:SS"
+// (read 2026-10-10, about 6 MB; the LoTW team normally update it weekly, WSJT-X User
+// Guide v3.2.0-rc1 p.45).
+class LotwUsers {
+public:
+    size_t load(std::string_view csv);  // replaces what was loaded; returns how many calls
+    // The call's last upload ("2026-07-27"), trying the call as given and then its base
+    // call (VE3/K1ABC/P -> K1ABC); "" when not a LoTW user.
+    std::string lastUpload(std::string_view call) const;
+    size_t size() const { return calls_.size(); }
+
+private:
+    std::vector<std::pair<std::string, std::string>> calls_;  // sorted by call
+};
+
 }  // namespace adif

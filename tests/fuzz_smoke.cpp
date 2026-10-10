@@ -300,6 +300,11 @@ int main(int argc, char **argv) {
         for (Program p : {Program::WWFF, Program::SOTA}) programSpotFields(p, t.substr(0, 10), t.substr(0, 8), "CW", t.substr(0, 12));
         referenceSummary(t.substr(0, 14), ReferenceHistory());
         parseProfiles(t);
+        {
+            LotwUsers users;
+            users.load(t);
+            users.lastUpload(t.substr(0, 12));
+        }
         for (const TqslLocation &loc : parseStationData(t)) {
             Record r;
             r.fields = {{"STATION_CALLSIGN", t.substr(0, 6)}, {"MY_GRIDSQUARE", t.substr(t.size() / 2, 6)}, {"MY_STATE", t.substr(0, 2)},

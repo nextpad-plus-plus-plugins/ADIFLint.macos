@@ -95,6 +95,9 @@ void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *s
 // ZLOTA spots from https://ontheair.nz/api/spots?zlota_only=true (its API page asks for
 // polling at intervals of 60 seconds or more). Test mode: <fake dir>/zlota/spots.json.
 void ADIFFetchZlotaSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
+// ARRL's LoTW user activity list, https://lotw.arrl.org/lotw-user-activity.csv (about 6 MB).
+// Test mode: <fake dir>/lotw/lotw-user-activity.csv.
+void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error));
 // The newest Big CTY cty.csv from www.country-files.com: the release list's first
 // bigcty-*.zip, unzipped. `release` is its name ("bigcty-20260915").
 // Test mode: <fake dir>/cty/cty.csv.

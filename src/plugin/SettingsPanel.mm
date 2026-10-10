@@ -17,7 +17,8 @@
     NSMutableArray<NSSecureTextField *> *_secret;
     NSMutableArray<NSTextField *> *_status;
     NSTextField *_countryStatus;
-    NSButton *_countryUpdate;
+    NSButton *_countryUpdate, *_lotwOn, *_lotwUpdate;
+    NSTextField *_lotwStatus;
     NSScrollView *_scroll;
     NSTextField *_welcome, *_stationCall, *_stationGrid, *_logsFolder, *_stationStatus;
     NSArray<NSButton *> *_editorBoxes;
@@ -73,7 +74,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                         NSFont.systemFontSize, NSColor.labelColor);
     _welcome.hidden = YES;
     [views addObject:_welcome];
-    for (NSView *section in @[ [self stationSection], [self editorSection], [self keyboardSection], [self countrySection] ]) {
+    for (NSView *section in @[ [self stationSection], [self editorSection], [self keyboardSection], [self countrySection], [self lotwSection] ]) {
         [views addObject:section];
         NSBox *line = [[NSBox alloc] init];
         line.boxType = NSBoxSeparator;
@@ -249,6 +250,36 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     [section setCustomSpacing:4 afterView:title];
     section.identifier = @"settings.country";
     return section;
+}
+
+- (NSView *)lotwSection {
+    NSTextField *help = wrapping(@"Marks the stations that upload to LoTW, with their last upload, in New QSO's lookup line and the "
+                                 @"Spots window. It uses ARRL's list of LoTW users (lotw.arrl.org, about 6 MB, updated weekly), "
+                                 @"downloaded when you press Update and again when a week old.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _lotwOn = [NSButton checkboxWithTitle:@"Show LoTW users" target:self action:@selector(lotwToggled:)];
+    _lotwUpdate = [NSButton buttonWithTitle:@"Update" target:self action:@selector(lotwUpdate:)];
+    NSStackView *row = [NSStackView stackViewWithViews:@[ _lotwOn, _lotwUpdate ]];
+    row.spacing = 12;
+    _lotwStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    return sectionStack(@[ sectionTitle(@"LoTW Users"), help, row, _lotwStatus ], @"settings.lotwusers");
+}
+
+- (void)lotwToggled:(id)sender {
+    if (self.onLotwUsersToggled) self.onLotwUsersToggled(_lotwOn.state == NSControlStateValueOn);
+}
+
+- (void)lotwUpdate:(id)sender {
+    _lotwUpdate.enabled = NO;
+    _lotwStatus.stringValue = @"Downloading ARRL's LoTW user list...";
+    if (self.onLotwUsersUpdate) self.onLotwUsersUpdate();
+}
+
+- (void)setLotwUsersOn:(BOOL)on status:(NSString *)text ok:(BOOL)ok {
+    _lotwOn.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+    _lotwUpdate.enabled = YES;
+    _lotwStatus.stringValue = text ?: @"";
+    _lotwStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
 - (void)countryUpdate:(id)sender {

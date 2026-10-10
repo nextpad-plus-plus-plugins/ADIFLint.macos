@@ -1,6 +1,7 @@
 #include "adif_qsl.h"
 
 #include "adif_edit.h"
+#include "adif_enrich.h"
 #include "adif_spec.h"
 
 #include <algorithm>
@@ -210,6 +211,46 @@ std::string lotwLocationProblem(const Record &qso, const TqslLocation &loc) {
     std::string cq = mine("MY_CQ_ZONE"), locCq = trimmed(loc.get("CQZ"));
     if (!cq.empty() && !locCq.empty() && zone(cq) != zone(locCq)) return mismatch("MY_CQ_ZONE", cq, locCq);
     return "";
+}
+
+size_t LotwUsers::load(std::string_view csv) {
+    calls_.clear();
+    size_t at = 0;
+    while (at < csv.size()) {
+        size_t end = csv.find('\n', at);
+        if (end == std::string_view::npos) end = csv.size();
+        std::string_view line = csv.substr(at, end - at);
+        at = end + 1;
+        size_t c1 = line.find(',');
+        if (c1 == std::string_view::npos || c1 == 0 || c1 > 20) continue;
+        std::string date = trimmed(line.substr(c1 + 1, 10));
+        if (date.size() != 10 || date[4] != '-' || date[7] != '-') continue;
+        calls_.emplace_back(upper(trimmed(line.substr(0, c1))), date);
+    }
+    std::sort(calls_.begin(), calls_.end());
+    // A call listed twice keeps its latest upload: after sorting, the last of a run.
+    std::vector<std::pair<std::string, std::string>> kept;
+    for (auto &c : calls_) {
+        if (!kept.empty() && kept.back().first == c.first) kept.back().second = std::max(kept.back().second, c.second);
+        else kept.push_back(std::move(c));
+    }
+    calls_ = std::move(kept);
+    return calls_.size();
+}
+
+std::string LotwUsers::lastUpload(std::string_view call) const {
+    auto find = [&](const std::string &c) -> std::string {
+        auto it = std::lower_bound(calls_.begin(), calls_.end(), c, [](const auto &e, const std::string &k) { return e.first < k; });
+        return it != calls_.end() && it->first == c ? it->second : std::string();
+    };
+    std::string c = upper(trimmed(call));
+    if (c.empty()) return "";
+    std::string d = find(c);
+    if (d.empty()) {
+        std::string base = lookupCall(c);
+        if (base != c) d = find(base);
+    }
+    return d;
 }
 
 ServiceSummary serviceSummary(std::string_view text, const DocModel &m, UploadService s) {

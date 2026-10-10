@@ -1,5 +1,6 @@
 #import "LogTools.h"
 #import "Monitor.h"
+#import "LotwUsers.h"
 #include "adif_capture.h"
 #include "adif_compare.h"
 
@@ -1968,8 +1969,9 @@ void spotsShow() {
             continue;
         bool workedToday = today.count(adif::lookupCall(sp.activator) + "|" + sp.band) > 0;
         bool workedRef = refs.count(sp.reference) > 0;
+        std::string lotw = ADIFLotwLastUpload(sp.activator);
         rows.push_back({sp.time, sp.activator, sp.khz, sp.mode, sp.reference, sp.park, sp.location,
-                        workedToday ? "today" : workedRef ? "worked" : "NEW", sp.comments});
+                        workedToday ? "today" : workedRef ? "worked" : "NEW", lotw, sp.comments});
         sev.push_back(workedToday ? 0 : workedRef ? -1 : 3);
         keys.push_back(sp.key);
         spots.rowSpot.push_back(i);
@@ -2501,7 +2503,7 @@ namespace logtools {
 
 void cmdPotaSpots() {
     if (!spots.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(980, 520) headline:NO];
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(1060, 520) headline:NO];
         spots.w = w;
         spots.program = ADIFPopup(@[ @"POTA", @"WWFF" ]);
         spots.program.toolTip = @"Parks on the Air spots from pota.app, or World Wide Flora & Fauna spots from spots.wwff.co";
@@ -2527,7 +2529,8 @@ void cmdPotaSpots() {
         [w addOptionRow:@[ spots.program, spots.search, spots.band, spots.mode ]];
         [w setColumns:std::vector<ADIFToolColumn>{{"time", "UTC", 50}, {"call", "Activator", 90}, {"khz", "kHz", 70},
                                                   {"mode", "Mode", 50}, {"park", "Reference", 84}, {"name", "Name", 230},
-                                                  {"loc", "Location", 70}, {"worked", "Worked", 56}, {"comments", "Comments", 200}}
+                                                  {"loc", "Location", 70}, {"worked", "Worked", 56}, {"lotw", "LoTW", 84},
+                                                  {"comments", "Comments", 200}}
             checkboxes:NO
               sortable:YES];
         w.onActivateRow = ^(NSInteger row) { spotsUse(row); };

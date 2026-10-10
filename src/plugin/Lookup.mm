@@ -877,6 +877,17 @@ void ADIFFetchZlotaSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *
     });
 }
 
+void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error)) {
+    if (NSString *dir = fakeDir()) {
+        NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"lotw/lotw-user-activity.csv"]];
+        dispatch_async(dispatch_get_main_queue(), ^{ done(d, d ? nil : @"no test LoTW user list"); });
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://lotw.arrl.org/lotw-user-activity.csv"]];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    httpSend(r, done);
+}
+
 // ── Country data ────────────────────────────────────────────────────────────
 
 void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSString *release, NSString *error)) {

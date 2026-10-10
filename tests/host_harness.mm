@@ -3356,6 +3356,39 @@ int main(int argc, char **argv) {
             [lwin orderOut:nil];
         }
 
+
+        // ── LoTW users: off until asked, then in New QSO's lookup line ──
+        {
+            run("Settings...");
+            NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+            NSView *section = sw ? viewWithIdentifier(sw.contentView, @"settings.lotwusers") : nil;
+            NSButton *on = section ? findButton(section, @"Show LoTW users") : nil;
+            CHECK(on && on.state == NSControlStateValueOff, "LoTW users are off at first");
+            [on performClick:nil];
+            [findButton(section, @"Update") performClick:nil];
+            for (int i = 0; i < 30 && ![labelContaining(section, @"calls") length]; ++i) pump(0.05);
+            CHECK([labelContaining(section, @"5 calls, downloaded") length] > 0, "the list downloaded: %s",
+                  labelContaining(section, @"calls").UTF8String);
+            [sw orderOut:nil];
+            H.doc = "lotw\n<ADIF_VER:5>3.1.7\n<EOH>\n";
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.2);
+            run("New QSO...");
+            NSWindow *qwl = qsoWindow();
+            auto lookupLine = [&](NSString *call) {
+                qsoControl(qwl, @"CALL").stringValue = call;
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qwl, @"CALL")];
+                pump(0.9);  // the lookup runs 0.6 s after typing
+                NSView *info = viewWithIdentifier(qwl.contentView, @"qso.lookupInfo");
+                return std::string([info isKindOfClass:NSTextField.class] ? ((NSTextField *)info).stringValue.UTF8String : "");
+            };
+            std::string recent = lookupLine(@"K1AB"), old = lookupLine(@"K1PRK"), none = lookupLine(@"W9ZZZ");
+            CHECK(recent.find("LoTW user (last upload 2026-09-30)") != std::string::npos &&
+                      old.find("LoTW: last upload 2019-01-02") != std::string::npos && none.find("LoTW") == std::string::npos,
+                  "LoTW in the lookup line: %s | %s | %s", recent.c_str(), old.c_str(), none.c_str());
+            [qwl orderOut:nil];
+        }
+
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");
         notify(NPPN_SHUTDOWN);
 

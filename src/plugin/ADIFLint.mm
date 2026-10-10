@@ -40,6 +40,7 @@
 #import "Monitor.h"
 #import "Contest.h"
 #import "Labels.h"
+#import "LotwUsers.h"
 #import "Lookup.h"
 #import "NewQsoPanel.h"
 #import "PluginHost.h"
@@ -1953,6 +1954,7 @@ static void showLookupInfo() {
     if (!g.qso) return;
     std::vector<std::string> parts;
     if (!g.lookup.found.empty()) parts.push_back(g.lookup.found);
+    if (std::string lotw = ADIFLotwNote(qsoValue("CALL")); !lotw.empty()) parts.push_back(lotw);
     std::string theirGrid = qsoValue("GRIDSQUARE");
     if (theirGrid.empty() && g.lookup.callbook.count("GRIDSQUARE")) theirGrid = g.lookup.callbook["GRIDSQUARE"];
     std::string mine = myGrid(), km = adif::gridDistanceKm(mine, theirGrid);
@@ -2160,6 +2162,13 @@ static void refreshSettingsOptions();
 static void openSettings(NSInteger source) {
     if (!g.settings) {
         g.settings = [[ADIFSettingsPanel alloc] init];
+        g.settings.onLotwUsersToggled = ^(BOOL on) {
+            ADIFSetLotwUsersOn(on);
+            [g.settings setLotwUsersOn:on status:ADIFLotwUsersStatus() ok:YES];
+        };
+        g.settings.onLotwUsersUpdate = ^{
+            ADIFUpdateLotwUsers(^(BOOL ok, NSString *message) { [g.settings setLotwUsersOn:ADIFLotwUsersOn() status:message ok:ok]; });
+        };
         g.settings.onCountryUpdate = ^{
             ADIFUpdateCountryData(^(BOOL ok, NSString *message) { [g.settings setCountryStatus:message ok:ok]; });
         };
@@ -2206,6 +2215,7 @@ static void openSettings(NSInteger source) {
         };
     }
     [g.settings setCountryStatus:ADIFCountryDataStatus() ok:YES];
+    [g.settings setLotwUsersOn:ADIFLotwUsersOn() status:ADIFLotwUsersStatus() ok:YES];
     [g.settings setStationCall:ADIFString(adifhost::setting("stationCall")) grid:ADIFString(adifhost::setting("stationGrid"))
                     logsFolder:ADIFString(adifhost::setting("logsFolder"))];
     refreshSettingsOptions();

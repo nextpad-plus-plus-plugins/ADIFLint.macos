@@ -16,6 +16,11 @@
 @property(nonatomic, copy) void (^onCountryUpdate)(void);
 - (void)setCountryStatus:(NSString *)text ok:(BOOL)ok;
 
+// LoTW Users: show who uploads to LoTW (a checkbox), Update, and a status line.
+@property(nonatomic, copy) void (^onLotwUsersToggled)(BOOL on);
+@property(nonatomic, copy) void (^onLotwUsersUpdate)(void);
+- (void)setLotwUsersOn:(BOOL)on status:(NSString *)text ok:(BOOL)ok;
+
 // Your station: the callsign and grid New QSO and the exports use when a log has none,
 // and the folder of logs Worked Before searches.
 @property(nonatomic, copy) void (^onStationSave)(NSString *call, NSString *grid);

@@ -2352,6 +2352,11 @@ static void testLabels() {
     for (const LabelSheet &s : labelSheets())
         CHECK(s.left + (s.columns - 1) * s.across + s.width <= s.pageWidth + 0.5 && s.top + (s.rows - 1) * s.down + s.height <= s.pageHeight + 0.5,
               "%s fits its page", s.name.c_str());
+    LotwUsers users;
+    CHECK(users.load("1A0C,2026-07-27,15:21:03\r\nK1ABC,2019-01-02,00:00:00\nK1ABC,2025-03-04,01:02:03\nbad line\nW2X,not-a-date,1\n") == 2 &&
+              users.lastUpload("k1abc") == "2025-03-04" && users.lastUpload("VE3/K1ABC/P") == "2025-03-04" && users.lastUpload("W9ZZZ").empty() &&
+              users.lastUpload("1A0C") == "2026-07-27",
+          "LoTW users: latest upload, base call, unknown");
     std::string marked = applyTextEdits(log, cellEdits(log, r.model, qslSentChanges(want, "20261010"), LengthUnit::Bytes, false));
     LintResult mr = lintModel(marked);
     CHECK(mr.errors == 0 && qslWanted(marked, mr.model).empty() && marked.find("<QSLSDATE:8>20261010") != std::string::npos,
