@@ -91,6 +91,13 @@ std::string fmtNumber(double v) {
     return b;
 }
 
+// What loggers write for "no value": none, n/a, -, ?, unknown, null.
+bool isPlaceholder(std::string_view v) {
+    for (const char *p : {"none", "n/a", "-", "--", "---", "?", "unknown", "null"})
+        if (equalsNoCase(v, p)) return true;
+    return false;
+}
+
 // "HUNGARY" -> "Hungary", "UNITED STATES OF AMERICA" -> "United States Of America".
 std::string titleCase(std::string_view s) {
     std::string out(s);
@@ -1224,6 +1231,13 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         std::string msg = "'" + std::string(v) + "' is an import-only (deprecated) " + sp.name + " value; exporters must not write it.";
         if (ev->note) msg += std::string(" Spec: ") + ev->note;
         diagValue(Severity::Warning, sp, vEnd, std::move(msg));
+        // The spec names the new code ("replaced by CMX" for Mexico's DF).
+        std::string_view note = ev->note ? std::string_view(ev->note) : std::string_view();
+        if (startsWithNoCase(note, "replaced by ")) {
+            std::string to(note.substr(12));
+            if (!to.empty() && to.find(' ') == std::string::npos)
+                annotate("import-only", sp.name, {setTo(sp.name, to)}, sp.name + " " + to);
+        }
     };
 
     if (fd.enumKey) {
@@ -1305,6 +1319,12 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         else
             diagValue(Severity::Info, sp, vEnd, "'" + std::string(v) + "' is not in ADIF's " + e->name + " list.");
         submodeFix();
+        // A Field Day class (1D, 2A, 12F) in ARRL_SECT: no section looks like that; it is CLASS.
+        bool fieldDayClass = v.size() >= 2 && v.size() <= 3 && allDigits(v.substr(0, v.size() - 1)) &&
+                             std::strchr("ABCDEFabcdef", v.back()) != nullptr;
+        if (sp.name == "ARRL_SECT" && fieldDayClass && value(f, "CLASS").empty())
+            annotate("field-day-class", "ARRL_SECT", {setTo("CLASS", upper(v)), FieldFix{FixKind::RemoveField, "ARRL_SECT", "", kNoPos}},
+                     "move to CLASS " + upper(v));
         return;
     }
     importOnly(ev);
@@ -1328,6 +1348,18 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             diagValue(Severity::Error, sp, vEnd, sp.name + " must be " + limits + "; got " + snippet(v) + ".");
         }
     };
+
+    // A placeholder in a field that isn't free text ("none" for IOTA): the field means nothing,
+    // so leaving it out loses nothing. Not for an enumeration that has the value.
+    if (type != DataType::String && type != DataType::MultilineString && isPlaceholder(v)) {
+        const EnumDef *e = fd && fd->enumeration ? findEnum(fd->enumeration) : nullptr;
+        if (!(e && findEnumValue(*e, v))) {
+            diagValue(Severity::Warning, sp, vEnd,
+                      "'" + std::string(v) + "' in " + sp.name + " says there is no value; ADIF leaves the field out instead.");
+            annotate("placeholder", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}}, "remove " + sp.name);
+            return;
+        }
+    }
 
     switch (type) {
         case DataType::String:

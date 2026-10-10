@@ -51,8 +51,15 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
   | The same field twice with the same value | The second copy removed |
   | The last record has no `<EOR>` | `<EOR>` added |
   | TX_PWR or RX_PWR with a unit (`30W`, `5 w`, `1.5kW`, as WSJT-X writes what you type) | The number of watts (`30`, `5`, `1500`) |
+  | A placeholder for "no value" (`none`, `n/a`, `-`, `?`, `unknown`) in a field that isn't free text, such as IOTA `none` | The field removed (it said nothing) |
+  | A Field Day class in ARRL_SECT (`1D`, `12F`), when CLASS is empty | Moved to CLASS |
+  | A retired code the specification names a replacement for (STATE `DF` for Mexico City) | The new code (`CMX`) |
   | STATE or CNTY not on the country's ADIF list | Removed, only if you tick it: it starts unticked, and `--fix-all` leaves it |
   | A byte-order mark at the start | Removed |
+
+  With **One row for a problem repeated in many records** ticked (the default), the same
+  problem in many records is one row ("1407 +338", "(339 records)"), and repairing it
+  repairs them all.
 
   Problems without a repair need your judgement: a QSO date after today (POTA refuses
   future dates), PROP_MODE SAT without SAT_NAME, the same field twice with different

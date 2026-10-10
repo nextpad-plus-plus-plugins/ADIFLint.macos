@@ -61,7 +61,8 @@ struct Diagnostic {
 // submode-mode, mode-missing, date-format, time-format, freq-band, band-missing,
 // case, future-date, sat-name, sat-prop, pota-station, dup-field, no-eor, bom,
 // minimum-fields, subdivision (a STATE or CNTY not on the entity's list),
-// power-unit (TX_PWR 30W).
+// power-unit (TX_PWR 30W), placeholder ("none" for IOTA), import-only (a code
+// the spec says was replaced), field-day-class (1D in ARRL_SECT).
 
 // One data specifier, <NAME:LENGTH[:T]>DATA, as byte offsets.
 struct ModelField {

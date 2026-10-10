@@ -2520,6 +2520,31 @@ int main(int argc, char **argv) {
             NSString *noEqsl = labelContaining(H.panelView, @"error");
             CHECK(noEqsl && ![noEqsl containsString:@"eQSL"] && ![noEqsl containsString:@"to upload"], "N alone isn't a service in use: %s",
                   noEqsl.UTF8String);
+
+            // A problem repeated in many records is one row; repairing it repairs them all.
+            H.doc = "grouped\n<ADIF_VER:5>3.1.7\n<EOH>\n";
+            for (int i = 0; i < 3; ++i)
+                H.doc += "<CALL:4>K1A" + std::to_string(i) + " <QSO_DATE:10>2026-10-06 <TIME_ON:4>120" + std::to_string(i) +
+                         " <BAND:3>20m <MODE:2>CW <IOTA:4>none <USER_DEFINED_9:8>20230721 <EOR>\n";
+            H.pos = 0;
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            run("Check Log...");
+            long gr = ct ? (long)[ct.dataSource numberOfRowsInTableView:ct] : -1L;
+            NSString *firstWhere = gr > 0 ? cell(ct, 0, @"0") : @"";
+            CHECK(gr == 3 && [firstWhere isEqualToString:@"1 +2"] && [cell(ct, 0, @"4") hasPrefix:@"(3 records) "],
+                  "three problems in three records: three rows (%ld), the first '%s'", gr, firstWhere.UTF8String);
+            if (cw) {
+                [cw.contentView layoutSubtreeIfNeeded];
+                snapshot(cw, "check-log-grouped");
+                CHECK(overlaps(cw.contentView) == 0, "Check Log with grouping does not overlap");
+            }
+            NSButton *repairAll = cw ? findButton(cw.contentView, @"Repair 6 Ticked") : nil;
+            CHECK(repairAll != nil, "two ticked rows repair six problems");
+            [repairAll performClick:nil];
+            pump(0.4);
+            CHECK(!has("2026-10-06") && !has("<IOTA") && has("<USER_DEFINED_9"), "dates and IOTA none repaired in every record:\n%s",
+                  H.doc.c_str());
             [cw close];
         }
 

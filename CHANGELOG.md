@@ -49,6 +49,11 @@ Versions before 0.8.0 were development builds and were not published.
   which country and lists its codes (Hungary's are counties such as `BP` and `PE`). These
   usually come from callbooks: QRZ.com Logbook copies the other station's profile, such as
   `H` for Hungary. Check Log offers to remove one, unticked.
+- Check Log groups a problem repeated in many records into one row (an option, on by
+  default), and repairing the row repairs every record. New repairs: a placeholder such as
+  IOTA `none` or GRIDSQUARE `-` is removed; a Field Day class in ARRL_SECT (`1D`) moves to
+  CLASS; a retired code the specification names a replacement for (STATE `DF` for Mexico
+  City) becomes the new one (`CMX`).
 - Check Log names the field of every problem and shows a tick box only where there is a
   repair. The Record Panel's "to upload" counts a service only once something was sent to it
   (Y or M), not when a downloaded log merely says N.

@@ -183,7 +183,8 @@ static void testTypes() {
     expect("comma", lintRecord("<FREQ:6>14,074 "), Severity::Error, "not a valid Number");
     expectClean("leading point", lintRecord("<TX_PWR:2>.5 "));
     expectClean("trailing point", lintRecord("<TX_PWR:2>5. "));
-    expect("bare minus", lintRecord("<ALTITUDE:1>- "), Severity::Error, "not a valid Number");
+    expect("bare minus", lintRecord("<ALTITUDE:1>- "), Severity::Warning, "says there is no value");  // a placeholder
+    expect("minus dot", lintRecord("<ALTITUDE:2>-. "), Severity::Error, "not a valid Number");
     // Ranges from the field table
     expect("CQZ 41", lintRecord("<CQZ:2>41 "), Severity::Error, "CQZ must be 1 to 40");
     expect("AGE 121", lintRecord("<AGE:3>121 "), Severity::Error, "AGE must be 0 to 120");
@@ -269,6 +270,10 @@ static void testEnumerations() {
     expect("hungary callbook state", lintRecord("<DXCC:3>239 <STATE:1>H "), Severity::Warning,
            "'H' is not one of ADIF's STATE codes for Hungary (DXCC 239), which are BA, BE, BN, BO, BP, CS, FE, GY, HB, HE and 10 more");
     expectClean("an entity without a list", lintRecord("<DXCC:3>202 <STATE:2>PR "));
+    // A placeholder in free text is just text; CONT NA (North America) is a value, not "n/a".
+    expectClean("free text none", lintRecord("<COMMENT:4>none "));
+    expectClean("continent NA", lintRecord("<CONT:2>NA "));
+    expectClean("CLASS kept", lintRecord("<CLASS:2>1D <ARRL_SECT:3>EMA "));
     expectClean("state without dxcc", lintRecord("<STATE:2>XX "));
     expect("dxcc unknown", lintRecord("<DXCC:3>999 "), Severity::Error, "not a valid DXCC");
     expect("contest id", lintRecord("<CONTEST_ID:9>MY-SPRINT "), Severity::Info, "not in ADIF's Contest_ID list");
@@ -1814,6 +1819,16 @@ static void testQuickFixes() {
         {"dup-field", "<CALL:4>K1AB <CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <EOR>\n",
          "\n<CALL:4>K1AB <QSO_DATE:8>"},
         {"no-eor", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW\n", "<MODE:2>CW <EOR>"},
+        {"placeholder", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <IOTA:4>none <EOR>\n",
+         "<MODE:2>CW <EOR>"},
+        {"placeholder", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <GRIDSQUARE:3>N/A <BAND:3>20m <MODE:2>CW <EOR>\n",
+         "<TIME_ON:4>1200 <BAND:3>20m"},
+        {"field-day-class", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <ARRL_SECT:2>1D <EOR>\n",
+         "<MODE:2>CW <CLASS:2>1D <EOR>"},
+        {"field-day-class", "<CALL:4>K1AB <ARRL_SECT:3>12f <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <EOR>\n",
+         "<CALL:4>K1AB <QSO_DATE:8>"},
+        {"import-only", "<CALL:5>XE1AA <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <DXCC:2>50 <STATE:2>DF <EOR>\n",
+         "<STATE:3>CMX <EOR>"},
     };
     for (const Case &c : cases) {
         std::string text = std::string(kHeader) + c.rec;

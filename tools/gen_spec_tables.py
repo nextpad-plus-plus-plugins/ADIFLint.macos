@@ -191,8 +191,10 @@ def main():
             value = rec[vcol]
             scope = rec.get(scol) if scol else None
             imp = truthy(rec.get("Import-only"))
-            # Keep the description only where it tells the user what to do instead.
-            note = rec.get("Description") if imp else None
+            # Keep the description only where it tells the user what to do instead; subdivision
+            # tables put that in Comments ("replaced by CMX"), beside other notes such as local names.
+            comment = rec.get("Comments") or ""
+            note = (rec.get("Description") or (comment if comment.lower().startswith("replaced by ") else None)) if imp else None
             vals.append((sort_key(value), scope, value, note, imp))
         vals.sort(key=lambda v: v[0])
         ident = "kEnum_" + ename
