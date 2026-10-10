@@ -647,6 +647,7 @@ int main(int argc, char **argv) {
             {"Export Activation Logs...", "Export...", @"Activation logs (POTA, WWFF, SOTA)"},
             {"Export CSV...", "Export...", @"CSV"},
             {"Export Cabrillo...", "Export...", @"Cabrillo"},
+            {"Print QSL Labels...", "Export...", @"QSL labels (PDF)"},
             {"Upload to QRZ.com Logbook...", "QSL Sync (Upload, Confirmations)...", @"QRZ.com Logbook"},
             {"Upload to LoTW (TQSL)...", "QSL Sync (Upload, Confirmations)...", @"LoTW (TQSL)"},
             {"Upload to Club Log...", "QSL Sync (Upload, Confirmations)...", @"Club Log"},
@@ -3297,6 +3298,62 @@ int main(int argc, char **argv) {
                   "after Stop, QSOs carry no contest fields:\n%s", w4 == std::string::npos ? "" : H.doc.substr(w4).c_str());
             [cwin orderOut:nil];
             [qsoWindow() orderOut:nil];
+        }
+
+
+        // ── QSL labels ──
+        {
+            NSString *labelDir = [tmp stringByAppendingPathComponent:@"labels"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:labelDir withIntermediateDirectories:YES attributes:nil error:nil];
+            setenv("ADIFLINT_TEST_SAVE_DIR", labelDir.UTF8String, 1);
+            H.doc = "cards\n<ADIF_VER:5>3.1.7\n<EOH>\n"
+                    "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:3>SSB <RST_SENT:2>59 <QSL_SENT:1>R <EOR>\n"
+                    "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1330 <BAND:3>40m <MODE:2>CW <RST_SENT:3>599 <QSL_SENT:1>Q <EOR>\n"
+                    "<CALL:4>W2CD <QSO_DATE:8>20261009 <TIME_ON:4>1240 <BAND:3>20m <MODE:2>CW <QSL_SENT:1>R <QSL_VIA:4>W2XX <EOR>\n"
+                    "<CALL:4>W3EF <QSO_DATE:8>20261009 <TIME_ON:4>1250 <BAND:3>20m <MODE:2>CW <QSL_SENT:1>Y <EOR>\n";
+            H.path = std::string(tmp.UTF8String) + "/cards.adi";
+            notify(NPPN_BUFFERACTIVATED);
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.3);
+            run("Print QSL Labels...");
+            NSWindow *lwin = windowTitled(@"Print QSL Labels");
+            NSTableView *lt = lwin ? findTable(lwin.contentView) : nil;
+            CHECK(lt && [lt.dataSource numberOfRowsInTableView:lt] == 2 && [cell(lt, 1, @"2") isEqualToString:@"W2XX"] &&
+                      [cell(lt, 0, @"3") containsString:@"1330Z 40m CW 599"],
+                  "two labels, K1AB's two QSOs on one: %s", lt ? cell(lt, 0, @"3").UTF8String : "");
+            [findButton(lwin.contentView, @"Save PDF...") performClick:nil];
+            NSString *pdfPath = [labelDir stringByAppendingPathComponent:@"cards QSL labels.pdf"];
+            CGPDFDocumentRef pdf = CGPDFDocumentCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:pdfPath]);
+            CHECK(pdf && CGPDFDocumentGetNumberOfPages(pdf) == 1, "the PDF has one page");
+            if (pdf) CGPDFDocumentRelease(pdf);
+            if (const char *snap = getenv("ADIFLINT_SNAPSHOT_DIR")) {
+                NSString *copy = [@(snap) stringByAppendingPathComponent:@"qsl-labels.pdf"];
+                [[NSFileManager defaultManager] removeItemAtPath:copy error:nil];
+                [[NSFileManager defaultManager] copyItemAtPath:pdfPath toPath:copy error:nil];
+            }
+            NSMutableArray *lfields = [NSMutableArray array];
+            collect(lwin.contentView, NSTextField.class, lfields);
+            for (NSTextField *f in lfields)
+                if ([f.placeholderString isEqualToString:@"1"]) {
+                    f.stringValue = @"30";  // the last label of a 5160 sheet: the second label goes on a new page
+                    [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:f];
+                }
+            [[NSFileManager defaultManager] removeItemAtPath:pdfPath error:nil];
+            [findButton(lwin.contentView, @"Save PDF...") performClick:nil];
+            pdf = CGPDFDocumentCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:pdfPath]);
+            CHECK(pdf && CGPDFDocumentGetNumberOfPages(pdf) == 2, "starting at label 30 takes two pages");
+            if (pdf) CGPDFDocumentRelease(pdf);
+            if (lwin) {
+                [lwin.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(lwin.contentView) == 0, "Print QSL Labels does not overlap");
+                snapshot(lwin, "qsl-labels");
+            }
+            [findButton(lwin.contentView, @"Mark 3 QSOs as Sent") performClick:nil];
+            CHECK(std::count(H.doc.begin(), H.doc.end(), 'Y') >= 4 && H.doc.find("<QSL_SENT:1>R") == std::string::npos &&
+                      H.doc.find("<QSL_SENT:1>Q") == std::string::npos && H.doc.find("<QSLSDATE:8>" + utcDate()) != std::string::npos,
+                  "marked sent:\n%s", H.doc.c_str());
+            unsetenv("ADIFLINT_TEST_SAVE_DIR");
+            [lwin orderOut:nil];
         }
 
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");

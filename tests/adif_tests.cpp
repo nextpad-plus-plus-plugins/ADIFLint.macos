@@ -12,6 +12,7 @@
 #include "adif_compare.h"
 #include "adif_qsl.h"
 #include "adif_contest.h"
+#include "adif_labels.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -2322,6 +2323,41 @@ static void testContestAndZlota() {
           "a ZLOTA hunt counts as worked");
 }
 
+static void testLabels() {
+    std::string log = std::string(kHeader) +
+                      "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:3>SSB <RST_SENT:2>59 <QSL_SENT:1>R <EOR>\n"
+                      "<CALL:4>W2CD <QSO_DATE:8>20261009 <TIME_ON:4>1240 <BAND:3>20m <MODE:2>CW <QSL_SENT:1>Y <EOR>\n"
+                      "<CALL:4>k1ab <QSO_DATE:8>20261008 <TIME_ON:6>090000 <BAND:3>40m <MODE:4>MFSK <SUBMODE:3>FT4 <QSL_SENT:1>q <EOR>\n"
+                      "<CALL:4>K3EF <QSO_DATE:8>20261009 <TIME_ON:4>1300 <BAND:3>20m <MODE:3>SSB <QSL_SENT:1>R <QSL_VIA:4>W3XX <EOR>\n";
+    LintResult r = lintModel(log);
+    std::vector<int> want = qslWanted(log, r.model);
+    CHECK(want.size() == 3, "QSL_SENT R or Q: %zu", want.size());
+    std::vector<QslLabel> labels = qslLabels(log, r.model, want, 3);
+    CHECK(labels.size() == 2 && labels[0].call == "K1AB" && labels[0].qsos.size() == 2 && labels[0].qsos[0].date == "2026-10-08" &&
+              labels[0].qsos[0].mode == "FT4" && labels[1].via == "W3XX",
+          "one label per station, its QSOs in date order (%zu)", labels.size());
+    if (labels.size() == 2) {
+        std::vector<std::string> lines = labelLines(labels[0], "kw9d", "TNX QSO 73");
+        CHECK(lines.size() == 4 && lines[0] == "To: K1AB" && lines[2] == "2026-10-09 1230Z 20m SSB 59" &&
+                  lines[3] == "TNX QSO 73 de KW9D" && labelLines(labels[1], "", "")[0] == "To: K3EF via W3XX",
+              "label lines: %s", lines.empty() ? "" : lines[2].c_str());
+    }
+    CHECK(qslLabels(log, r.model, want, 1).size() == 3, "one QSO per label makes three");
+    const LabelSheet &avery = labelSheets()[0];
+    double x = 0, y = 0;
+    labelPosition(avery, 4, &x, &y);  // row 2, column 2
+    CHECK(std::abs(x - (0.1875 + 2.75) * 72) < 0.01 && std::abs(y - (0.5 + 1) * 72) < 0.01, "5160 label 5 at %.2f, %.2f", x, y);
+    labelPosition(avery, 30, &x, &y);  // the next page's first
+    CHECK(std::abs(x - 0.1875 * 72) < 0.01 && std::abs(y - 0.5 * 72) < 0.01, "a new page starts at the top");
+    for (const LabelSheet &s : labelSheets())
+        CHECK(s.left + (s.columns - 1) * s.across + s.width <= s.pageWidth + 0.5 && s.top + (s.rows - 1) * s.down + s.height <= s.pageHeight + 0.5,
+              "%s fits its page", s.name.c_str());
+    std::string marked = applyTextEdits(log, cellEdits(log, r.model, qslSentChanges(want, "20261010"), LengthUnit::Bytes, false));
+    LintResult mr = lintModel(marked);
+    CHECK(mr.errors == 0 && qslWanted(marked, mr.model).empty() && marked.find("<QSLSDATE:8>20261010") != std::string::npos,
+          "marked sent:\n%s", marked.c_str());
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -2364,6 +2400,7 @@ int main(int argc, char **argv) {
     testCapture();
     testCompareAndQsl();
     testContestAndZlota();
+    testLabels();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

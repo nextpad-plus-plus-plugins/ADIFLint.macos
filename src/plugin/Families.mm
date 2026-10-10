@@ -1,6 +1,7 @@
 #import "Families.h"
 
 #import "Imports.h"
+#import "Labels.h"
 #import "LogTools.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
@@ -29,6 +30,7 @@ const Member kExports[] = {
     {@"Activation logs (POTA, WWFF, SOTA)", @"Export Activation Logs", logtools::cmdExportPota},
     {@"CSV", @"Export CSV", logtools::cmdExportCsv},
     {@"Cabrillo", @"Export Cabrillo", logtools::cmdExportCabrillo},
+    {@"QSL labels (PDF)", @"Print QSL Labels", labels::cmdQslLabels},
 };
 const Member kUploads[] = {
     {@"QRZ.com Logbook", @"Upload to QRZ.com Logbook", uploads::cmdUploadQrz},

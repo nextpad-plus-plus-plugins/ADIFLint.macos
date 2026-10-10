@@ -39,6 +39,7 @@
 #import "LogTools.h"
 #import "Monitor.h"
 #import "Contest.h"
+#import "Labels.h"
 #import "Lookup.h"
 #import "NewQsoPanel.h"
 #import "PluginHost.h"
@@ -679,6 +680,7 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics = t
     imports::documentChanged();
     checklog::documentChanged();
     contest::documentChanged();
+    labels::documentChanged();
     return r;
 }
 
