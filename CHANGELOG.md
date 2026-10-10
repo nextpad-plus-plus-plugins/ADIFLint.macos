@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-10
+
 ### Added
 
 - **Monitor (WSJT-X, N1MM, Loggers)…**: QSOs other programs log are added to the log you
@@ -106,7 +108,7 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Changed
 
-- **A shorter menu**: 27 commands instead of 39. **Import…**, **Export…** and **Enrich…**
+- **A shorter menu**: 28 commands instead of 39. **Import…**, **Export…** and **Enrich…**
   each open the window used last, with a popup at its top for the others (Import from:
   LoTW, QRZ.com Logbook, eQSL, CSV file, WSJT-X log file); the upload windows open from QSL
   Sync and switch with the same popup. Check Log replaces **Validate Now**; Sort
@@ -336,6 +338,7 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases/tag/v0.8.0
