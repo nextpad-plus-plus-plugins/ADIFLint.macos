@@ -1,4 +1,5 @@
 #import "LogTools.h"
+#import "Monitor.h"
 
 #import "Families.h"
 #import "Lookup.h"
@@ -2703,6 +2704,17 @@ void cmdMergeLog() {
     }
     mergePlanNow();
     [merge.w show];
+}
+
+void cmdImportWsjtxLog() {
+    std::string p = monitor::wsjtxLogPath();
+    bool there = [[NSFileManager defaultManager] fileExistsAtPath:ADIFString(p)];
+    if (there) merge.path = p;
+    cmdMergeLog();
+    if (!there)
+        [merge.w setStatus:ADIFString("WSJT-X's log isn't at " + ADIFStd(ADIFString(p).stringByAbbreviatingWithTildeInPath) + " (WSJT-X keeps it there on a Mac). "
+                                      "Choose... the wsjtx_log.adi to add from.")
+                  severity:1];
 }
 
 // ── Export CSV ──

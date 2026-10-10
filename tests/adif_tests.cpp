@@ -8,6 +8,7 @@
 #include "adif_lint.h"
 #include "adif_spec.h"
 #include "adif_profiles.h"
+#include "adif_capture.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -1979,6 +1980,200 @@ static void testProfiles() {
           "overlay: the profile wins, new fields follow");
 }
 
+static std::string capturedGet(const CapturedQso &q, const char *name) {
+    for (const auto &f : q.fields)
+        if (f.first == name) return f.second;
+    return {};
+}
+
+static void testCapture() {
+    // WSJT-X QSO Logged (type 5), built as WSJT-X writes it.
+    FieldList qso = {{"CALL", "k1ab"},          {"GRIDSQUARE", "FN42"},     {"FREQ", "14.07415"},       {"MODE", "FT4"},
+                     {"RST_SENT", "-10"},       {"RST_RCVD", "-05"},        {"TX_PWR", "30"},           {"COMMENT", "tnx"},
+                     {"NAME", "Ann"},           {"QSO_DATE", "20261009"},   {"TIME_ON", "235930"},      {"QSO_DATE_OFF", "20261010"},
+                     {"TIME_OFF", "000115"},    {"OPERATOR", "KW9D"},       {"STATION_CALLSIGN", "KW9D"}, {"MY_GRIDSQUARE", "EN52"}};
+    std::string msg = wsjtxQsoLogged("WSJT-X", qso);
+    bool isWsjtx = false;
+    std::vector<CapturedQso> got = parseWsjtxMessage(msg, &isWsjtx);
+    CHECK(isWsjtx && got.size() == 1 && got[0].wsjtxType == 5 && got[0].client == "WSJT-X" && got[0].problem.empty(),
+          "type 5 parsed (%zu)", got.size());
+    if (got.size() == 1) {
+        const CapturedQso &q = got[0];
+        CHECK(capturedGet(q, "CALL") == "K1AB" && capturedGet(q, "QSO_DATE") == "20261009" && capturedGet(q, "TIME_ON") == "235930" &&
+                  capturedGet(q, "QSO_DATE_OFF") == "20261010" && capturedGet(q, "TIME_OFF") == "000115",
+              "type 5 dates across midnight: %s %s", capturedGet(q, "QSO_DATE").c_str(), capturedGet(q, "TIME_ON").c_str());
+        CHECK(capturedGet(q, "FREQ") == "14.07415" && capturedGet(q, "BAND") == "20m", "type 5 FREQ in MHz and BAND: %s",
+              capturedGet(q, "FREQ").c_str());
+        CHECK(capturedGet(q, "MODE") == "MFSK" && capturedGet(q, "SUBMODE") == "FT4", "FT4 written as MFSK + FT4");
+        CHECK(capturedGet(q, "STATION_CALLSIGN") == "KW9D" && capturedGet(q, "MY_GRIDSQUARE") == "EN52" &&
+                  capturedGet(q, "RST_SENT") == "-10" && capturedGet(q, "NAME") == "Ann" && capturedGet(q, "STX_STRING").empty(),
+              "type 5 other fields");
+    }
+    // QDateTime: Julian day 2451545 is 2000-01-01 (Qt's QDate::toJulianDay).
+    std::string y2k = wsjtxQsoLogged("x", {{"CALL", "K1AB"}, {"QSO_DATE", "20000101"}, {"TIME_ON", "000000"}});
+    size_t at = 16 + 1;  // magic, schema, type, Id length + "x"
+    long long jd = 0;
+    for (size_t i = 0; i < 8; ++i) jd = (jd << 8) | (unsigned char)y2k[at + i];
+    CHECK(jd == 2451545, "Julian day of 2000-01-01: %lld", jd);
+    // A time with an offset from UTC (timespec 2): 01:30 at UTC+2 is 23:30 UTC the day before.
+    std::string off = wsjtxQsoLogged("x", {{"CALL", "K1AB"}, {"QSO_DATE", "20261009"}, {"TIME_ON", "013000"}, {"FREQ", "7.074"}, {"MODE", "FT8"}});
+    size_t spec = at + 8 + 4;
+    off[spec] = 2;
+    off.insert(spec + 1, std::string("\x00\x00\x1c\x20", 4));  // +7200 s
+    got = parseWsjtxMessage(off);
+    CHECK(got.size() == 1 && capturedGet(got[0], "QSO_DATE_OFF") == "20261008" && capturedGet(got[0], "TIME_OFF") == "233000",
+          "offset from UTC applied: %s", got.empty() ? "" : capturedGet(got[0], "TIME_OFF").c_str());
+    // Logged ADIF (type 12), as WSJT-X sends it: a header, then one record.
+    std::string adif = "\n<adif_ver:5>3.1.0\n<programid:6>WSJT-X\n<EOH>\n<call:4>W1AW <gridsquare:4>FN31 <mode:3>FT8 "
+                       "<rst_sent:3>-12 <rst_rcvd:3>-09 <qso_date:8>20261009 <time_on:6>120015 <qso_date_off:8>20261009 "
+                       "<time_off:6>120130 <band:3>20m <freq:9>14.075123 <station_callsign:4>KW9D <my_gridsquare:4>EN52 <eor>";
+    got = parseWsjtxMessage(wsjtxLoggedAdif("JTDX", adif), &isWsjtx);
+    CHECK(isWsjtx && got.size() == 1 && got[0].wsjtxType == 12 && got[0].client == "JTDX" && capturedGet(got[0], "CALL") == "W1AW" &&
+              capturedGet(got[0], "TIME_ON") == "120015" && capturedGet(got[0], "BAND") == "20m" && got[0].problem.empty(),
+          "type 12 parsed (%zu)", got.size());
+    // Other types are WSJT-X but carry no QSO; short or foreign bytes are neither.
+    std::string heartbeat("\xad\xbc\xcb\xda\x00\x00\x00\x03\x00\x00\x00\x00", 12);
+    heartbeat += wsjtxString("WSJT-X");
+    got = parseWsjtxMessage(heartbeat, &isWsjtx);
+    CHECK(isWsjtx && got.empty(), "heartbeat ignored");
+    for (size_t n = 0; n < msg.size(); n += 7) parseWsjtxMessage(msg.substr(0, n));  // truncations must not crash
+    got = parseWsjtxMessage("<call:4>K1AB <eor>", &isWsjtx);
+    CHECK(!isWsjtx && got.empty(), "ADIF isn't a WSJT-X message");
+
+    // Plain ADIF payloads.
+    got = parseAdifPayload("ADD <call:4>K1AB <qso_date:8>20261009 <time_on:4>1200 <freq:5>7.074 <mode:3>FT8 <eor>", "Log4OM");
+    CHECK(got.size() == 1 && capturedGet(got[0], "BAND") == "40m" && got[0].source == "Log4OM" && got[0].problem.empty(),
+          "Log4OM ADD record");
+    got = parseAdifPayload("<call:4>K1AB <qso_date:8>20261009 <time_on:4>1200 <band:3>20m <mode:2>CW <EOR><call:4>K2CD "
+                           "<qso_date:8>20261009 <time_on:4>1201 <band:3>20m <mode:2>CW",
+                           "ADIF over UDP");
+    CHECK(got.size() == 2 && capturedGet(got[1], "CALL") == "K2CD", "two records, the last without <EOR> (%zu)", got.size());
+    got = parseAdifPayload("<call:4>K1AB <band:3>20m <eor>", "ADIF over UDP");
+    CHECK(got.size() == 1 && got[0].problem == "no QSO_DATE, TIME_ON, MODE", "missing fields named: %s",
+          got.empty() ? "" : got[0].problem.c_str());
+    got = parseAdifPayload("<call:4>K1AB <qso_date:10>2026-10-09 <time_on:5>12:00 <band:3>20m <mode:3>USB <eor>", "x");
+    CHECK(got.size() == 1 && capturedGet(got[0], "QSO_DATE") == "20261009" && capturedGet(got[0], "TIME_ON") == "1200" &&
+              capturedGet(got[0], "MODE") == "SSB" && capturedGet(got[0], "SUBMODE") == "USB",
+          "dates, times and USB normalised");
+    CHECK(parseAdifPayload("no tags at all", "x").empty() && parseAdifPayload("", "x").empty(), "no ADIF, no QSOs");
+
+    // N1MM Logger+ contact broadcasts.
+    std::string n1mm = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<contactinfo>\n<app>N1MM</app>\n<contestname>DXPEDITION</contestname>\n"
+                       "<timestamp>2026-10-09 16:43:38</timestamp>\n<mycall>KW9D</mycall>\n<band>3.5</band>\n<rxfreq>352519</rxfreq>\n"
+                       "<txfreq>352519</txfreq>\n<operator></operator>\n<mode>CW</mode>\n<call>W1AW</call>\n<snt>599</snt>\n"
+                       "<sntnr>5</sntnr>\n<rcv>579</rcv>\n<rcvnr>0</rcvnr>\n<name>Hiram &amp; co</name>\n<power>KW</power>\n"
+                       "<ID>f9ffac4fcd3e479ca86e137df1338531</ID>\n</contactinfo>";
+    got = parseCapture(n1mm, "UDP");
+    CHECK(got.size() == 1 && got[0].kind == CapturedQso::Kind::Add && got[0].id == "f9ffac4fcd3e479ca86e137df1338531", "N1MM contactinfo");
+    if (got.size() == 1) {
+        const CapturedQso &q = got[0];
+        CHECK(capturedGet(q, "CALL") == "W1AW" && capturedGet(q, "QSO_DATE") == "20261009" && capturedGet(q, "TIME_ON") == "164338" &&
+                  capturedGet(q, "FREQ") == "3.52519" && capturedGet(q, "BAND") == "80m" && capturedGet(q, "RST_RCVD") == "579" &&
+                  capturedGet(q, "STX") == "5" && capturedGet(q, "SRX").empty() && capturedGet(q, "NAME") == "Hiram & co" &&
+                  capturedGet(q, "RX_PWR").empty() && capturedGet(q, "STATION_CALLSIGN") == "KW9D" &&
+                  capturedGet(q, "APP_N1MM_ID") == "f9ffac4fcd3e479ca86e137df1338531" && q.problem.empty(),
+              "N1MM fields: FREQ %s", capturedGet(q, "FREQ").c_str());
+        CHECK(capturedGet(q, "CONTEST_ID").empty() && capturedGet(q, "APP_N1MM_CONTESTNAME") == "DXPEDITION",
+              "N1MM's own contest name kept apart");
+    }
+    std::string replace = n1mm;
+    replace.replace(replace.find("<contactinfo>"), 13, "<contactreplace>");
+    replace.replace(replace.find("</contactinfo>"), 14, "</contactreplace>");
+    replace.replace(replace.find("DXPEDITION"), 10, "CQ-WW-CW");
+    got = parseCapture(replace, "UDP");
+    CHECK(got.size() == 1 && got[0].kind == CapturedQso::Kind::Replace && capturedGet(got[0], "CONTEST_ID") == "CQ-WW-CW",
+          "N1MM contactreplace, an ADIF contest id");
+    got = parseCapture("<?xml version=\"1.0\"?><contactdelete><app>N1MM</app><timestamp>2026-10-09 16:43:38</timestamp>"
+                       "<call>W1AW</call><ID>f9ffac4fcd3e479ca86e137df1338531</ID></contactdelete>",
+                       "UDP");
+    CHECK(got.size() == 1 && got[0].kind == CapturedQso::Kind::Delete && got[0].id == "f9ffac4fcd3e479ca86e137df1338531",
+          "N1MM contactdelete");
+    CHECK(parseCapture("<?xml version=\"1.0\"?><RadioInfo><Freq>1407400</Freq></RadioInfo>", "UDP").empty(),
+          "N1MM radio info is not a QSO");
+
+    // Commands to loggers, as GridTracker sends them.
+    std::string rec = "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:6>120000 <FREQ:9>14.074000 <MODE:3>FT8 <EOR>";
+    std::string dxk = "<command:3>log<parameters:" + std::to_string(rec.size()) + ">" + rec + "\r\n";
+    got = parseCapture(dxk, "TCP");
+    CHECK(got.size() == 1 && capturedGet(got[0], "CALL") == "K1AB" && capturedGet(got[0], "BAND") == "20m", "DXKeeper log command");
+    got = parseCapture("ver\rdb add {CALL=\"K1AB\" QSO_DATE=\"20261009\" TIME_ON=\"120000\" FREQ=\"14074000\" MODE=\"FT8\" }\rexit\r", "TCP");
+    CHECK(got.size() == 1 && capturedGet(got[0], "FREQ") == "14.074" && capturedGet(got[0], "BAND") == "20m" && got[0].problem.empty(),
+          "HRD db add, FREQ without its point: %s", got.empty() ? "" : capturedGet(got[0], "FREQ").c_str());
+    got = parseCapture(" " + rec, "ADIF over UDP");
+    CHECK(got.size() == 1 && got[0].source == "ADIF over UDP", "plain ADIF by default");
+    // JS8Call's API: LOG.QSO carries the record as a JSON string; other messages carry none.
+    got = parseCapture("{\"params\":{\"CALL\":\"K1AB\",\"_ID\":-1},\"type\":\"LOG.QSO\",\"value\":\"<call:4>K1AB <gridsquare:4>FN42 "
+                       "<mode:3>MFSK <submode:3>JS8 <qso_date:8>20261009 <time_on:6>120000 <band:3>40m <freq:8>7.078000 "
+                       "<name:7>Ren\\u00e9 \\\"R\\\" <comment:5>a\\/b\\n\"}",
+                       "UDP");
+    CHECK(got.size() == 1 && got[0].source == "JS8Call" && capturedGet(got[0], "SUBMODE") == "JS8" &&
+              capturedGet(got[0], "NAME") == "Ren\xC3\xA9 \"R\"" && got[0].problem.empty(),
+          "JS8Call LOG.QSO: %s", got.empty() ? "" : capturedGet(got[0], "NAME").c_str());
+    CHECK(parseCapture("{\"type\":\"RX.ACTIVITY\",\"value\":\"<call:4>K1AB <eor>\",\"params\":{}}", "UDP").empty() &&
+              parseCapture("{\"params\":{\"type\":\"LOG.QSO\"},\"type\":\"STATION.STATUS\",\"value\":\"\"}", "UDP").empty() &&
+              parseCapture("{\"type\":\"LOG.QSO\",\"value\":\"\\ud83d\\ude00<call:4>K1AB", "UDP").empty(),
+          "other JS8Call messages, a nested type and broken JSON give nothing");
+
+    // Into a log: adds, duplicates, N1MM replace and delete.
+    CaptureFormat fmt;
+    fmt.programVersion = "0.10";
+    fmt.timestamp = "20261009 120000";
+    std::string log;
+    std::vector<CaptureOutcome> outs;
+    std::string why;
+    std::vector<CapturedQso> first = parseCapture(n1mm, "UDP");
+    std::vector<CapturedQso> batch = parseAdifPayload(
+        "<call:4>K1AB <qso_date:8>20261009 <time_on:4>1200 <band:3>20m <mode:2>CW <eor>"
+        "<call:4>K1AB <qso_date:8>20261009 <time_on:4>1201 <band:3>20m <mode:2>CW <eor>",  // the same QSO again
+        "x");
+    batch.insert(batch.begin(), first.begin(), first.end());
+    CHECK(applyCaptured(log, batch, fmt, &outs, &why) && outs.size() == 3 && outs[0].result == CaptureResult::Added &&
+              outs[1].result == CaptureResult::Added && outs[2].result == CaptureResult::Duplicate && outs[2].record == 2,
+          "a blank log gets a header, two QSOs and a duplicate skipped: %s", why.c_str());
+    LintResult lr = lintModel(log);
+    CHECK(lr.errors == 0 && recordCount(lr.model) == 2 && log.find("<EOH>") != std::string::npos, "the new log lints clean:\n%s",
+          log.c_str());
+    std::string before = log;
+    got = parseCapture(replace, "UDP");  // the same N1MM ID, now with a contest
+    CHECK(applyCaptured(log, got, fmt, &outs, &why) && outs.size() == 1 && outs[0].result == CaptureResult::Replaced &&
+              outs[0].record == 1 && log.find("<CONTEST_ID:8>CQ-WW-CW") != std::string::npos && recordCount(lintModel(log).model) == 2,
+          "N1MM replace in place:\n%s", log.c_str());
+    TextEdit edit = minimalEdit(before, log);
+    std::string redone = before;
+    redone.replace(edit.start, edit.end - edit.start, edit.text);
+    CHECK(redone == log && edit.start > before.find("<EOH>") && edit.end < before.size(), "one small edit does it");
+    got = parseCapture("<?xml version=\"1.0\"?><contactdelete><call>W1AW</call><ID>F9FFAC4FCD3E479CA86E137DF1338531</ID></contactdelete>",
+                       "UDP");
+    CHECK(applyCaptured(log, got, fmt, &outs, &why) && outs[0].result == CaptureResult::Deleted && recordCount(lintModel(log).model) == 1 &&
+              log.find("W1AW") == std::string::npos && lintModel(log).errors == 0,
+          "N1MM delete:\n%s", log.c_str());
+    CHECK(applyCaptured(log, got, fmt, &outs, &why) && outs[0].result == CaptureResult::NotFound, "deleting it again finds nothing");
+    std::string broken = log + "<call:4>K9XX <band:3>20m";
+    std::string kept = broken;
+    CHECK(!applyCaptured(broken, batch, fmt, &outs, &why) && why.find("no <EOR>") != std::string::npos && broken == kept,
+          "a last record without <EOR> refuses: %s", why.c_str());
+    std::string notes = "Shopping list: milk";
+    CHECK(!applyCaptured(notes, batch, fmt, &outs, &why) && why == "It isn't an ADIF log.", "plain text refuses: %s", why.c_str());
+    std::string crlf = "x\r\n<EOH>\r\n";
+    fmt.eol = "\r\n";
+    CHECK(applyCaptured(crlf, {batch[1]}, fmt, &outs, &why) && crlf.find("<EOR>\r\n") != std::string::npos &&
+              lintModel(crlf).errors == 0,
+          "the log's line ends");
+    fmt.eol = "\n";
+    TextEdit utf = minimalEdit("a\xC3\xA9z", "a\xC3\xA8z");  // é -> è share a lead byte
+    CHECK(utf.start == 1 && utf.end == 3 && utf.text == "\xC3\xA8", "edits keep whole UTF-8 characters");
+
+    // The queue file round trip keeps actions and sources.
+    std::vector<CapturedQso> queue = batch;
+    queue.push_back(parseCapture("<contactdelete><ID>abc</ID><call>W1AW</call></contactdelete>", "UDP")[0]);
+    std::string qt = queueText(queue, "0.10", "20261009 120000");
+    std::vector<CapturedQso> back = parseQueue(qt);
+    CHECK(lint(qt).errors == 0 && back.size() == 4 && back[0].source == "N1MM Logger+" && back[0].id == "f9ffac4fcd3e479ca86e137df1338531" &&
+              back[3].kind == CapturedQso::Kind::Delete && back[3].id == "abc" && capturedGet(back[1], "CALL") == "K1AB" &&
+              capturedGet(back[1], "APP_ADIFLINT_SOURCE").empty(),
+          "queue round trip:\n%s", qt.c_str());
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -2018,6 +2213,7 @@ int main(int argc, char **argv) {
     testGridEdits();
     testQuickFixes();
     testProfiles();
+    testCapture();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

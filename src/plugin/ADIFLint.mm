@@ -37,6 +37,7 @@
 #import "Country.h"
 #import "EnrichPanel.h"
 #import "LogTools.h"
+#import "Monitor.h"
 #import "Lookup.h"
 #import "NewQsoPanel.h"
 #import "PluginHost.h"
@@ -100,6 +101,7 @@ enum {
     kCmdExport,
     kCmdUpload,
     kCmdEnrich,
+    kCmdMonitor,
     kSepView,
     kCmdRecordPanel,
     kCmdReformatRecords,
@@ -2552,6 +2554,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdExport, "Export...", families::cmdExport);
     setItem(kCmdUpload, "Upload...", families::cmdUpload);
     setItem(kCmdEnrich, "Enrich...", cmdEnrich);
+    setItem(kCmdMonitor, "Monitor (WSJT-X, N1MM, Loggers)...", monitor::cmdMonitor);
     setItem(kSepView, "", nullptr);
     setItem(kCmdRecordPanel, "Record Panel", cmdRecordPanel, g.panelWanted);
     setItem(kCmdReformatRecords, "Reformat: One Record per Line", cmdReformatRecords);
@@ -2590,6 +2593,7 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 logtools::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
                 if (g.panelWanted) showPanel(true);
                 schedule(0.1);
+                dispatch_async(dispatch_get_main_queue(), ^{ monitor::startIfWanted(); });
                 // First run: a welcome in Settings, asking for the station (never during the tests'
                 // offline runs unless they ask for it).
                 if (g.firstRun && (!ADIFLookupFakeMode() || getenv("ADIFLINT_TEST_WELCOME"))) {
@@ -2611,6 +2615,7 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 break;
             case NPPN_SHUTDOWN:
                 g.ready = false;
+                monitor::shutdown();
                 if (g.panelHandle) app(NPPM_DMM_UNREGISTERPANEL, (uintptr_t)g.panelHandle);
                 g.panelHandle = 0;
                 break;
@@ -2633,6 +2638,7 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 uploads::documentChanged();
                 imports::documentChanged();
                 checklog::documentChanged();
+                monitor::documentActivated();
                 break;
             case NPPN_DARKMODECHANGED:
                 for (NppHandle h : {nppData._scintillaMainHandle, nppData._scintillaSecondHandle}) styleIndicators(h);

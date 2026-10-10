@@ -54,6 +54,11 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   from QRZ.com or HamQTH, with distance and bearing and what your logs say about the park.
 - POTA and WWFF spots, marked NEW when the park or reference isn't in your logs; pick one
   to fill New QSO.
+- **Monitor**: QSOs logged in WSJT-X, JTDX, JS8Call, N1MM Logger+, GridTracker (to DXKeeper,
+  HRD, N1MM or Log4OM) or another program that sends ADIF over UDP are added to the log you
+  choose as you log them: into the open log, into the file when it's closed, or queued
+  while it's in another tab. It can also watch WSJT-X's log file. It only listens, and only
+  on this Mac unless you allow other computers.
 - **Station profiles** (home, portable, a club station) and **Start Activation**: choose
   the program, the park or parks (a two-fer too), WWFF reference or summit and a profile,
   and ADIF Lint starts a log named as the program asks and opens New QSO on it, writing
@@ -166,10 +171,11 @@ tab); Settings suggests some.
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
-| Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), or a CSV file |
+| Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, or a Cabrillo contest log |
 | Upload… | To QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL: list what would be sent, upload when you say so, mark it uploaded |
 | Enrich… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
+| Monitor (WSJT-X, N1MM, Loggers)… | Add the QSOs WSJT-X, JS8Call, N1MM Logger+, GridTracker and other programs log to a log you choose, as they log them |
 | Record Panel | Show or hide the docked record table |
 | Reformat: One Record per Line / One Field per Line | Re-lay the file without touching data |
 | Check .adi Files While Typing | Problem marks as you type (on by default) |
@@ -206,6 +212,9 @@ HTTPS.
   it.
 - **TQSL** runs on your Mac for LoTW uploads. A certificate password you save is passed on
   its command line, where other programs on your Mac could see it while TQSL runs.
+- **Monitor** listens and never sends: on the UDP and TCP ports you tick, on `127.0.0.1`
+  only unless you tick Accept from other computers. It writes only to the log you chose and
+  to its queue file in the plugin config folder.
 - **Settings** are kept in `ADIFLint.ini` in Nextpad++'s plugin config folder
   (`~/Library/Application Support/Nextpad++/plugins/Config/`).
 

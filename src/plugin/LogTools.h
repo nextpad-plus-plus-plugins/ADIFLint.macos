@@ -21,6 +21,7 @@ void cmdTimeShift();
 void cmdOrganize();  // Sort and Organize: records by any fields, fields in any order
 void cmdRemoveDuplicates();
 void cmdMergeLog();
+void cmdImportWsjtxLog();  // Merge, from WSJT-X's own log
 void cmdExportCsv();
 void cmdExportPota();
 void cmdPotaSpots();

@@ -5,6 +5,7 @@
 // non-overlapping fixes, and must stay near-linear on hostile inputs.
 //
 //   fuzz_smoke SEED_FILE [ITERATIONS]
+#include "adif_capture.h"
 #include "adif_country.h"
 #include "adif_edit.h"
 #include "adif_formats.h"
@@ -215,6 +216,15 @@ int main(int argc, char **argv) {
     int iterations = argc > 2 ? std::atoi(argv[2]) : 3000;
 
     std::mt19937 rng(7);
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+    const double limitMsCapture = 10000;
+#else
+    const double limitMsCapture = 2000;
+#endif
+#else
+    const double limitMsCapture = 2000;
+#endif
     static const char kAlphabet[] = "<>:0123456789EORHABCDLMNSTxyz \r\n\t\x80\xC3\xBF-_.,{}";
     LintOptions chars;
     chars.lengthUnit = LengthUnit::Characters;
@@ -290,6 +300,70 @@ int main(int argc, char **argv) {
         std::vector<std::string> bad;
         std::string why;
         for (Program p : {Program::POTA, Program::WWFF, Program::SOTA}) parseReferences(p, t.substr(0, 40), &bad, &why);
+    }
+
+    // Datagrams and TCP messages from other programs (Monitor): any bytes at all.
+    const FieldList qso = {{"CALL", "K1AB"}, {"QSO_DATE", "20261009"}, {"TIME_ON", "235930"}, {"FREQ", "14.07415"},
+                           {"MODE", "FT4"},  {"RST_SENT", "-10"},      {"NAME", "Ann"},       {"STATION_CALLSIGN", "KW9D"}};
+    const std::string rec = "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:6>120000 <FREQ:9>14.074000 <MODE:3>FT8 <EOR>";
+    const std::vector<std::string> captures = {
+        wsjtxQsoLogged("WSJT-X", qso),
+        wsjtxLoggedAdif("JTDX", "\n<adif_ver:5>3.1.0\n<programid:6>WSJT-X\n<EOH>\n" + rec),
+        "<?xml version=\"1.0\"?><contactinfo><contestname>CQ-WW-CW</contestname><timestamp>2026-10-09 16:43:38</timestamp>"
+        "<txfreq>352519</txfreq><mode>USB</mode><call>W1AW</call><power>100</power><ID>f9ff</ID></contactinfo>",
+        "<?xml version=\"1.0\"?><contactdelete><call>W1AW</call><ID>f9ff</ID></contactdelete>",
+        "<command:3>log<parameters:" + std::to_string(rec.size()) + ">" + rec + "\r\n",
+        "ver\rdb add {CALL=\"K1AB\" QSO_DATE=\"20261009\" TIME_ON=\"120000\" FREQ=\"14074000\" MODE=\"FT8\" }\rexit\r",
+        "ADD " + rec + rec,
+        "{\"params\":{\"CALL\":\"K1AB\"},\"type\":\"LOG.QSO\",\"value\":\"" + rec + "\\u00e9\\ud83d\\ude00\\\"\"}"};
+    for (int i = 0; i < iterations * 4; ++i) {
+        std::string t = captures[(size_t)i % captures.size()];
+        int edits = 1 + (int)(rng() % 12);
+        for (int k = 0; k < edits && !t.empty(); ++k) {
+            size_t at = rng() % t.size();
+            char c = (i & 1) ? (char)(rng() & 0xff) : kNet[rng() % (sizeof kNet - 1)];
+            switch (rng() % 4) {
+                case 0: t[at] = c; break;
+                case 1: t.insert(at, 1, c); break;
+                case 2: t.erase(at, 1 + rng() % 8); break;
+                case 3: t = t.substr(0, at); break;
+            }
+        }
+        for (const CapturedQso &q : parseCapture(t, "fuzz")) {
+            bool named = true;
+            for (const auto &f : q.fields)
+                for (char c : f.first) named &= !(c >= 'a' && c <= 'z');
+            bool complete = true;
+            if (q.kind != CapturedQso::Kind::Delete && q.problem.empty())
+                for (const char *n : {"CALL", "QSO_DATE", "TIME_ON", "MODE"}) {
+                    bool has = false;
+                    for (const auto &f : q.fields) has |= f.first == n && !f.second.empty();
+                    complete &= has;
+                }
+            if (!named || !complete) {
+                std::printf("FAIL capture: %s fields from %zu bytes\n", named ? "missing" : "lower-case", t.size());
+                ++gFailures;
+                break;
+            }
+        }
+        parseLoggerCommand(t);
+        parseN1mmXml(t);
+        if (gFailures) break;
+    }
+    {
+        auto t0 = std::chrono::steady_clock::now();
+        for (const std::string &s : {std::string(1 << 16, '<'), std::string(1 << 16, '&'), [] {
+                 std::string x = "<contactinfo>";
+                 while (x.size() < (1u << 16)) x += "<call>";
+                 return x;
+             }()})
+            for (int k = 0; k < 4; ++k) parseCapture(s, "fuzz");
+        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        std::printf("%-26s %6.1f ms\n", "hostile datagrams", ms);
+        if (ms > limitMsCapture) {
+            std::printf("FAIL hostile datagrams: %.0f ms is too slow\n", ms);
+            ++gFailures;
+        }
     }
 
     // Hostile shapes, ~2 MB each: these must stay well under a second in a release build.

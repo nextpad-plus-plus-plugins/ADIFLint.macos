@@ -15,6 +15,11 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include <dlfcn.h>
 #include <algorithm>
 #include <cstdlib>
@@ -195,6 +200,63 @@ static intptr_t sendMessage(uintptr_t handle, uint32_t msg, uintptr_t w, intptr_
     }
     H.unknown.push_back(msg);
     return 0;
+}
+
+// Network senders for the Monitor tests: what WSJT-X, N1MM or GridTracker would send.
+static void sendUdp(int port, const std::string &bytes) {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in a{};
+    a.sin_len = sizeof a;
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sendto(fd, bytes.data(), bytes.size(), 0, (sockaddr *)&a, sizeof a);
+    close(fd);
+}
+static bool sendTcp(int port, const std::string &bytes) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a{};
+    a.sin_len = sizeof a;
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    bool ok = connect(fd, (sockaddr *)&a, sizeof a) == 0 && send(fd, bytes.data(), bytes.size(), 0) == (ssize_t)bytes.size();
+    close(fd);
+    return ok;
+}
+// WSJT-X's NetworkMessage.hpp layout: big endian, utf8 = length + bytes, QDateTime = Julian day, ms, timespec.
+static void bigEndian(std::string &o, uint64_t v, int n) {
+    for (int i = n - 1; i >= 0; --i) o.push_back((char)((v >> (8 * i)) & 0xff));
+}
+static std::string qString(const std::string &s) {
+    std::string o;
+    bigEndian(o, s.size(), 4);
+    return o + s;
+}
+static std::string wsjtxMessage(uint32_t type) {
+    std::string o;
+    bigEndian(o, 0xadbccbda, 4);
+    bigEndian(o, 3, 4);
+    bigEndian(o, type, 4);
+    return o + qString("WSJT-X");
+}
+static std::string qDateTime(uint32_t ms) {  // 2026-10-09 (Julian day 2461323), UTC
+    std::string o;
+    bigEndian(o, 2461323, 8);
+    bigEndian(o, ms, 4);
+    bigEndian(o, 1, 1);
+    return o;
+}
+static std::string wsjtxQsoLogged(const std::string &call, const std::string &mode, uint64_t hz, uint32_t onMs) {
+    std::string o = wsjtxMessage(5) + qDateTime(onMs + 60000) + qString(call) + qString("FN31");
+    bigEndian(o, hz, 8);
+    o += qString(mode) + qString("-10") + qString("-12") + qString("30") + qString("") + qString("");
+    o += qDateTime(onMs) + qString("") + qString("KW9D") + qString("EN52") + qString("") + qString("") + qString("");
+    return o;
+}
+static std::string fileText(const std::string &path) {
+    NSData *d = [NSData dataWithContentsOfFile:@(path.c_str())];
+    return d ? std::string((const char *)d.bytes, d.length) : std::string();
 }
 
 static void pump(double seconds) {
@@ -550,7 +612,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 32, "32 menu entries (26 commands, 6 separators), got %d", n);
+        CHECK(n == 33, "33 menu entries (27 commands, 6 separators), got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -579,6 +641,7 @@ int main(int argc, char **argv) {
             {"Import from QRZ.com Logbook...", "Import...", @"QRZ.com Logbook"},
             {"Import from eQSL...", "Import...", @"eQSL"},
             {"Import CSV...", "Import...", @"CSV file"},
+            {"Import WSJT-X Log...", "Import...", @"WSJT-X log file"},
             {"Export Activation Logs...", "Export...", @"Activation logs (POTA, WWFF, SOTA)"},
             {"Export CSV...", "Export...", @"CSV"},
             {"Export Cabrillo...", "Export...", @"Cabrillo"},
@@ -642,7 +705,7 @@ int main(int argc, char **argv) {
         for (const char *name : {"New QSO...", "Spots (POTA, WWFF)...", "Start Activation...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
                                  "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
                                  "Merge Another Log...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...",
-                                 "Import...", "Export...", "Upload...", "Enrich...", "Record Panel", "Reformat: One Record per Line",
+                                 "Import...", "Export...", "Upload...", "Enrich...", "Monitor (WSJT-X, N1MM, Loggers)...", "Record Panel", "Reformat: One Record per Line",
                                  "Reformat: One Field per Line", "Check .adi Files While Typing", "Settings...", "About ADIF Lint..."})
             CHECK(byName.count(name), "menu item %s", name);
         CHECK(byName.count("Check .adi Files While Typing") && byName["Check .adi Files While Typing"]->_init2Check &&
@@ -2842,6 +2905,201 @@ int main(int argc, char **argv) {
                                                                   error:nil];
             CHECK([settingsText containsString:@"activationActive=0\n"], "the activation is over");
             for (NSString *t in @[ @"Check Log", @"Export Activation Logs", @"Start Activation", @"New QSO" ]) [windowTitled(t) orderOut:nil];
+        }
+
+
+        // ── Monitor: QSOs other programs announce, into the chosen log ──
+        {
+            NSString *work = [tmp stringByAppendingPathComponent:@"monitor"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:work withIntermediateDirectories:YES attributes:nil error:nil];
+            const int base = 47000 + (int)(getpid() % 500) * 4;  // WSJT-X, ADIF, N1MM, TCP: away from the real ports
+            setenv("ADIFLINT_TEST_PORTS", std::to_string(base).c_str(), 1);
+            const std::string logPath = std::string(work.UTF8String) + "/station.adi";
+            const std::string otherPath = std::string(work.UTF8String) + "/other.adi";
+            const std::string otherDoc = "other\n<ADIF_VER:5>3.1.7\n<EOH>\n";
+            auto count = [](const std::string &hay, const std::string &needle) {
+                size_t n = 0;
+                for (size_t at = hay.find(needle); at != std::string::npos; at = hay.find(needle, at + 1)) ++n;
+                return n;
+            };
+            auto activate = [&](const std::string &path, const std::string &doc, std::vector<std::string> others) {
+                H.doc = doc;
+                H.path = path;
+                H.openFiles = std::move(others);
+                notify(NPPN_BUFFERACTIVATED);
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                pump(0.3);
+            };
+            activate(logPath, "station\n<ADIF_VER:5>3.1.7\n<EOH>\n", {});
+            run("Monitor (WSJT-X, N1MM, Loggers)...");
+            NSWindow *mw = windowTitled(@"Monitor");
+            NSTableView *mt = mw ? findTable(mw.contentView) : nil;
+            CHECK(mw.visible && mt, "Monitor opens");
+            [findButton(mw.contentView, @"Use the Open Log") performClick:nil];
+            for (NSString *t in @[ @"N1MM Logger+ contacts (XML) port", @"Logger commands over TCP (DXKeeper, HRD form) port" ]) {
+                NSButton *b = findButton(mw.contentView, t);
+                CHECK(b && b.state == NSControlStateValueOff, "%s is off at first", t.UTF8String);
+                [b performClick:nil];
+            }
+            [findButton(mw.contentView, @"Start") performClick:nil];
+            pump(0.2);
+            NSString *head = labelWithLines(mw.contentView, 2);
+            std::string ports = std::to_string(base);
+            CHECK([head containsString:@(("Listening: WSJT-X " + ports).c_str())] && [head containsString:@"N1MM"] && [head containsString:@"TCP"] &&
+                      findButton(mw.contentView, @"Stop") != nil,
+                  "Monitor listens: %s", head.UTF8String);
+            auto lastResult = [&]() { return std::string(cell(mt, 0, @"7").UTF8String ?: ""); };  // the Result column
+
+            // WSJT-X sends QSO Logged, then Logged ADIF, for one QSO: one record, from the ADIF.
+            std::string adif = "\n<adif_ver:5>3.1.0\n<programid:6>WSJT-X\n<EOH>\n<call:4>W1AW <gridsquare:4>FN31 <mode:3>FT8 "
+                               "<rst_sent:3>-10 <rst_rcvd:3>-12 <qso_date:8>20261009 <time_on:6>120015 <qso_date_off:8>20261009 "
+                               "<time_off:6>120130 <band:3>20m <freq:9>14.075123 <station_callsign:4>KW9D <my_gridsquare:4>EN52 <eor>";
+            sendUdp(base, wsjtxQsoLogged("W1AW", "FT8", 14075123, (12 * 3600 + 15) * 1000));
+            sendUdp(base, wsjtxMessage(12) + qString(adif));
+            pump(0.4);
+            CHECK(count(H.doc, "<CALL:4>W1AW") == 1 && H.doc.find("<FREQ:9>14.075123") != std::string::npos &&
+                      lastResult() == "Added as record 1",
+                  "WSJT-X: one record from QSO Logged + Logged ADIF (%s):\n%s", lastResult().c_str(), H.doc.c_str());
+            // QSO Logged alone (an older program) is used after a moment.
+            sendUdp(base, wsjtxQsoLogged("K2XYZ", "FT4", 14080000, (12 * 3600 + 30 * 60) * 1000));
+            pump(0.3);
+            CHECK(H.doc.find("K2XYZ") == std::string::npos, "QSO Logged waits for a Logged ADIF");
+            pump(1.8);
+            CHECK(H.doc.find("<CALL:5>K2XYZ") != std::string::npos && H.doc.find("<MODE:4>MFSK") != std::string::npos &&
+                      H.doc.find("<SUBMODE:3>FT4") != std::string::npos && H.doc.find("<TIME_ON:6>123000") != std::string::npos &&
+                      H.doc.find("<BAND:3>20m") != std::string::npos,
+                  "QSO Logged on its own becomes a record:\n%s", H.doc.c_str());
+            // A burst of decodes (WSJT-X sends a datagram for each) doesn't crowd out a QSO; JS8Call's
+            // JSON LOG.QSO arrives on the same port.
+            for (int i = 0; i < 40; ++i) sendUdp(base, wsjtxMessage(2) + qString("decode"));
+            sendUdp(base, "{\"type\":\"LOG.QSO\",\"value\":\"<call:5>K8JSC <qso_date:8>20261009 <time_on:6>121000 <band:3>40m "
+                          "<mode:4>MFSK <submode:3>JS8\",\"params\":{\"CALL\":\"K8JSC\"}}");
+            pump(0.4);
+            CHECK(H.doc.find("<CALL:5>K8JSC") != std::string::npos && H.doc.find("<SUBMODE:3>JS8") != std::string::npos,
+                  "JS8Call's LOG.QSO after a burst of decodes");
+
+            // Plain ADIF over UDP (Log4OM's "ADD"), N1MM's add, replace and delete, HRD's command over TCP.
+            sendUdp(base + 1, "ADD <CALL:5>K3ADD <QSO_DATE:8>20261009 <TIME_ON:4>1215 <FREQ:5>7.074 <MODE:3>FT8 <EOR>");
+            pump(0.3);
+            CHECK(H.doc.find("<CALL:5>K3ADD") != std::string::npos && H.doc.find("<BAND:3>40m") != std::string::npos, "ADIF over UDP");
+            std::string n1mm = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<contactinfo><app>N1MM</app><contestname>CQ-WW-CW</contestname>"
+                               "<timestamp>2026-10-09 16:43:38</timestamp><mycall>KW9D</mycall><band>3.5</band><rxfreq>352519</rxfreq>"
+                               "<txfreq>352519</txfreq><mode>CW</mode><call>W1N1M</call><snt>599</snt><rcv>599</rcv>"
+                               "<ID>abc123</ID></contactinfo>";
+            sendUdp(base + 2, n1mm);
+            pump(0.3);
+            size_t before = count(H.doc, "<EOR>");
+            CHECK(H.doc.find("<CALL:5>W1N1M") != std::string::npos && H.doc.find("<APP_N1MM_ID:6>abc123") != std::string::npos &&
+                      H.doc.find("<CONTEST_ID:8>CQ-WW-CW") != std::string::npos,
+                  "N1MM contact added");
+            std::string fixed = n1mm;
+            fixed.replace(fixed.find("<contactinfo>"), 13, "<contactreplace>");
+            fixed.replace(fixed.find("</contactinfo>"), 14, "</contactreplace>");
+            fixed.replace(fixed.find("W1N1M"), 5, "W1N1X");
+            sendUdp(base + 2, fixed);
+            pump(0.3);
+            CHECK(H.doc.find("W1N1M") == std::string::npos && H.doc.find("<CALL:5>W1N1X") != std::string::npos &&
+                      count(H.doc, "<EOR>") == before && lastResult().rfind("Replaced record", 0) == 0,
+                  "N1MM's correction replaces the record (%s)", lastResult().c_str());
+            sendUdp(base + 2, "<?xml version=\"1.0\"?><contactdelete><call>W1N1X</call><ID>abc123</ID></contactdelete>");
+            pump(0.3);
+            CHECK(H.doc.find("W1N1X") == std::string::npos && count(H.doc, "<EOR>") == before - 1, "N1MM's delete removes it");
+            CHECK(sendTcp(base + 3, "ver\rdb add {CALL=\"K4HRD\" QSO_DATE=\"20261009\" TIME_ON=\"121700\" FREQ=\"14074000\" MODE=\"FT8\" }\rexit\r"),
+                  "connected to the TCP port");
+            pump(0.4);
+            CHECK(H.doc.find("<CALL:5>K4HRD") != std::string::npos && H.doc.find("<FREQ:6>14.074") != std::string::npos,
+                  "HRD's db add over TCP");
+            sendUdp(base + 1, "<CALL:5>K3ADD <QSO_DATE:8>20261009 <TIME_ON:4>1216 <FREQ:5>7.074 <MODE:3>FT8 <EOR>");
+            pump(0.3);
+            CHECK(count(H.doc, "K3ADD") == 1 && lastResult().rfind("Already in the log", 0) == 0, "a repeat isn't added (%s)",
+                  lastResult().c_str());
+            std::string hl;
+            CHECK(noErrors(&hl), "the captured log is clean: %s", hl.c_str());
+
+            // The log open in another tab: queued, then added when it's active again.
+            std::string stationDoc = H.doc;
+            activate(otherPath, otherDoc, {logPath});
+            sendUdp(base + 1, "<CALL:5>K5QUE <QSO_DATE:8>20261009 <TIME_ON:4>1220 <BAND:3>20m <MODE:2>CW <EOR>");
+            pump(0.3);
+            std::string queuePath = std::string(tmp.UTF8String) + "/ADIFLint-queue.adi";
+            CHECK(H.doc == otherDoc && fileText(queuePath).find("<CALL:5>K5QUE") != std::string::npos &&
+                      lastResult().find("station.adi is open in another tab") != std::string::npos &&
+                      findButton(mw.contentView, @"Add 1 Queued QSO") != nil,
+                  "queued while the log is in another tab (%s)", lastResult().c_str());
+            activate(logPath, stationDoc, {otherPath});
+            CHECK(H.doc.find("<CALL:5>K5QUE") != std::string::npos && fileText(queuePath).empty() &&
+                      lastResult().find("from the queue") != std::string::npos,
+                  "the queue goes in when the log is active (%s)", lastResult().c_str());
+
+            // The log not open at all: written to its file.
+            [[NSData dataWithBytes:H.doc.data() length:H.doc.size()] writeToFile:@(logPath.c_str()) atomically:YES];
+            activate(otherPath, otherDoc, {});
+            sendUdp(base + 1, "<CALL:5>K6DSK <QSO_DATE:8>20261009 <TIME_ON:4>1225 <BAND:3>20m <MODE:2>CW <EOR>");
+            pump(0.3);
+            CHECK(H.doc == otherDoc && fileText(logPath).find("<CALL:5>K6DSK") != std::string::npos &&
+                      lastResult().find("(in the file)") != std::string::npos,
+                  "written to the log's file when it isn't open (%s)", lastResult().c_str());
+
+            // A watched file: QSOs added to it from now on.
+            const std::string watchPath = std::string(work.UTF8String) + "/wsjtx_log.adi";
+            std::string watched = "WSJT-X ADIF Export<eoh>\n<call:4>OLD1 <qso_date:8>20261008 <time_on:6>100000 <band:3>20m <mode:3>FT8 <eor>\n";
+            [[NSData dataWithBytes:watched.data() length:watched.size()] writeToFile:@(watchPath.c_str()) atomically:NO];
+            setenv("ADIFLINT_TEST_WATCH", watchPath.c_str(), 1);
+            [findButton(mw.contentView, @"Add File...") performClick:nil];
+            unsetenv("ADIFLINT_TEST_WATCH");
+            pump(0.3);
+            NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:@(watchPath.c_str())];
+            [fh seekToEndOfFile];
+            [fh writeData:[@"<call:5>K7FIL <qso_date:8>20261009 <time_on:6>122900 <band:3>20m <mode:3>FT8 <eor>\n"
+                              dataUsingEncoding:NSUTF8StringEncoding]];
+            [fh closeFile];
+            for (int i = 0; i < 30 && fileText(logPath).find("K7FIL") == std::string::npos; ++i) pump(0.1);
+            CHECK(fileText(logPath).find("<CALL:5>K7FIL") != std::string::npos && fileText(logPath).find("OLD1") == std::string::npos,
+                  "a QSO appended to a watched file is captured, the old ones aren't");
+            head = labelWithLines(mw.contentView, 2);
+            CHECK([head containsString:@(("Listening: WSJT-X " + ports).c_str())] && [head containsString:@"file wsjtx_log.adi"] &&
+                      ![labelWithLines(mw.contentView, 4) containsString:@"in use"],
+                  "after a restart the ports are listened to again: %s", head.UTF8String);
+
+            if (mw) {
+                [mw.contentView layoutSubtreeIfNeeded];
+                snapshot(mw, "monitor");
+                CHECK(overlaps(mw.contentView) == 0, "Monitor does not overlap");
+            }
+
+            // Another program on the WSJT-X port: said plainly.
+            [findButton(mw.contentView, @"Stop") performClick:nil];
+            pump(0.1);
+            CHECK([labelWithLines(mw.contentView, 2) isEqualToString:@"Stopped"], "Monitor stops");
+            int blocker = socket(AF_INET, SOCK_DGRAM, 0);
+            sockaddr_in a{};
+            a.sin_len = sizeof a;
+            a.sin_family = AF_INET;
+            a.sin_port = htons((uint16_t)base);
+            a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            bind(blocker, (sockaddr *)&a, sizeof a);
+            [findButton(mw.contentView, @"Start") performClick:nil];
+            pump(0.2);
+            NSString *status = labelWithLines(mw.contentView, 4);
+            CHECK([status containsString:@"is in use by another program"] && [status containsString:@"multicast"],
+                  "a port in use is explained: %s", status.UTF8String);
+            [findButton(mw.contentView, @"Stop") performClick:nil];
+            close(blocker);
+            NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                      encoding:NSUTF8StringEncoding
+                                                         error:nil];
+            CHECK([ini containsString:@(("monitorTarget=" + logPath + "\n").c_str())] && [ini containsString:@"monitorN1mm=1\n"],
+                  "the Monitor's choices are kept");
+            [mw orderOut:nil];
+            unsetenv("ADIFLINT_TEST_PORTS");
+
+            // Import... offers WSJT-X's own log (Merge, from that file).
+            setenv("ADIFLINT_TEST_WSJTX_LOG", watchPath.c_str(), 1);
+            run("Import WSJT-X Log...");
+            unsetenv("ADIFLINT_TEST_WSJTX_LOG");
+            NSWindow *gw2 = windowTitled(@"Merge Another Log");
+            CHECK(gw2.visible && labelContaining(gw2.contentView, @"wsjtx_log.adi") != nil, "Import: the WSJT-X log, in Merge");
+            [gw2 orderOut:nil];
         }
 
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");

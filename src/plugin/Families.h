@@ -1,6 +1,6 @@
 // The Import..., Export... and Upload... menu items. Each opens the window of
 // its family used last; a popup at the top of every family window switches to a
-// sibling (Import from: LoTW, QRZ.com Logbook, eQSL, CSV file), which opens
+// sibling (Import from: LoTW, QRZ.com Logbook, eQSL, CSV file, WSJT-X log), which opens
 // where this one was.
 #pragma once
 
@@ -11,7 +11,7 @@ namespace families {
 enum Family { kImport, kExport, kUpload };
 
 // Members, in popup order.
-enum { kImportLotw, kImportQrzLogbook, kImportEqsl, kImportCsv };
+enum { kImportLotw, kImportQrzLogbook, kImportEqsl, kImportCsv, kImportWsjtx };
 enum { kExportActivations, kExportCsv, kExportCabrillo };
 enum { kUploadQrz, kUploadLotw, kUploadClubLog, kUploadEqsl };
 

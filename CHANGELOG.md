@@ -11,6 +11,17 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **Monitor (WSJT-X, N1MM, Loggers)…**: QSOs other programs log are added to the log you
+  choose as they're logged. It listens for WSJT-X's and JTDX's QSO Logged and Logged ADIF
+  messages (2237, with an optional multicast group), JS8Call's `LOG.QSO`, ADIF records over
+  UDP (2333), N1MM Logger+'s contact broadcasts with their edits and deletions (12060), and
+  GridTracker's DXKeeper and HRD Logbook commands over TCP (52001), and can watch WSJT-X's
+  log file or any log a program appends to. QSOs go into the open log (one undo step
+  each), into the file when it isn't open, or into a queue while it's open in another tab;
+  a QSO the log already has isn't added again. It only listens, on this Mac unless you
+  allow other computers.
+- **Import… → WSJT-X log file** merges WSJT-X's own log.
+
 - **Station profiles**: named sets of your station's fields (callsign, operator, grid,
   state, county, rig, antenna, power, TQSL location), edited in their own window and chosen
   in New QSO's new **Station** popup.

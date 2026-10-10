@@ -15,6 +15,7 @@ struct Member {
     NSString *label;    // in the popup
     NSString *title;    // the window's title
     void (*open)();     // shows the window
+    bool remember = true;  // Import... opens it next time (not a window without the family popup)
 };
 
 const Member kImports[] = {
@@ -22,6 +23,7 @@ const Member kImports[] = {
     {@"QRZ.com Logbook", @"Import from QRZ.com Logbook", imports::cmdImportQrzLogbook},
     {@"eQSL", @"Import from eQSL", imports::cmdImportEqsl},
     {@"CSV file", @"Import CSV", logtools::cmdImportCsv},
+    {@"WSJT-X log file", @"Merge Another Log", logtools::cmdImportWsjtxLog, false},
 };
 const Member kExports[] = {
     {@"Activation logs (POTA, WWFF, SOTA)", @"Export Activation Logs", logtools::cmdExportPota},
@@ -58,7 +60,7 @@ void open(Family f, NSInteger index, NSWindow *from) {
     size_t n = 0;
     const Member *m = members(f, &n);
     if (index < 0 || (size_t)index >= n) index = 0;
-    adifhost::setSetting(settingKey(f), std::to_string(index));
+    if (m[index].remember) adifhost::setSetting(settingKey(f), std::to_string(index));
     m[index].open();
     NSWindow *to = windowTitled(m[index].title);
     if (!from || !to || to == from) return;

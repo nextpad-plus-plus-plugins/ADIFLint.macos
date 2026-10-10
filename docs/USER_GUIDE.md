@@ -9,6 +9,7 @@ saved to disk until you save the file.
 - [Checking and repairing a log](#checking-and-repairing-a-log)
 - [Logging with New QSO](#logging-with-new-qso)
 - [Station profiles and activations](#station-profiles-and-activations)
+- [Monitor: QSOs from WSJT-X and other programs](#monitor-qsos-from-wsjt-x-and-other-programs)
 - [Spots](#spots)
 - [Log Table, Summary and Worked Before](#log-table-summary-and-worked-before)
 - [Activations: POTA, WWFF and SOTA](#activations-pota-wwff-and-sota)
@@ -234,6 +235,80 @@ in every QSO even when not shown.
   ([POTA: submitting logs](https://docs.pota.app/docs/activator_reference/submitting_logs.html),
   checked 2026-10-09).
 
+## Monitor: QSOs from WSJT-X and other programs
+
+**Monitor (WSJT-X, N1MM, Loggers)…** adds the QSOs other programs log to a log you choose,
+as they log them. It listens for the message a program sends when you log a contact, or
+watches a log file a program adds to. It only listens: it never sends anything, and it
+takes messages only from this Mac unless you tick **Accept from other computers**.
+
+**Add QSOs to**: **Choose…** an `.adi` log, or **Use the Open Log**. Where each QSO goes:
+
+- The log is the document in front: added at its end, one undo step per message, with the
+  caret left where it is.
+- The log isn't open in Nextpad++: added to the file.
+- The log is open in another tab: kept in a queue (`ADIFLint-queue.adi` in the plugin
+  config folder) and added when you switch to it, or with **Add N Queued QSOs**. The queue
+  survives quitting Nextpad++.
+
+A QSO the log already has (same call, band and mode, starting within 2 minutes) isn't
+added again. A log with broken structure (wrong lengths, a record without `<EOR>`) isn't
+touched: the QSOs wait in the queue until it's repaired. A message without a call, date,
+time, mode, or band or frequency is listed as **Not logged** and left out.
+
+The sources, each ticked on or off with its port (the defaults are the ports these
+programs use):
+
+| Source | Port | What arrives |
+|---|---|---|
+| WSJT-X, JTDX, JS8Call (UDP Server) | 2237 | WSJT-X and JTDX send *QSO Logged* and *Logged ADIF* when you log a QSO; the Monitor keeps the ADIF one. JS8Call sends its API's `LOG.QSO` message. |
+| ADIF over UDP | 2333 | An ADIF record per QSO: JS8Call's N1MM option, GridTracker logging to N1MM or Log4OM, and other programs that send ADIF |
+| N1MM Logger+ contacts (XML) | 12060 | N1MM Logger+'s contacts as they're added, and its edits and deletions of them (off at first) |
+| Logger commands over TCP | 52001 | What GridTracker sends to DXKeeper or HRD Logbook (off at first) |
+
+**Watch files**: **Watch WSJT-X's Log** watches `~/Library/Application Support/WSJT-X/wsjtx_log.adi`,
+the log WSJT-X keeps on a Mac (WSJT-X User Guide v3.2.0-rc1, pages 45 and 120), and **Add
+File…** any other log a program adds to. QSOs added to the file from now on are captured,
+not the ones already in it (**Import… → WSJT-X log file** adds those). Watching the file
+works however many other programs use WSJT-X's messages.
+
+**Start** listens and **Stop** stops; **Start when Nextpad++ starts** starts it every time.
+The headline says what it listens to, and the table lists every QSO that arrived and what
+became of it. Double-click one added to the open log to go to its record; **Copy as ADIF**
+copies the selected ones.
+
+### Setting up the other programs
+
+- **WSJT-X** and **JTDX**: Settings → Reporting → **UDP Server** `127.0.0.1`, port `2237`
+  (WSJT-X User Guide v3.2.0-rc1, section 6.5). If GridTracker or JTAlert already listens on
+  that port, the Monitor says the port is in use. Then watch WSJT-X's log file instead, or
+  share the messages through a multicast group: type the same group address in WSJT-X's UDP
+  Server and the Monitor's **multicast group** (one from 239.255.0.0 to 239.255.255.255, the
+  local range of RFC 2365), and choose the loopback interface among WSJT-X's Outgoing
+  interfaces. The other programs must join the group too.
+- **JS8Call**: Settings → Reporting: tick **Enable UDP Server API** and set the UDP Server
+  to `127.0.0.1` and the Monitor's WSJT-X port. Or, under N1MM Logger, tick **Enable
+  sending logged contacts to N1MM logging software** with port `2333`, and use the ADIF
+  source.
+- **N1MM Logger+** runs on Windows: in Config → Config Ports… → Broadcast Data, tick
+  **Contacts** and give this Mac's address and port, such as `192.168.1.20:12060`, then tick
+  **Accept from other computers** here
+  ([N1MM: External UDP Broadcasts](https://n1mmwp.hamdocs.com/appendices/external-udp-broadcasts/),
+  read 2026-10-10).
+- **GridTracker**: log to DXKeeper with address `127.0.0.1` and port `52000` (GridTracker
+  sends DXKeeper's log command to that port + 1, 52001), or to HRD Logbook with port
+  `52001`, and tick the TCP source. Logging to N1MM or Log4OM with port `2333` uses the ADIF
+  source instead.
+- **Ham Radio Deluxe** runs on Windows. Its Logbook's QSO Forwarding sends each QSO over
+  UDP: point it at this Mac's address and port `2333`, and tick **Accept from other
+  computers**. HRD doesn't publish the message's format and the Monitor reads ADIF records,
+  so check that your first QSO arrives.
+
+**Accept from other computers** lets programs on other computers, or in a Windows virtual
+machine, reach the Monitor: it then listens on every network interface. Anyone on your
+network could then add QSOs to the chosen log, so use it only on a network you trust.
+macOS may ask whether Nextpad++ may accept incoming connections.
+
 ## Spots
 
 **Spots (POTA, WWFF)…** (or **Spots…** in New QSO) lists the activators spotted now, from
@@ -410,6 +485,9 @@ choices are remembered.
   - Dates must be year first (2026-10-06, 2026/10/06 or 20261006), since 06/10 could be
     either month; times may be 22:30, 2230 or 22:30:15; a frequency in kHz becomes MHz;
     the apostrophe Export CSV puts before a formula is taken off.
+- **Import… → WSJT-X log file** opens Merge Another Log on WSJT-X's own log
+  (`~/Library/Application Support/WSJT-X/wsjtx_log.adi`), to add the QSOs this log doesn't
+  have. The Monitor adds new ones as you log them.
 - **Export… → CSV** shows the log as it will be saved, then **Save CSV…** writes it (RFC
   4180, a column per field used). A value a
   spreadsheet would run as a formula (`=…`, `@…`) gets a leading apostrophe; numbers like
