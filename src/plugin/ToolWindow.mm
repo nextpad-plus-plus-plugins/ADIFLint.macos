@@ -154,6 +154,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
     std::vector<std::vector<std::string>> _rows;
     std::vector<int> _severity;
     std::vector<bool> _ticked;
+    std::vector<bool> _untickable;   // per model row: no tick box (nothing to tick); empty: all have one
     std::vector<std::string> _keys;  // per model row, or empty
     std::vector<size_t> _editable;   // editable column indexes
     bool _quiet;                     // a selection change made here, not by the user
@@ -372,6 +373,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
     _rows = rows;
     _severity = severities;
     _keys = keyed ? keys : std::vector<std::string>();
+    _untickable.clear();
     _ticked.assign(rows.size(), true);
     for (size_t i = 0; i < rows.size(); ++i) {
         if (i < ticks.size()) _ticked[i] = ticks[i];
@@ -451,8 +453,19 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
 
 - (void)setAllTicked:(BOOL)ticked {
     _ticked.assign(_rows.size(), ticked);
+    for (size_t i = 0; i < _untickable.size() && i < _ticked.size(); ++i)
+        if (_untickable[i]) _ticked[i] = false;
     [_table reloadData];
     if (self.onTicksChanged) self.onTicksChanged();
+}
+
+- (void)setTickable:(const std::vector<bool> &)tickable {
+    _untickable.assign(_rows.size(), false);
+    for (size_t i = 0; i < _rows.size() && i < tickable.size(); ++i) {
+        _untickable[i] = !tickable[i];
+        if (_untickable[i] && i < _ticked.size()) _ticked[i] = false;
+    }
+    [_table reloadData];
 }
 
 - (void)setTicked:(const std::vector<bool> &)ticked {
@@ -500,6 +513,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
             b.identifier = @"use.cell";
         }
         b.state = _ticked[model] ? NSControlStateValueOn : NSControlStateValueOff;
+        b.hidden = model < _untickable.size() && _untickable[model];
         return b;
     }
     NSTextField *f = [tableView makeViewWithIdentifier:@"text.cell" owner:self];

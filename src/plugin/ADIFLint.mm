@@ -1146,7 +1146,11 @@ static void logHealth(NppHandle h, const adif::LintResult &r, std::string *line,
         for (adif::UploadService s : {adif::UploadService::QRZ, adif::UploadService::LoTW, adif::UploadService::ClubLog,
                                       adif::UploadService::EQSL}) {
             std::vector<adif::UploadItem> items = adif::uploadItems(text, r.model, s);
-            bool used = std::any_of(items.begin(), items.end(), [](const adif::UploadItem &i) { return !i.status.empty(); });
+            // Used: something was sent (Y, or M after an edit). A downloaded log often says N
+            // for services you never use (QRZ.com writes EQSL_QSL_SENT N).
+            bool used = std::any_of(items.begin(), items.end(), [](const adif::UploadItem &i) {
+                return adif::equalsNoCase(i.status, "Y") || adif::equalsNoCase(i.status, "M");
+            });
             size_t n = (size_t)std::count_if(items.begin(), items.end(), [](const adif::UploadItem &i) { return adif::uploadWanted(i); });
             if (used && n) waiting += (waiting.empty() ? "" : ", ") + std::string(s == adif::UploadService::QRZ ? "QRZ" : adif::uploadServiceName(s)) + " " + std::to_string(n);
         }

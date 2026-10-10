@@ -7,6 +7,7 @@
 
 #include "Scintilla.h"
 
+#include <cctype>
 #include <set>
 
 using namespace adifhost;
@@ -66,8 +67,9 @@ void plan(bool keepTicks) {
         std::vector<std::vector<std::string>> rows;
         std::vector<int> severities;
         std::vector<std::string> keys;
-        std::vector<bool> ticks;
+        std::vector<bool> ticks, tickable;
         size_t repairable = 0;
+        std::string_view doc = text(h);
         for (const adif::Diagnostic &d : r.diagnostics) {
             repairable += !d.fixes.empty();
             if (!wanted(d, show)) continue;
@@ -75,14 +77,23 @@ void plan(bool keepTicks) {
             int record = gi >= 0 ? adif::recordNumber(r.model, gi) : 0;
             intptr_t line = sci(h, SCI_LINEFROMPOSITION, d.start) + 1;
             const char *sev = d.severity == adif::Severity::Error ? "error" : d.severity == adif::Severity::Warning ? "warning" : "note";
+            // The field the problem is on, when the check didn't say.
+            std::string field = d.field;
+            if (field.empty()) {
+                int fi = adif::fieldAt(r.model, d.start);
+                if (fi >= 0) field = std::string(adif::fieldName(doc, r.model.fields[(size_t)fi]));
+                for (char &c : field) c = (char)std::toupper((unsigned char)c);
+            }
             rows.push_back({record ? std::to_string(record) : std::string(gi >= 0 ? "header" : ""), std::to_string(line), sev,
-                            d.field, d.message, d.fixes.empty() ? std::string() : d.fixLabel});
+                            field, d.message, d.fixes.empty() ? std::string() : d.fixLabel});
             severities.push_back(d.severity == adif::Severity::Error ? 2 : d.severity == adif::Severity::Warning ? 1 : 0);
             keys.push_back(key(d));
             ticks.push_back(!d.fixes.empty() && !d.dropsData);  // a removal waits for your tick
+            tickable.push_back(!d.fixes.empty());
             chk.diags.push_back(d);
         }
         [chk.w setRows:rows severities:severities keys:keys ticks:ticks keepTicks:keepTicks];
+        [chk.w setTickable:tickable];  // a tick box only where there is a repair
         if (r.diagnostics.empty()) {
             [chk.w setHeadline:@"No problems found." severity:3];
         } else {

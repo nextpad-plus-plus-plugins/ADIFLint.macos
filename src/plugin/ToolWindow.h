@@ -81,6 +81,8 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 - (std::vector<bool>)ticked;             // per model row
 - (void)setAllTicked:(BOOL)ticked;
 - (void)setTicked:(const std::vector<bool> &)ticked;  // per model row
+// Per model row: false hides that row's tick box (nothing to tick) and unticks it. Call after setRows.
+- (void)setTickable:(const std::vector<bool> &)tickable;
 - (void)setCell:(const std::string &)text row:(NSInteger)row column:(size_t)column;  // model row; keeps ticks and sort
 - (void)setRowSeverity:(int)severity row:(NSInteger)row;
 - (void)selectRow:(NSInteger)row;        // model row; scrolls to it

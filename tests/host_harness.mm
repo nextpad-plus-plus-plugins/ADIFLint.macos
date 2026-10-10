@@ -2499,6 +2499,27 @@ int main(int argc, char **argv) {
             CHECK([line containsString:@"to upload: QRZ 1"] && [line containsString:@"US-7929 today: 2 of 10"] &&
                       ![line containsString:@"LoTW"],
                   "the log line: %s", line.UTF8String);
+
+            // Problems with no repair: their field is named, and they have no tick box. A service
+            // that only says N (QRZ.com writes EQSL_QSL_SENT N) isn't "to upload".
+            H.doc = "norepair\n<ADIF_VER:5>3.1.7\n<EOH>\n<CALL:4>K1AA <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m "
+                    "<MODE:4>DATA <USER_DEFINED_9:8>20230721 <QRZCOM_QSO_UPLOAD_STATUS:1>Y <EQSL_QSL_SENT:1>N <EOR>\n";
+            H.pos = 0;
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            run("Check Log...");
+            long nr = ct ? (long)[ct.dataSource numberOfRowsInTableView:ct] : -1L;
+            bool named = nr == 2, hidden = nr == 2;
+            for (NSInteger r = 0; r < nr; ++r) {
+                NSString *field = cell(ct, r, @"3");
+                named &= [field isEqualToString:@"MODE"] || [field isEqualToString:@"USER_DEFINED_9"];
+                NSView *tick = [ct.delegate tableView:ct viewForTableColumn:[ct tableColumnWithIdentifier:@"__use"] row:r];
+                hidden &= tick.hidden;
+            }
+            CHECK(named && hidden, "no-repair rows: field named, no tick box (%ld rows)", nr);
+            NSString *noEqsl = labelContaining(H.panelView, @"error");
+            CHECK(noEqsl && ![noEqsl containsString:@"eQSL"] && ![noEqsl containsString:@"to upload"], "N alone isn't a service in use: %s",
+                  noEqsl.UTF8String);
             [cw close];
         }
 

@@ -49,6 +49,9 @@ Versions before 0.8.0 were development builds and were not published.
   which country and lists its codes (Hungary's are counties such as `BP` and `PE`). These
   usually come from callbooks: QRZ.com Logbook copies the other station's profile, such as
   `H` for Hungary. Check Log offers to remove one, unticked.
+- Check Log names the field of every problem and shows a tick box only where there is a
+  repair. The Record Panel's "to upload" counts a service only once something was sent to it
+  (Y or M), not when a downloaded log merely says N.
 - Check Log repairs TX_PWR and RX_PWR written with a unit (`30W` becomes `30`, `1.5kW`
   `1500`), as WSJT-X writes whatever you type in its power box.
 
