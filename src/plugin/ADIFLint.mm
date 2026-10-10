@@ -2636,7 +2636,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdSummary, "Log Summary...", logtools::cmdSummary);
     setItem(kCmdTracker, "Activation Tracker (POTA, WWFF, SOTA)...", logtools::cmdActivationTracker);
     setItem(kCmdWorkedBefore, "Worked Before...", logtools::cmdWorkedBefore);
-    setItem(kCmdMap, "Map (Grids, Entities, Parks)...", worldmap::cmdMap);
+    setItem(kCmdMap, "Map (Grids, DXCC, Parks)...", worldmap::cmdMap);
     setItem(kSepServices, "", nullptr);
     setItem(kCmdImport, "Import...", families::cmdImport);
     setItem(kCmdExport, "Export...", families::cmdExport);

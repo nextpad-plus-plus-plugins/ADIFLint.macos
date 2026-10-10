@@ -230,10 +230,12 @@ void refresh() {
         std::set<std::string> parkRefs;
         for (const adif::MapPark &p : mw.data.parks) parkRefs.insert(p.reference);
         mw.summary = plural(mw.data.squares.size(), "grid square") + " (" + std::to_string(confirmedSquares) +
-                     " confirmed: green, else orange), " + plural(entities.size(), "entity") + " (" + std::to_string(confirmedEntities) +
+                     " confirmed: green, else orange), " + std::to_string(entities.size()) + " DXCC (" + std::to_string(confirmedEntities) +
                      " confirmed: teal, else blue), " + plural(parkRefs.size(), "park") + " where the QSO has a grid (purple)" +
                      (mw.data.mine.empty() ? "" : ", your grid as a red star") + ". " +
-                     (mw.data.withoutGrid ? plural(mw.data.withoutGrid, "QSO") + " without GRIDSQUARE aren't on the squares. " : "") +
+                     (mw.data.withoutGrid ? plural(mw.data.withoutGrid, "QSO") + " without GRIDSQUARE " + (mw.data.withoutGrid == 1 ? "isn't" : "aren't") +
+                                                " on the squares. "
+                                          : "") +
                      "Click a square for its QSOs.";
         setStatus(mw.summary);
     } catch (...) {
@@ -309,7 +311,7 @@ void cmdMap() {
         NSView *root = mw.window.contentView;
         mw.target = ADIFLabel(@"");
         mw.squares = ADIFCheckbox(@"Grid squares", YES);
-        mw.entities = ADIFCheckbox(@"Entities", YES);
+        mw.entities = ADIFCheckbox(@"DXCC", YES);
         mw.parks = ADIFCheckbox(@"Parks", YES);
         mw.band = ADIFPopup(@[ @"All bands" ]);
         mw.mode = ADIFPopup(@[ @"All modes" ]);

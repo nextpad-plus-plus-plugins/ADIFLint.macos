@@ -1,5 +1,5 @@
 // Map... : the log on a world map, offline. Worked grid squares (green when
-// confirmed), DXCC entities from country data, the parks you hunted and your
+// confirmed), DXCC from country data, the parks you hunted and your
 // own grid, over Natural Earth's land outline (adif_world.h); PNG export.
 #pragma once
 

@@ -85,7 +85,7 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   **Remove Duplicates** and **Compare and Merge Logs** (QSOs only one log has, and what the
   same QSO says differently in each), each previewed before it changes anything.
 - **Import CSV**, **Export CSV** and **Export Cabrillo**.
-- A **Map** of the log, offline: worked grid squares, entities, hunted parks and your grid.
+- A **Map** of the log, offline: worked grid squares, DXCC, hunted parks and your grid.
 - **Print QSL Labels** for the cards to send, on Avery sheets, then mark them sent.
 
 **Online services**
@@ -181,7 +181,7 @@ tab); Settings suggests some.
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
-| Map (Grids, Entities, Parks)… | The log on a world map: worked squares, entities, parks; PNG export |
+| Map (Grids, DXCC, Parks)… | The log on a world map: worked squares, DXCC, parks; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
 | QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |

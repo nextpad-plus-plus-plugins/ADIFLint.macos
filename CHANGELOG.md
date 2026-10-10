@@ -32,8 +32,8 @@ Versions before 0.8.0 were development builds and were not published.
   exchanges (STX_STRING, SRX_STRING, MY_ARRL_SECT) or the next STX, and warns of duplicates
   by the Field Day rule (once per band and mode: CW, Phone, Digital). Export Cabrillo writes
   Field Day lines without reports.
-- **Map (Grids, Entities, Parks)…**: the log on a world map, offline (Natural Earth's land
-  outline, public domain): worked and confirmed grid squares, entities, hunted parks and
+- **Map (Grids, DXCC, Parks)…**: the log on a world map, offline (Natural Earth's land
+  outline, public domain): worked and confirmed grid squares, DXCC, hunted parks and
   your grid, with band and mode filters and PNG export.
 - **Export… → QSL labels (PDF)**: a label per station for the cards to send (QSL_SENT R or
   Q), on Avery 5160, 5163 or L7163 sheets, then Mark as Sent (QSL_SENT Y and QSLSDATE).

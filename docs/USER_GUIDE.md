@@ -407,18 +407,19 @@ couple of minutes.
 
 ### Map
 
-**Map (Grids, Entities, Parks)…** draws the open log on a world map, offline, over
+**Map (Grids, DXCC, Parks)…** draws the open log on a world map, offline, over
 [Natural Earth](https://www.naturalearthdata.com)'s 1:110m land outline (public domain):
 
 - **Grid squares** worked, from GRIDSQUARE and VUCC_GRIDS, in orange, or green once a QSO in
   the square is confirmed (QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V);
-- **Entities**, from each call's prefix in the country data, as dots (teal when confirmed);
+- **DXCC**: each DXCC entity worked, from the call's prefix in the country data, as a dot
+  at its centre (teal when confirmed);
 - **Parks** you hunted (POTA, WWFF, SOTA or ZLOTA references), placed at the QSO's
   GRIDSQUARE, since there is no offline list of where parks are;
 - your **MY_GRIDSQUARE** as a red star.
 
 Choose a band or mode to see only those QSOs, click a square to list its QSOs, and
-**Export PNG…** saves the map. QSOs without GRIDSQUARE count as entities but not squares.
+**Export PNG…** saves the map. QSOs without GRIDSQUARE count for DXCC but not for squares.
 
 ## Activations: POTA, WWFF and SOTA
 

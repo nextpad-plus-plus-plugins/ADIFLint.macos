@@ -726,7 +726,7 @@ int main(int argc, char **argv) {
         };
         for (const char *name : {"New QSO...", "Spots (POTA, WWFF)...", "Start Activation...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
                                  "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
-                                 "Compare and Merge Logs...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...", "Map (Grids, Entities, Parks)...",
+                                 "Compare and Merge Logs...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...", "Map (Grids, DXCC, Parks)...",
                                  "Import...", "Export...", "QSL Sync (Upload, Confirmations)...", "Enrich...", "Monitor (WSJT-X, N1MM, Loggers)...", "Record Panel", "Reformat: One Record per Line",
                                  "Reformat: One Field per Line", "Check .adi Files While Typing", "Settings...", "About ADIF Lint..."})
             CHECK(byName.count(name), "menu item %s", name);
@@ -3403,11 +3403,11 @@ int main(int argc, char **argv) {
             notify(NPPN_BUFFERACTIVATED);
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
             pump(0.3);
-            run("Map (Grids, Entities, Parks)...");
+            run("Map (Grids, DXCC, Parks)...");
             NSWindow *mapw = windowTitled(@"Map");
             NSString *mapStatus = mapw ? labelContaining(mapw.contentView, @"grid square") : nil;
             CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 park"] &&
-                      [mapStatus containsString:@"1 entity (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"],
+                      [mapStatus containsString:@"1 DXCC (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"],
                   "the map's summary: %s", mapStatus.UTF8String);
             NSString *mapDir = [tmp stringByAppendingPathComponent:@"mapout"];
             [[NSFileManager defaultManager] createDirectoryAtPath:mapDir withIntermediateDirectories:YES attributes:nil error:nil];
