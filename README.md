@@ -85,7 +85,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   **Remove Duplicates** and **Compare and Merge Logs** (QSOs only one log has, and what the
   same QSO says differently in each), each previewed before it changes anything.
 - **Import CSV**, **Export CSV** and **Export Cabrillo**.
-- A **Map** of the log, offline: worked grid squares, DXCC, hunted parks and your grid.
+- An interactive **Map** of the log, offline: worked grid squares, DXCC, hunted parks and
+  your grid; zoom in to the squares, click anything for its QSOs.
 - **Print QSL Labels** for the cards to send, on Avery sheets, then mark them sent.
 
 **Online services**

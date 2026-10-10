@@ -2374,6 +2374,9 @@ static void testWorld() {
             if (p.first < -180.01 || p.first > 180.01) CHECK(false, "longitude out of range: %f", p.first);
         }
     CHECK(rings > 100 && points > 4000 && minLat < -80 && maxLat > 80, "the land outline: %zu rings, %zu points", rings, points);
+    size_t fine = 0;
+    for (size_t i = 0; i < landRingCount(MapDetail::Fine); ++i) fine += landRing(i, MapDetail::Fine).size();
+    CHECK(fine > 50000 && borderLineCount() > 300 && borderLine(0).size() >= 2, "1:50m land (%zu points) and borders", fine);
     double w, s, e, n;
     CHECK(squareBounds("fn31pr", &w, &s, &e, &n) && w == -74 && s == 41 && e == -72 && n == 42 && !squareBounds("ZZ99", &w, &s, &e, &n),
           "FN31 spans 74-72 W, 41-42 N");
@@ -2392,6 +2395,9 @@ static void testWorld() {
               all.calls.size() == 4,
           "map data: %zu squares, %zu parks", all.squares.size(), all.parks.size());
     CHECK(twenty.records == 2 && twenty.squares.size() == 1 && twenty.squares[0].qsos == 1, "band and mode filters");
+    CHECK(all.qsos.size() == 4 && all.qsos[1].record == 2 && all.qsos[1].date == "2026-10-09" && all.parks[0].qso == 1 &&
+              all.squares[2].qsoIndex == std::vector<size_t>({0, 1}) && all.qsos[0].confirmed && all.qsos[2].mode == "FT8",
+          "map QSOs, and the squares' and parks' links to them");
 }
 
 int main(int argc, char **argv) {

@@ -408,7 +408,8 @@ couple of minutes.
 ### Map
 
 **Map (Grids, DXCC, Parks)…** draws the open log on a world map, offline, over
-[Natural Earth](https://www.naturalearthdata.com)'s 1:110m land outline (public domain):
+[Natural Earth](https://www.naturalearthdata.com)'s land outline and country borders
+(public domain; 1:110m for the whole world, 1:50m zoomed in):
 
 - **Grid squares** worked, from GRIDSQUARE and VUCC_GRIDS, in orange, or green once a QSO in
   the square is confirmed (QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V);
@@ -418,8 +419,20 @@ couple of minutes.
   GRIDSQUARE, since there is no offline list of where parks are;
 - your **MY_GRIDSQUARE** as a red star.
 
-Choose a band or mode to see only those QSOs, click a square to list its QSOs, and
-**Export PNG…** saves the map. QSOs without GRIDSQUARE count for DXCC but not for squares.
+Moving around:
+
+- **Zoom** with a pinch, the mouse wheel, Option and a two-finger scroll, a double-click,
+  the **+** and **−** buttons or keys; **Fit Log** zooms to the log's QSOs and **World** (or
+  the 0 key) shows the whole world.
+- **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys.
+- Zoomed in, the Maidenhead field names (`FN`) appear, then the squares' (`FN31`) with
+  their lines.
+- **Point** at a square, DXCC dot or park to read what it is and its QSOs on the bottom
+  line. **Click** it to list its QSOs under the map, and double-click one to go to its
+  record in the log.
+
+Choose a band or mode to see only those QSOs; **Export PNG…** saves the map as it is shown.
+QSOs without GRIDSQUARE count for DXCC but not for squares.
 
 ## Activations: POTA, WWFF and SOTA
 

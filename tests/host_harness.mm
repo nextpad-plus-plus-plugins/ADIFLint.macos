@@ -3429,6 +3429,64 @@ int main(int argc, char **argv) {
                 CHECK(overlaps(mapw.contentView) == 0, "Map does not overlap");
                 snapshot(mapw, "map");
             }
+
+            // Interacting: zoom, a click on a square lists its QSOs, a hover names a DXCC, the list goes to the record.
+            NSView *mapView = nil;
+            for (NSView *v in mapw.contentView.subviews)
+                if ([NSStringFromClass(v.class) isEqualToString:@"ADIFMapView"]) mapView = v;
+            auto zoomShown = [&]() {
+                NSMutableArray *labels = [NSMutableArray array];
+                collect(mapw.contentView, NSTextField.class, labels);
+                for (NSTextField *f in labels)
+                    if ([f.stringValue hasSuffix:@"×"]) return std::string(f.stringValue.UTF8String);
+                return std::string();
+            };
+            [findButton(mapw.contentView, @"+") performClick:nil];
+            [findButton(mapw.contentView, @"+") performClick:nil];
+            CHECK(zoomShown() == "2.2×", "zoomed in twice: %s", zoomShown().c_str());
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            CHECK(zoomShown() == "1.0×", "back to the world: %s", zoomShown().c_str());
+            auto pointFor = [&](double lon, double lat) {
+                SEL sel = NSSelectorFromString(@"viewPointForLon:lat:");
+                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:[mapView methodSignatureForSelector:sel]];
+                inv.target = mapView;
+                inv.selector = sel;
+                [inv setArgument:&lon atIndex:2];
+                [inv setArgument:&lat atIndex:3];
+                [inv invoke];
+                NSPoint p;
+                [inv getReturnValue:&p];
+                return [mapView convertPoint:p toView:nil];
+            };
+            auto mouse = [&](NSEventType type, NSPoint at, NSInteger clicks) {
+                return [NSEvent mouseEventWithType:type location:at modifierFlags:0 timestamp:0 windowNumber:mapw.windowNumber context:nil
+                                       eventNumber:0 clickCount:clicks pressure:1];
+            };
+            [findButton(mapw.contentView, @"Fit Log") performClick:nil];
+            CHECK(std::atof(zoomShown().c_str()) > 1.2, "Fit Log zooms to the QSOs: %s", zoomShown().c_str());
+            NSPoint fn31 = pointFor(-73, 41.5);  // inside FN31, K1AB's square
+            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, fn31, 1)];
+            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, fn31, 1)];
+            NSTableView *qsoList = findTable(mapw.contentView);
+            CHECK(qsoList && [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"K1AB"] &&
+                      [labelContaining(mapw.contentView, @"FN31:") hasPrefix:@"FN31: 1 QSO, confirmed (K1AB)"],
+                  "a click on FN31 lists its QSO: %s", labelContaining(mapw.contentView, @"FN31").UTF8String);
+            void (^activate)(NSInteger) = [(NSObject *)qsoList.dataSource valueForKey:@"onActivate"];
+            H.pos = 0;
+            if (activate) activate(0);
+            CHECK(H.pos == (intptr_t)H.doc.find("<CALL:4>K1AB"), "double-clicking the QSO goes to its record (%ld)", (long)H.pos);
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(12.43, 41.90), 0)];  // 1A's centre in the test country file
+            CHECK([labelContaining(mapw.contentView, @"DXCC 246") containsString:@"(DXCC 246): 1 QSO, confirmed (1A0C)"],
+                  "hovering a DXCC dot names it: %s", labelContaining(mapw.contentView, @"DXCC").UTF8String);
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            for (int i = 0; i < 4; ++i) {  // double-clicks zoom in where they land
+                NSPoint at = pointFor(-73, 41.5);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 2)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 2)];
+            }
+            CHECK(zoomShown() == "16×", "four double-clicks: %s", zoomShown().c_str());
+            if (mapw) snapshot(mapw, "map-zoomed");
             [mapw orderOut:nil];
         }
 

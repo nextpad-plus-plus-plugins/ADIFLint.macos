@@ -67,7 +67,22 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
         ++out.records;
         bool confirmed = isConfirmed(r);
         std::string call = upper(trimmed(r.get("CALL")));
-        if (!call.empty()) out.calls.emplace_back(call, confirmed);
+        size_t index = out.qsos.size();
+        {
+            MapQso q;
+            q.group = r.group;
+            q.record = r.number;
+            q.call = call;
+            q.date = displayDate(trimmed(r.get("QSO_DATE")));
+            q.time = displayTime(trimmed(r.get("TIME_ON")));
+            q.band = effectiveBand(r);
+            std::string sub = trimmed(r.get("SUBMODE"));
+            q.mode = sub.empty() ? trimmed(r.get("MODE")) : sub;
+            q.grid = trimmed(r.get("GRIDSQUARE"));
+            q.confirmed = confirmed;
+            out.qsos.push_back(std::move(q));
+            out.calls.emplace_back(call, confirmed);
+        }
         std::vector<std::string> grids;
         if (std::string g = square4(r.get("GRIDSQUARE")); !g.empty()) grids.push_back(g);
         std::string vucc = r.get("VUCC_GRIDS");  // a QSO on a grid line or corner: two or four squares
@@ -90,6 +105,7 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
             MapSquare &sq = out.squares[it->second];
             ++sq.qsos;
             sq.confirmed |= confirmed;
+            sq.qsoIndex.push_back(index);
             if (sq.calls.size() < 6 && std::find(sq.calls.begin(), sq.calls.end(), call) == sq.calls.end()) sq.calls.push_back(call);
         }
         std::string theirGrid = trimmed(r.get("GRIDSQUARE"));
@@ -98,7 +114,7 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
             for (Program p : {Program::POTA, Program::WWFF, Program::SOTA})
                 for (const std::string &ref : programRefs(r, p, false)) refs.push_back(ref);
             if (equalsNoCase(trimmed(r.get("SIG")), "ZLOTA") && isZlotaRef(r.get("SIG_INFO"))) refs.push_back(upper(trimmed(r.get("SIG_INFO"))));
-            for (const std::string &ref : refs) out.parks.push_back({ref, theirGrid});
+            for (const std::string &ref : refs) out.parks.push_back({ref, theirGrid, index});
         }
         std::string my = upper(trimmed(r.get("MY_GRIDSQUARE")));
         if (!square4(my).empty() && std::find(out.mine.begin(), out.mine.end(), my) == out.mine.end()) out.mine.push_back(my);
