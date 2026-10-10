@@ -9,6 +9,8 @@
 #include "adif_spec.h"
 #include "adif_profiles.h"
 #include "adif_capture.h"
+#include "adif_compare.h"
+#include "adif_qsl.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -2174,6 +2176,87 @@ static void testCapture() {
           "queue round trip:\n%s", qt.c_str());
 }
 
+static void testCompareAndQsl() {
+    std::string here = std::string(kHeader) +
+                       "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <QSL_RCVD:1>N <EOR>\n"
+                       "<CALL:4>K2CD <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:2>CW <FREQ:6>14.030 <EOR>\n"
+                       "<CALL:4>K3EF <QSO_DATE:8>20261009 <TIME_ON:4>1220 <BAND:3>40m <MODE:2>CW <EOR>\n";
+    std::string there = std::string(kHeader) +
+                        "<CALL:4>k2cd <QSO_DATE:8>20261009 <TIME_ON:6>121000 <BAND:3>20M <MODE:2>CW <FREQ:9>14.030000 <EOR>\n"
+                        "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1201 <BAND:3>20m <MODE:2>CW <QSL_RCVD:1>Y "
+                        "<GRIDSQUARE:4>FN42 <EOR>\n"
+                        "<CALL:4>K4GH <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:3>SSB <EOR>\n";
+    LintResult hr = lintModel(here), tr = lintModel(there);
+    std::vector<CompareRow> rows = compareLogs(here, hr.model, there, tr.model, DupeOptions());
+    CHECK(rows.size() == 4 && rows[0].kind == CompareKind::Differ && rows[1].kind == CompareKind::Same &&
+              rows[2].kind == CompareKind::OnlyHere && rows[3].kind == CompareKind::OnlyThere,
+          "compare: differ, same (case, seconds and FREQ digits ignored), only here, only there (%zu)", rows.size());
+    if (rows.size() == 4) {
+        std::string diffs;
+        for (const FieldDiff &d : rows[0].diffs) diffs += d.field + "=" + d.here + "/" + d.there + " ";
+        CHECK(diffs == "TIME_ON=1200/1201 QSL_RCVD=N/Y GRIDSQUARE=/FN42 ", "the differences: %s", diffs.c_str());
+        std::vector<CellChange> fill = copyChanges(rows[0], false), all = copyChanges(rows[0], true);
+        CHECK(fill.size() == 1 && fill[0].field == "GRIDSQUARE" && fill[0].value == "FN42" && all.size() == 3,
+              "copy: missing fields only, or the differing ones too");
+        std::string copied = applyTextEdits(here, cellEdits(here, hr.model, all, LengthUnit::Bytes, false));
+        CHECK(copied.find("<QSL_RCVD:1>Y") != std::string::npos && copied.find("<GRIDSQUARE:4>FN42") != std::string::npos &&
+                  lintModel(copied).errors == 0,
+              "copied into the record:\n%s", copied.c_str());
+        CHECK(copyChanges(rows[1], true).empty() && copyChanges(rows[3], true).empty(), "nothing to copy for the others");
+    }
+
+    // TQSL's station_data, as tqsl_location_to_xml writes it.
+    std::string xml = "<StationDataFile>\n  <StationData name=\"Home &amp; QTH\">\n    <CALL>KW9D</CALL>\n    <DXCC>291</DXCC>\n"
+                      "    <GRIDSQUARE>EN52wa</GRIDSQUARE>\n    <ITUZ>8</ITUZ>\n    <CQZ>4</CQZ>\n    <IOTA></IOTA>\n"
+                      "    <US_STATE>IL</US_STATE>\n    <US_COUNTY>Cook</US_COUNTY>\n  </StationData>\n"
+                      "  <StationData name='Portable'><CALL>KW9D</CALL><DXCC>291</DXCC><GRIDSQUARE/><US_STATE>WI</US_STATE>"
+                      "</StationData>\n</StationDataFile>\n";
+    std::vector<TqslLocation> locs = parseStationData(xml);
+    CHECK(locs.size() == 2 && locs[0].name == "Home & QTH" && locs[0].get("US_COUNTY") == "Cook" && locs[0].get("CQZ") == "4" &&
+              locs[1].name == "Portable" && locs[1].get("GRIDSQUARE").empty() && locs[1].get("US_STATE") == "WI",
+          "station_data parsed (%zu)", locs.size());
+    CHECK(parseStationData("").empty() && parseStationData("<StationDataFile><StationData name=\"x\"><CALL>K").size() == 1,
+          "an empty or cut-off station_data");
+    if (locs.size() == 2) {
+        auto rec = [](std::vector<std::pair<std::string, std::string>> f) {
+            Record r;
+            r.fields = std::move(f);
+            return r;
+        };
+        CHECK(lotwLocationProblem(rec({{"STATION_CALLSIGN", "kw9d"}, {"MY_GRIDSQUARE", "EN52"}, {"MY_STATE", "il"}, {"MY_CNTY", "IL,COOK"},
+                                       {"MY_CQ_ZONE", "04"}}),
+                                  locs[0]) == "",
+              "a 4-character grid, case and a zero-padded zone are fine");
+        CHECK(lotwLocationProblem(rec({{"STATION_CALLSIGN", "KW9D"}, {"MY_GRIDSQUARE", "EN52xa"}}), locs[0]) ==
+                  "MY_GRIDSQUARE EN52xa (the location: EN52wa)",
+              "a different 6-character grid");
+        CHECK(lotwLocationProblem(rec({{"STATION_CALLSIGN", "KW9D/P"}}), locs[0]) == "STATION_CALLSIGN KW9D/P (the location: KW9D)",
+              "the call must be the certificate's");
+        CHECK(lotwLocationProblem(rec({{"OPERATOR", "KW9D"}, {"MY_STATE", "WI"}}), locs[0]) == "MY_STATE WI (the location: IL)",
+              "a different state");
+        CHECK(lotwLocationProblem(rec({{"MY_STATE", "WI"}, {"MY_GRIDSQUARE", "EN44"}}), locs[1]) == "",
+              "a location without a grid takes any");
+        CHECK(lotwLocationProblem(rec({{"MY_CNTY", "IL,Lake"}}), locs[0]) == "MY_CNTY IL,Lake (the location: Cook)", "a different county");
+        TqslLocation ca;
+        ca.fields = {{"DXCC", "1"}, {"CA_PROVINCE", "PQ"}};
+        CHECK(lotwLocationProblem(rec({{"MY_STATE", "QC"}}), ca) == "", "QC is TQSL's PQ");
+    }
+
+    // QSL Sync's summary.
+    std::string log = std::string(kHeader) +
+                      "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <LOTW_QSL_SENT:1>Y "
+                      "<LOTW_QSLSDATE:8>20261009 <LOTW_QSL_RCVD:1>Y <QRZCOM_QSO_UPLOAD_STATUS:1>M <EOR>\n"
+                      "<CALL:4>K2CD <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:2>CW <APP_QRZLOG_STATUS:1>C <EOR>\n"
+                      "<CALL:4>K3EF <QSO_DATE:8>20261009 <BAND:3>20m <MODE:2>CW <EOR>\n";
+    LintResult lr = lintModel(log);
+    ServiceSummary lotw = serviceSummary(log, lr.model, UploadService::LoTW), qrz = serviceSummary(log, lr.model, UploadService::QRZ);
+    CHECK(lotw.uploaded == 1 && lotw.toUpload == 1 && lotw.problems == 1 && lotw.confirmed == 1 && lotw.lastUpload == "20261009",
+          "LoTW summary: %zu to upload, %zu sent, %zu problems, %zu confirmed", lotw.toUpload, lotw.uploaded, lotw.problems,
+          lotw.confirmed);
+    CHECK(qrz.toUpload == 2 && qrz.modified == 1 && qrz.confirmed == 1, "QRZ summary: %zu to upload, %zu modified", qrz.toUpload,
+          qrz.modified);
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -2214,6 +2297,7 @@ int main(int argc, char **argv) {
     testQuickFixes();
     testProfiles();
     testCapture();
+    testCompareAndQsl();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

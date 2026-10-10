@@ -6,6 +6,7 @@
 //
 //   fuzz_smoke SEED_FILE [ITERATIONS]
 #include "adif_capture.h"
+#include "adif_qsl.h"
 #include "adif_country.h"
 #include "adif_edit.h"
 #include "adif_formats.h"
@@ -260,7 +261,9 @@ int main(int argc, char **argv) {
         "<HTML>Your ADIF log file has been built<BR><A HREF=\"downloadedfiles/x.adi\">.ADI file</A>Error: No such Username</HTML>",
         "Call,Date,UTC,Freq (kHz),Mode\r\n\xEF\xBB\xBF\"W1AW\",2026-10-06,23:10,\"14,250\",SSB\r\n'K1AB;\"\"x\",,\n",
         "DL,Fed. Rep. of Germany,230,EU,14,28,51.00,-10.00,-1.0,DA DB =DL0ABC(14)[28]<51/-10>{EU}~-1~ DL/P;\n"
-        "K,United States,291,NA,5,8,37.60,91.87,5.0,AA K N W =W1AW/7(3)[6];\n"};
+        "K,United States,291,NA,5,8,37.60,91.87,5.0,AA K N W =W1AW/7(3)[6];\n",
+        "<StationDataFile>\n  <StationData name=\"Home &amp; QTH\">\n    <CALL>KW9D</CALL><DXCC>291</DXCC><GRIDSQUARE/>"
+        "<US_STATE>IL</US_STATE><US_COUNTY>Cook &#233;&#x1F600;</US_COUNTY>\n  </StationData>\n</StationDataFile>\n"};
     static const char kNet[] = "<>/:&=%+ \r\n0123456789RPRTFrequency.-ABCDEFabcdef;\"";
     for (int i = 0; i < iterations * 4; ++i) {
         std::string t = replies[(size_t)i % replies.size()];
@@ -297,6 +300,12 @@ int main(int argc, char **argv) {
         for (Program p : {Program::WWFF, Program::SOTA}) programSpotFields(p, t.substr(0, 10), t.substr(0, 8), "CW", t.substr(0, 12));
         referenceSummary(t.substr(0, 14), ReferenceHistory());
         parseProfiles(t);
+        for (const TqslLocation &loc : parseStationData(t)) {
+            Record r;
+            r.fields = {{"STATION_CALLSIGN", t.substr(0, 6)}, {"MY_GRIDSQUARE", t.substr(t.size() / 2, 6)}, {"MY_STATE", t.substr(0, 2)},
+                        {"MY_CNTY", t.substr(0, 9)}, {"MY_CQ_ZONE", t.substr(0, 3)}};
+            lotwLocationProblem(r, loc);
+        }
         std::vector<std::string> bad;
         std::string why;
         for (Program p : {Program::POTA, Program::WWFF, Program::SOTA}) parseReferences(p, t.substr(0, 40), &bad, &why);

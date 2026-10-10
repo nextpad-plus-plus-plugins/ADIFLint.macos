@@ -44,7 +44,9 @@ add_library(adif_core STATIC
     src/core/adif_programs.cpp
     src/core/adif_formats.cpp
     src/core/adif_profiles.cpp
-    src/core/adif_capture.cpp)
+    src/core/adif_capture.cpp
+    src/core/adif_compare.cpp
+    src/core/adif_qsl.cpp)
 target_include_directories(adif_core PUBLIC src/core)
 target_compile_options(adif_core PRIVATE ${WARNINGS})
 set_target_properties(adif_core PROPERTIES POSITION_INDEPENDENT_CODE ON)

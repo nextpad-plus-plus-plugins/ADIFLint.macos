@@ -1,5 +1,7 @@
 #import "LogTools.h"
 #import "Monitor.h"
+#include "adif_capture.h"
+#include "adif_compare.h"
 
 #import "Families.h"
 #import "Lookup.h"
@@ -1522,145 +1524,225 @@ void dupesRemove() {
     }
 }
 
-// ── Merge Another Log ───────────────────────────────────────────────────────
+// ── Compare and Merge Logs ──────────────────────────────────────────────────
+
+enum { kShowDifferences, kShowOnlyThere, kShowOnlyHere, kShowDiffer, kShowSame, kShowAll };
 
 struct {
     ADIFToolWindow *w = nil;
     NSTextField *from = nil;
-    NSButton *skip = nil, *sort = nil, *add = nil;
+    NSPopUpButton *show = nil;
+    NSButton *replace = nil, *sort = nil, *apply = nil;
     std::string path, text;
-    adif::LintResult source;
-    adif::MergePlan plan;
-    bool ready = false;
+    adif::LintResult other;
+    std::vector<adif::CompareRow> rows;  // every QSO of both logs
+    std::vector<size_t> shown;           // the table's rows: indexes into rows
+    std::string counts;                  // "15 only in that log, ..."
     intptr_t buffer = 0;
-} merge;
+    bool ready = false;
+} cmp;
 
-void mergePlanNow() {
-    merge.ready = false;
-    merge.add.enabled = NO;
-    merge.add.title = @"Add QSOs";
-    [merge.w setRows:kNoRows severities:kNoSev];
-    [merge.w setTarget:logLine()];
-    merge.from.stringValue = merge.path.empty() ? @"(choose a log)" : tilde(merge.path);
-    if (merge.path.empty()) {
-        [merge.w setStatus:@"Choose the log to add from. Its records are added at the end of this one, in this log's "
-                           @"layout, with lengths counted the way this log counts them."
+bool cmpReplace() { return cmp.replace.state == NSControlStateValueOn; }
+
+bool cmpTickable(const adif::CompareRow &r) {
+    return r.kind == adif::CompareKind::OnlyThere || !adif::copyChanges(r, cmpReplace()).empty();
+}
+
+std::string cmpWhat(const adif::CompareRow &r) {
+    switch (r.kind) {
+        case adif::CompareKind::OnlyThere: return "only in that log";
+        case adif::CompareKind::OnlyHere: return "only in this log";
+        case adif::CompareKind::Same: return "the same";
+        case adif::CompareKind::Differ: break;
+    }
+    std::string out;
+    for (const adif::FieldDiff &d : r.diffs)
+        out += (out.empty() ? "" : "; ") + d.field + " " + (d.here.empty() ? "—" : d.here) + " | " + (d.there.empty() ? "—" : d.there);
+    return out;
+}
+
+void cmpUpdateButton() {
+    size_t n = 0;
+    std::vector<bool> ticks = [cmp.w ticked];
+    for (size_t i = 0; i < ticks.size() && i < cmp.shown.size(); ++i) n += ticks[i] && cmpTickable(cmp.rows[cmp.shown[i]]);
+    cmp.apply.enabled = cmp.ready && n > 0;
+    cmp.apply.title = n ? [NSString stringWithFormat:@"Apply %zu", n] : @"Apply";
+}
+
+// The table, as the Show popup filters it; ticks kept for rows still shown.
+void cmpShow(bool keepTicks) {
+    NSInteger show = cmp.show.indexOfSelectedItem;
+    NppHandle h = scintilla();
+    const adif::LintResult &r = lint(h);
+    std::string_view text = adifhost::text(h);
+    std::vector<std::vector<std::string>> rows;
+    std::vector<int> sev;
+    std::vector<std::string> keys;
+    std::vector<bool> ticks, tickable;
+    cmp.shown.clear();
+    for (size_t i = 0; i < cmp.rows.size(); ++i) {
+        const adif::CompareRow &c = cmp.rows[i];
+        bool want = show == kShowAll || (show == kShowDifferences && c.kind != adif::CompareKind::Same) ||
+                    (show == kShowOnlyThere && c.kind == adif::CompareKind::OnlyThere) ||
+                    (show == kShowOnlyHere && c.kind == adif::CompareKind::OnlyHere) ||
+                    (show == kShowDiffer && c.kind == adif::CompareKind::Differ) || (show == kShowSame && c.kind == adif::CompareKind::Same);
+        if (!want) continue;
+        bool mine = c.here >= 0;
+        std::string_view src = mine ? text : std::string_view(cmp.text);
+        const adif::DocModel &m = mine ? r.model : cmp.other.model;
+        const adif::ModelGroup &g = m.groups[(size_t)(mine ? c.here : c.there)];
+        auto get = [&](const char *f) { return std::string(adif::groupValue(src, m, g, f)); };
+        std::string band = get("BAND"), mode = get("SUBMODE");
+        if (band.empty()) band = adif::bandForFrequency(get("FREQ"));
+        if (mode.empty()) mode = get("MODE");
+        rows.push_back({c.here >= 0 ? std::to_string(adif::recordNumber(r.model, c.here)) : "",
+                        c.there >= 0 ? std::to_string(adif::recordNumber(cmp.other.model, c.there)) : "", get("CALL"),
+                        adif::displayDate(get("QSO_DATE")), adif::displayTime(get("TIME_ON")), band, mode, cmpWhat(c)});
+        sev.push_back(c.kind == adif::CompareKind::OnlyThere ? 3 : c.kind == adif::CompareKind::Differ ? 1 : c.kind == adif::CompareKind::OnlyHere ? 0 : -1);
+        keys.push_back(std::to_string(c.here) + "|" + std::to_string(c.there));
+        bool t = cmpTickable(c);
+        ticks.push_back(t);
+        tickable.push_back(t);
+        cmp.shown.push_back(i);
+    }
+    [cmp.w setRows:rows severities:sev keys:keys ticks:ticks keepTicks:keepTicks];
+    [cmp.w setTickable:tickable];
+    cmpUpdateButton();
+}
+
+void cmpPlan(bool keepTicks) {
+    cmp.ready = false;
+    cmp.rows.clear();
+    [cmp.w setTarget:logLine()];
+    cmp.from.stringValue = cmp.path.empty() ? @"(choose a log)" : tilde(cmp.path);
+    if (cmp.path.empty()) {
+        [cmp.w setRows:kNoRows severities:kNoSev];
+        cmpUpdateButton();
+        [cmp.w setStatus:@"Choose the log to compare this one with. QSOs only that log has can be added, and for QSOs both "
+                         @"have, the fields this log lacks (a confirmation, a grid) can be copied over."
                   severity:-1];
         return;
     }
     try {
         NppHandle h = scintilla();
         const adif::LintResult &r = lint(h);
-        merge.buffer = buffer();
+        cmp.buffer = buffer();
         std::string error;
-        if (!readFile(merge.path, kMaxLogBytes, &merge.text, &error)) {
-            [merge.w setStatus:ADIFString("Could not read it: " + error + ".") severity:2];
-            return;
-        }
-        if (merge.path == path()) {
-            [merge.w setStatus:@"That is this log. Choose another one." severity:2];
-            return;
-        }
-        merge.source = lintText(merge.text);
-        if (!hasRecords(merge.source)) {
-            [merge.w setStatus:@"That file has no ADIF records." severity:2];
-            return;
-        }
-        if (!adif::canReformat(merge.source)) {
-            [merge.w setStatus:@"That log has structural problems (wrong lengths or broken tags). Open it, run Fix Lengths, "
-                               @"save it, then choose it again."
-                      severity:2];
-            return;
-        }
-        bool skip = merge.skip.state == NSControlStateValueOn;
-        merge.plan = adif::planMerge(adifhost::text(h), r.model, merge.text, merge.source.model, adif::DupeOptions(), skip);
-        std::map<int, int> dupOf;
-        for (const auto &d : merge.plan.duplicates) dupOf[d.first] = d.second;
-        std::vector<std::vector<std::string>> rows;
-        std::vector<int> sev;
-        for (const adif::Record &rec : adif::records(merge.text, merge.source.model)) {
-            if (rec.fields.empty()) continue;
-            std::string what = "add";
-            int s = -1;
-            auto it = dupOf.find(rec.group);
-            if (it != dupOf.end()) {
-                what = it->second >= 0 ? "already here (record " + std::to_string(adif::recordNumber(r.model, it->second)) + ")"
-                                       : "repeated in that log";
-                s = 1;
-            }
-            rows.push_back({std::to_string(rec.number), rec.get("CALL"), adif::displayDate(rec.get("QSO_DATE")),
-                            adif::displayTime(rec.get("TIME_ON")), adif::effectiveBand(rec), adif::effectiveMode(rec), what});
-            sev.push_back(s);
-        }
-        [merge.w setRows:rows severities:sev];
-        std::string status = plural(merge.plan.add.size(), "QSO") + " to add";
-        if (!merge.plan.duplicates.empty()) status += ", " + std::to_string(merge.plan.duplicates.size()) + " skipped as duplicates";
-        status += ".";
+        auto fail = [&](const std::string &why) {
+            [cmp.w setRows:kNoRows severities:kNoSev];
+            cmpUpdateButton();
+            [cmp.w setStatus:ADIFString(why) severity:2];
+        };
+        if (!readFile(cmp.path, kMaxLogBytes, &cmp.text, &error)) return fail("Could not read it: " + error + ".");
+        if (cmp.path == path()) return fail("That is this log. Choose another one.");
+        cmp.other = lintText(cmp.text);
+        if (!hasRecords(cmp.other)) return fail("That file has no ADIF records.");
+        if (!adif::canReformat(cmp.other))
+            return fail("That log has structural problems (wrong lengths or broken tags). Open it, run Fix Lengths, save it, then "
+                        "choose it again.");
+        std::string problem = structureProblem(r);
+        if (!problem.empty() && hasRecords(r)) return fail("This log: " + problem);
+        cmp.rows = adif::compareLogs(adifhost::text(h), r.model, cmp.text, cmp.other.model, adif::DupeOptions());
+        size_t there = 0, here = 0, differ = 0, same = 0;
+        for (const adif::CompareRow &c : cmp.rows)
+            (c.kind == adif::CompareKind::OnlyThere ? there : c.kind == adif::CompareKind::OnlyHere ? here
+                                                     : c.kind == adif::CompareKind::Differ        ? differ
+                                                                                                  : same)++;
+        cmp.ready = true;
+        cmpShow(keepTicks);
+        std::string st = fileName(cmp.path) + ": " + plural(there, "QSO") + " only there, " + std::to_string(here) + " only here, " +
+                         std::to_string(differ) + " in both with differences, " + std::to_string(same) + " the same. ";
+        st += "Ticked QSOs only there are added; for ticked QSOs in both, the fields this log lacks are copied" +
+              std::string(cmpReplace() ? ", and the ones it has differently replaced." : ".");
         int s = -1;
-        if (!merge.plan.undefinedFields.empty()) {
-            std::string list;
-            for (const std::string &f : merge.plan.undefinedFields) list += (list.empty() ? "" : ", ") + f;
-            status += " That log defines user fields this one doesn't (" + list + "): add their USERDEF lines to this "
-                      "log's header, or the validator will flag them.";
+        std::string undefinedFields;
+        for (const adif::UserFieldInfo &u : cmp.other.model.userFields) {
+            bool known = false;
+            for (const adif::UserFieldInfo &t : r.model.userFields) known |= adif::equalsNoCase(t.name, u.name);
+            if (!known) undefinedFields += (undefinedFields.empty() ? "" : ", ") + u.name;
+        }
+        if (!undefinedFields.empty()) {
+            st += " That log defines user fields this one doesn't (" + undefinedFields + "): add their USERDEF lines to this log's "
+                  "header, or the validator will flag them.";
             s = 1;
         }
-        std::string problem = structureProblem(r);
-        if (!problem.empty() && hasRecords(r)) {
-            status = "This log: " + problem;
-            s = 2;
-        } else if (!merge.plan.add.empty()) {
-            merge.ready = true;
-            merge.add.enabled = YES;
-            merge.add.title = [NSString stringWithFormat:@"Add %zu QSO%@", merge.plan.add.size(), merge.plan.add.size() == 1 ? @"" : @"s"];
-            [merge.w setDefaultButton:merge.add];
-        }
-        [merge.w setStatus:ADIFString(status) severity:s];
+        [cmp.w setStatus:ADIFString(st) severity:s];
     } catch (...) {
-        [merge.w setStatus:@"Something went wrong reading that log." severity:2];
+        [cmp.w setStatus:@"Something went wrong reading that log." severity:2];
     }
 }
 
-void mergeApply() {
+void cmpApply() {
     try {
-        if (!merge.ready) return;
+        if (!cmp.ready) return;
         NppHandle h = scintilla();
-        if (merge.buffer != buffer()) {
-            [merge.w setStatus:@"Switch back to the log you were merging into." severity:2];
+        if (cmp.buffer != buffer()) {
+            [cmp.w setStatus:@"Switch back to the log you were comparing." severity:2];
             return;
         }
         if (readOnly(h)) {
-            [merge.w setStatus:@"This document is read-only." severity:2];
+            [cmp.w setStatus:@"This document is read-only." severity:2];
             return;
         }
-        adif::LintResult r = lint(h);
-        std::string_view text = adifhost::text(h);
-        std::string eolText = eol(h);
-        std::string records = adif::mergedRecords(merge.text, merge.source.model, merge.plan.add,
-                                                  adif::recordLayout(text, r.model), eolText, lengthUnit(), utf8(h));
-        size_t start = 0;
-        std::string merged;
-        bool blank = text.find_first_not_of(" \t\r\n") == std::string_view::npos;
-        if (blank) merged = adif::newLogHeader(ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"), eolText) + records;
-        else merged = adif::applyTextEdits(text, {adif::appendRecord(text, r.model, records, eolText, &start)});
-        std::string note;
-        if (merge.sort.state == NSControlStateValueOn) {
-            adif::LintResult rm = lintText(merged);
-            if (structureProblem(rm).empty()) {
-                bool changed = false;
-                merged = adif::sortedByTime(merged, rm.model, eolText, &changed);
-                if (changed) note = " and sorted by date and time";
+        cmpPlan(true);  // against the log as it is now
+        if (!cmp.ready) return;
+        adif::LintResult r = lint(h);  // a copy: the edits below change the document
+        std::string text(adifhost::text(h));
+        std::vector<bool> ticks = [cmp.w ticked];
+        std::vector<int> adds, changedData;
+        std::vector<adif::CellChange> changes;
+        std::set<int> updated;
+        for (size_t i = 0; i < ticks.size() && i < cmp.shown.size(); ++i) {
+            if (!ticks[i]) continue;
+            const adif::CompareRow &c = cmp.rows[cmp.shown[i]];
+            if (c.kind == adif::CompareKind::OnlyThere) adds.push_back(c.there);
+            for (const adif::CellChange &ch : adif::copyChanges(c, cmpReplace())) {
+                changes.push_back(ch);
+                updated.insert(ch.group);
+                if (!adif::isTrackingField(ch.field)) changedData.push_back(ch.group);
             }
         }
-        size_t added = merge.plan.add.size();
-        adifhost::apply(h, {adif::TextEdit{0, text.size(), merged}});
-        merge.ready = false;
-        merge.add.enabled = NO;
-        [merge.w setRows:kNoRows severities:kNoSev];
-        [merge.w setStatus:ADIFString("Added " + plural(added, "QSO") + " from " + fileName(merge.path) + note +
-                                      " (one undo step).")
-                  severity:-1];
+        if (adds.empty() && changes.empty()) {
+            [cmp.w setStatus:@"Nothing ticked to apply." severity:1];
+            return;
+        }
+        std::string eolText = eol(h);
+        std::string merged = text;
+        if (!changes.empty()) {
+            std::vector<adif::TextEdit> edits = adif::cellEdits(text, r.model, changes, lengthUnit(), utf8(h));
+            edits = adif::mergeEdits(edits, adif::markModified(text, r.model, changedData, lengthUnit(), utf8(h)));
+            merged = adif::applyTextEdits(text, edits);
+        }
+        std::string note;
+        if (!adds.empty()) {
+            bool blank = merged.find_first_not_of(" \t\r\n") == std::string::npos;
+            adif::LintResult mr = lintText(merged);
+            std::string records = adif::mergedRecords(cmp.text, cmp.other.model, adds,
+                                                      blank ? adif::Layout::RecordPerLine : adif::recordLayout(merged, mr.model), eolText,
+                                                      lengthUnit(), utf8(h));
+            if (blank) {
+                merged = adif::newLogHeader(ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"), eolText) + records;
+            } else {
+                size_t start = 0;
+                merged = adif::applyTextEdits(merged, {adif::appendRecord(merged, mr.model, records, eolText, &start)});
+            }
+            if (cmp.sort.state == NSControlStateValueOn) {
+                adif::LintResult sr = lintText(merged);
+                if (structureProblem(sr).empty()) {
+                    bool changed = false;
+                    merged = adif::sortedByTime(merged, sr.model, eolText, &changed);
+                    if (changed) note = ", sorted by date and time";
+                }
+            }
+        }
+        adifhost::apply(h, {adif::minimalEdit(text, merged)});
+        std::string done = "From " + fileName(cmp.path) + ": ";
+        if (!adds.empty()) done += "added " + plural(adds.size(), "QSO");
+        if (!updated.empty()) done += std::string(adds.empty() ? "" : ", ") + "updated " + plural(updated.size(), "record");
+        cmpPlan(false);
+        [cmp.w setStatus:ADIFString(done + note + " (one undo step).") severity:3];
     } catch (...) {
-        [merge.w setStatus:@"Something went wrong merging." severity:2];
+        [cmp.w setStatus:@"Something went wrong applying the changes." severity:2];
     }
 }
 
@@ -2676,45 +2758,69 @@ void cmdRemoveDuplicates() {
     [dupes.w show];
 }
 
-void cmdMergeLog() {
-    if (!merge.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Merge Another Log" size:NSMakeSize(820, 500) headline:NO];
-        merge.w = w;
-        merge.from = ADIFLabel(@"");
-        merge.from.lineBreakMode = NSLineBreakByTruncatingMiddle;
-        [merge.from.widthAnchor constraintLessThanOrEqualToConstant:480].active = YES;
+void cmdCompareLogs() {
+    if (!cmp.w) {
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Compare and Merge Logs" size:NSMakeSize(940, 560) headline:NO];
+        cmp.w = w;
+        cmp.from = ADIFLabel(@"");
+        cmp.from.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        [cmp.from.widthAnchor constraintLessThanOrEqualToConstant:520].active = YES;
         NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:nil action:nil];
         ADIFOnAction(choose, ^{
-            std::string p = chooseOpen(@"Choose the ADIF log to add from", false);
+            std::string p = chooseOpen(@"Choose the ADIF log to compare with", false);
             if (p.empty()) return;
-            merge.path = p;
-            mergePlanNow();
+            cmp.path = p;
+            cmpPlan(false);
         });
-        [w addOptionRow:@[ ADIFLabel(@"From:"), merge.from, choose ]];
-        merge.skip = ADIFCheckbox(@"Skip QSOs this log already has (same CALL, band and mode within 2 minutes)", YES);
-        merge.sort = ADIFCheckbox(@"Sort by date and time afterwards", YES);
-        [w addOptionRow:@[ merge.skip ]];
-        [w addOptionRow:@[ merge.sort ]];
-        ADIFOnAction(merge.skip, ^{ mergePlanNow(); });
-        [w setColumns:std::vector<ADIFToolColumn>{{"record", "Record", 56}, {"call", "Call", 90}, {"date", "Date", 84}, {"time", "Time", 64},
-                       {"band", "Band", 50}, {"mode", "Mode", 60}, {"what", "", 220}}
-            checkboxes:NO
+        [w addOptionRow:@[ ADIFLabel(@"With:"), cmp.from, choose ]];
+        cmp.show = ADIFPopup(@[ @"Differences", @"Only in that log", @"Only in this log", @"In both, different", @"The same", @"Everything" ]);
+        ADIFOnAction(cmp.show, ^{
+            if (cmp.ready) cmpShow(true);
+        });
+        cmp.replace = ADIFCheckbox(@"Also replace values that differ", NO);
+        ADIFOnAction(cmp.replace, ^{ cmpPlan(true); });
+        cmp.sort = ADIFCheckbox(@"Sort by date and time afterwards", YES);
+        [w addOptionRow:@[ ADIFLabel(@"Show:"), cmp.show, cmp.replace, cmp.sort ]];
+        [w setColumns:std::vector<ADIFToolColumn>{{"here", "Here", 50}, {"there", "There", 50}, {"call", "Call", 84}, {"date", "Date", 80},
+                                                  {"time", "Time", 56}, {"band", "Band", 50}, {"mode", "Mode", 56},
+                                                  {"what", "Difference (here | there)", 360}}
+            checkboxes:YES
               sortable:NO];
-        merge.add = [w addButton:@"Add QSOs" trailing:YES action:^{ mergeApply(); }];
+        w.onTicksChanged = ^{ cmpUpdateButton(); };
+        w.onActivateRow = ^(NSInteger row) {  // every difference, and the record in this log
+            if (row < 0 || (size_t)row >= cmp.shown.size()) return;
+            const adif::CompareRow &c = cmp.rows[cmp.shown[(size_t)row]];
+            if (c.here >= 0) {
+                NppHandle h = scintilla();
+                const adif::LintResult &r = lint(h);
+                if ((size_t)c.here < r.model.groups.size()) goTo(h, adif::groupStart(r.model, r.model.groups[(size_t)c.here]), false);
+            }
+            [cmp.w setStatus:ADIFString(cmpWhat(c)) severity:-1];
+        };
+        [w addButton:@"Tick All" trailing:NO action:^{
+            [cmp.w setAllTicked:YES];
+            cmpUpdateButton();
+        }];
+        [w addButton:@"Untick All" trailing:NO action:^{
+            [cmp.w setAllTicked:NO];
+            cmpUpdateButton();
+        }];
+        cmp.apply = [w addButton:@"Apply" trailing:YES action:^{ cmpApply(); }];
+        [w setDefaultButton:cmp.apply];
     }
-    mergePlanNow();
-    [merge.w show];
+    cmpPlan(false);
+    [cmp.w show];
 }
 
 void cmdImportWsjtxLog() {
     std::string p = monitor::wsjtxLogPath();
     bool there = [[NSFileManager defaultManager] fileExistsAtPath:ADIFString(p)];
-    if (there) merge.path = p;
-    cmdMergeLog();
+    if (there) cmp.path = p;
+    cmdCompareLogs();
     if (!there)
-        [merge.w setStatus:ADIFString("WSJT-X's log isn't at " + ADIFStd(ADIFString(p).stringByAbbreviatingWithTildeInPath) + " (WSJT-X keeps it there on a Mac). "
-                                      "Choose... the wsjtx_log.adi to add from.")
-                  severity:1];
+        [cmp.w setStatus:ADIFString("WSJT-X's log isn't at " + ADIFStd(ADIFString(p).stringByAbbreviatingWithTildeInPath) +
+                                    " (WSJT-X keeps it there on a Mac). Choose... the wsjtx_log.adi to compare with.")
+                severity:1];
 }
 
 // ── Export CSV ──
@@ -2870,7 +2976,7 @@ void documentChanged() {
         if (tracker.w && tracker.w.window.visible) trackerRefresh();
         bulkClear(@"The log changed. Preview again.");
         dupesClear(@"The log changed. Find Duplicates again.");
-        if (merge.w && merge.w.window.visible && merge.ready) mergePlanNow();
+        if (cmp.w && cmp.w.window.visible && cmp.ready) cmpPlan(true);
         if (pota.w && pota.w.window.visible) potaPlan();
         if (spots.w && spots.w.window.visible && !spots.all.empty()) spotsShow();
         if (org.w && org.w.window.visible) orgRefresh();

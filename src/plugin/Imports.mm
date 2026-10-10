@@ -1,4 +1,5 @@
 #import "Imports.h"
+#import "Uploads.h"
 
 #import "Families.h"
 #import "Lookup.h"
@@ -235,6 +236,7 @@ void startDownload(Import &u) {
         }
         pu->qsos = std::move(qsos);
         pu->downloaded = true;
+        uploads::downloaded((int)pu->site);
         plan(*pu, false);
     });
 }

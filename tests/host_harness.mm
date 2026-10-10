@@ -586,6 +586,8 @@ int main(int argc, char **argv) {
         }
         setenv("ADIFLINT_FAKE_LOOKUP_DIR", argv[2], 1);  // lookups read fixtures, never the network
         NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+        NSString *tqslDir = [tmp stringByAppendingPathComponent:@"tqsl-data"];  // never the developer's own TQSL data
+        setenv("ADIFLINT_TEST_TQSL_DIR", tqslDir.UTF8String, 1);
         [[NSFileManager defaultManager] createDirectoryAtPath:tmp withIntermediateDirectories:YES attributes:nil error:nil];
         H.configDir = tmp.UTF8String;
 
@@ -645,10 +647,10 @@ int main(int argc, char **argv) {
             {"Export Activation Logs...", "Export...", @"Activation logs (POTA, WWFF, SOTA)"},
             {"Export CSV...", "Export...", @"CSV"},
             {"Export Cabrillo...", "Export...", @"Cabrillo"},
-            {"Upload to QRZ.com Logbook...", "Upload...", @"QRZ.com Logbook"},
-            {"Upload to LoTW (TQSL)...", "Upload...", @"LoTW (TQSL)"},
-            {"Upload to Club Log...", "Upload...", @"Club Log"},
-            {"Upload to eQSL...", "Upload...", @"eQSL"},
+            {"Upload to QRZ.com Logbook...", "QSL Sync (Upload, Confirmations)...", @"QRZ.com Logbook"},
+            {"Upload to LoTW (TQSL)...", "QSL Sync (Upload, Confirmations)...", @"LoTW (TQSL)"},
+            {"Upload to Club Log...", "QSL Sync (Upload, Confirmations)...", @"Club Log"},
+            {"Upload to eQSL...", "QSL Sync (Upload, Confirmations)...", @"eQSL"},
             {"Enrich from QRZ.com...", "Enrich...", @"QRZ.com"},
             {"Enrich from HamQTH...", "Enrich...", @"HamQTH"},
             {"Enrich from Country Data...", "Enrich...", @"Country Data (offline)"},
@@ -656,6 +658,25 @@ int main(int argc, char **argv) {
         auto run = [&](const char *name) {
             for (const Hub &hub : kHubs) {
                 if (std::strcmp(hub.old, name) != 0) continue;
+                if (!std::strcmp(hub.menu, "QSL Sync (Upload, Confirmations)...")) {  // the service's row, then Upload...
+                    runItem(hub.menu);
+                    pump(0.05);
+                    NSWindow *qw = windowTitled(@"QSL Sync");
+                    NSTableView *qt = qw ? findTable(qw.contentView) : nil;
+                    NSInteger row = -1;
+                    for (NSInteger i = 0; qt && i < [qt.dataSource numberOfRowsInTableView:qt]; ++i)
+                        if ([cell(qt, i, @"0") isEqualToString:hub.item]) row = i;
+                    CHECK(row >= 0, "%s: QSL Sync lists %s", name, hub.item.UTF8String);
+                    if (row >= 0) {
+                        [qt selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row] byExtendingSelection:NO];
+                        NSButton *upload = findButton(qw.contentView, @"Upload...");
+                        CHECK(upload.enabled, "%s: Upload... is enabled for the selected service", name);
+                        [upload performClick:nil];
+                        pump(0.05);
+                    }
+                    [qw orderOut:nil];
+                    return;
+                }
                 runItem(hub.menu);
                 pump(0.05);
                 NSPopUpButton *p = nil;
@@ -704,8 +725,8 @@ int main(int argc, char **argv) {
         };
         for (const char *name : {"New QSO...", "Spots (POTA, WWFF)...", "Start Activation...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
                                  "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
-                                 "Merge Another Log...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...",
-                                 "Import...", "Export...", "Upload...", "Enrich...", "Monitor (WSJT-X, N1MM, Loggers)...", "Record Panel", "Reformat: One Record per Line",
+                                 "Compare and Merge Logs...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...",
+                                 "Import...", "Export...", "QSL Sync (Upload, Confirmations)...", "Enrich...", "Monitor (WSJT-X, N1MM, Loggers)...", "Record Panel", "Reformat: One Record per Line",
                                  "Reformat: One Field per Line", "Check .adi Files While Typing", "Settings...", "About ADIF Lint..."})
             CHECK(byName.count(name), "menu item %s", name);
         CHECK(byName.count("Check .adi Files While Typing") && byName["Check .adi Files While Typing"]->_init2Check &&
@@ -1625,29 +1646,42 @@ int main(int argc, char **argv) {
                 [pw orderOut:nil];
             }
 
-            // Merge another log: one QSO already here, one new.
+            // Compare and Merge Logs: one QSO in both (the other has a field this one lacks), one new.
             NSString *other = [tmp stringByAppendingPathComponent:@"other.adi"];
             std::string otherText = "other\n<ADIF_VER:5>3.1.7\n<EOH>\n" + spec("CALL", "K1AB") + spec("QSO_DATE", "20261006") +
-                                    spec("TIME_ON", "223030") + spec("BAND", "20m") + spec("MODE", "SSB") + "<EOR>\n" +
-                                    spec("CALL", "W2XY") + spec("QSO_DATE", "20261006") + spec("TIME_ON", "2233") +
-                                    spec("BAND", "20m") + spec("MODE", "SSB") + "<EOR>\n";
+                                    spec("TIME_ON", "223030") + spec("BAND", "20m") + spec("MODE", "SSB") +
+                                    spec("APP_HARNESS_NOTE", "from the other log") + "<EOR>\n" + spec("CALL", "W2XY") +
+                                    spec("QSO_DATE", "20261006") + spec("TIME_ON", "2233") + spec("BAND", "20m") + spec("MODE", "SSB") +
+                                    "<EOR>\n";
             [@(otherText.c_str()) writeToFile:other atomically:YES encoding:NSUTF8StringEncoding error:nil];
             setenv("ADIFLINT_TEST_OPEN_FILE", other.UTF8String, 1);
-            run("Merge Another Log...");
-            NSWindow *mw = windowTitled(@"Merge Another Log");
+            run("Compare and Merge Logs...");
+            NSWindow *mw = windowTitled(@"Compare and Merge Logs");
+            CHECK(mw != nil, "Compare and Merge Logs opens");
             if (mw) {
                 [findButton(mw.contentView, @"Choose...") performClick:nil];
                 NSTableView *mt = findTable(mw.contentView);
-                CHECK(tableRows(mt) == 2 && [cell(mt, 0, @"6") hasPrefix:@"already here"] && [cell(mt, 1, @"6") isEqualToString:@"add"],
-                      "merge preview: %s / %s", cell(mt, 0, @"6").UTF8String, cell(mt, 1, @"6").UTF8String);
+                NSInteger k1ab = -1, w2xy = -1;
+                for (NSInteger row = 0; row < tableRows(mt); ++row) {
+                    if ([cell(mt, row, @"2") isEqualToString:@"K1AB"]) k1ab = row;
+                    if ([cell(mt, row, @"2") isEqualToString:@"W2XY"]) w2xy = row;
+                }
+                CHECK(k1ab >= 0 && w2xy >= 0 && [cell(mt, w2xy, @"7") isEqualToString:@"only in that log"] &&
+                          [cell(mt, k1ab, @"7") containsString:@"APP_HARNESS_NOTE — | from the other log"],
+                      "compare: K1AB differs (%s), W2XY only there", k1ab >= 0 ? cell(mt, k1ab, @"7").UTF8String : "");
+                CHECK(status(mw).find("1 QSO only there") != std::string::npos && findButton(mw.contentView, @"Apply 2") != nil,
+                      "compare status: %s", status(mw).c_str());
                 [mw.contentView layoutSubtreeIfNeeded];
-                CHECK(overlaps(mw.contentView) == 0, "Merge controls do not overlap (%d)", overlaps(mw.contentView));
-                snapshot(mw, "merge");
-                [findButton(mw.contentView, @"Add 1 QSO") performClick:nil];
+                CHECK(overlaps(mw.contentView) == 0, "Compare controls do not overlap (%d)", overlaps(mw.contentView));
+                snapshot(mw, "compare");
+                int undoBefore = H.undoActions;
+                [findButton(mw.contentView, @"Apply 2") performClick:nil];
                 size_t w2 = H.doc.find("<CALL:4>W2XY");
-                CHECK(w2 != std::string::npos && w2 > H.doc.find("<TIME_ON:4>2230") && w2 < H.doc.find("<TIME_ON:4>2235"),
-                      "W2XY added and sorted into place:\n%s", H.doc.c_str());
-                CHECK(status(mw).find("Added 1 QSO from other.adi and sorted") == 0, "merge status: %s", status(mw).c_str());
+                CHECK(w2 != std::string::npos && w2 > H.doc.find("<TIME_ON:4>2230") && w2 < H.doc.find("<TIME_ON:4>2235") &&
+                          H.doc.find("<APP_HARNESS_NOTE:18>from the other log") != std::string::npos && H.undoActions == undoBefore + 1,
+                      "W2XY added and sorted into place, K1AB's field copied, one undo step:\n%s", H.doc.c_str());
+                CHECK(status(mw).find("From other.adi: added 1 QSO, updated 1 record, sorted by date and time") == 0, "compare status: %s",
+                      status(mw).c_str());
                 [mw orderOut:nil];
             }
 
@@ -2051,9 +2085,73 @@ int main(int argc, char **argv) {
                 CHECK(status(lw).find("did not finish within 1 seconds, so it was stopped") != std::string::npos,
                       "TQSL time limit: %s", status(lw).c_str());
                 unsetenv("ADIFLINT_TEST_TQSL_SECONDS");
+
+                // Pre-flight: QSOs whose station fields disagree with the Station Location, as TQSL compares them.
+                [[NSFileManager defaultManager] createDirectoryAtPath:tqslDir withIntermediateDirectories:YES attributes:nil error:nil];
+                [@"<StationDataFile>\n  <StationData name=\"Home QTH\">\n    <CALL>KW9D</CALL>\n    <DXCC>291</DXCC>\n"
+                 @"    <GRIDSQUARE>EN52wa</GRIDSQUARE>\n    <US_STATE>IL</US_STATE>\n  </StationData>\n"
+                 @"  <StationData name=\"Portable\">\n    <CALL>KW9D</CALL>\n    <DXCC>291</DXCC>\n    <GRIDSQUARE>EN61</GRIDSQUARE>\n"
+                 @"    <US_STATE>IL</US_STATE>\n  </StationData>\n</StationDataFile>\n"
+                    writeToFile:[tqslDir stringByAppendingPathComponent:@"station_data"]
+                     atomically:YES
+                       encoding:NSUTF8StringEncoding
+                          error:nil];
+                std::string savedDoc = H.doc;
+                auto spec = [](const char *name, const std::string &v) {
+                    return "<" + std::string(name) + ":" + std::to_string(v.size()) + ">" + v + " ";
+                };
+                H.doc = "pre\n<ADIF_VER:5>3.1.7\n<EOH>\n" + spec("CALL", "K1AA") + spec("QSO_DATE", "20261009") + spec("TIME_ON", "1200") +
+                        spec("BAND", "20m") + spec("MODE", "CW") + spec("STATION_CALLSIGN", "KW9D") + spec("MY_GRIDSQUARE", "EN52") +
+                        spec("MY_STATE", "IL") + "<EOR>\n" + spec("CALL", "K2BB") + spec("QSO_DATE", "20261009") + spec("TIME_ON", "1210") +
+                        spec("BAND", "20m") + spec("MODE", "CW") + spec("STATION_CALLSIGN", "KW9D") + spec("MY_GRIDSQUARE", "EN61") +
+                        "<EOR>\n" + spec("CALL", "K3CC") + spec("QSO_DATE", "20261009") + spec("TIME_ON", "1220") + spec("BAND", "20m") +
+                        spec("MODE", "CW") + spec("STATION_CALLSIGN", "KW9D") + spec("MY_STATE", "WI") + "<EOR>\n";
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                pump(0.3);
+                NSMutableArray *combos2 = [NSMutableArray array];
+                collect(lw.contentView, NSComboBox.class, combos2);
+                NSComboBox *loc = combos2.firstObject;
+                loc.stringValue = @"Home QTH";
+                [loc sendAction:loc.action to:loc.target];
+                CHECK([loc.objectValues containsObject:@"Portable"], "the Station Locations come from station_data");
+                NSTableView *lt2 = findTable(lw.contentView);
+                std::string rowsText;
+                for (NSInteger row = 0; row < [lt2.dataSource numberOfRowsInTableView:lt2]; ++row)
+                    rowsText += std::string(cell(lt2, row, @"1").UTF8String) + ": " + cell(lt2, row, @"6").UTF8String + "\n";
+                CHECK(rowsText == "K1AA: \nK2BB: can't send: TQSL would refuse it: MY_GRIDSQUARE EN61 (the location: EN52wa); it "
+                                  "matches Portable\nK3CC: can't send: TQSL would refuse it: MY_STATE WI (the location: IL)\n" &&
+                          findButton(lw.contentView, @"Upload 1 QSO") != nil &&
+                          status(lw).find("2 QSOs disagree with the Station Location Home QTH") != std::string::npos,
+                      "LoTW pre-flight:\n%s%s", rowsText.c_str(), status(lw).c_str());
+                loc.stringValue = @"Nowhere";
+                [loc sendAction:loc.action to:loc.target];
+                CHECK(status(lw).find("TQSL has no Station Location named Nowhere (2 locations in") != std::string::npos,
+                      "an unknown location: %s", status(lw).c_str());
+                H.doc = savedDoc;
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                pump(0.3);
                 [lw orderOut:nil];
             }
             unsetenv("ADIFLINT_TEST_OPEN_FILE");
+
+            // QSL Sync sums the log up per service.
+            runItem("QSL Sync (Upload, Confirmations)...");
+            NSWindow *sync = windowTitled(@"QSL Sync");
+            NSTableView *syncTable = sync ? findTable(sync.contentView) : nil;
+            CHECK(syncTable && [syncTable.dataSource numberOfRowsInTableView:syncTable] == 4 && [cell(syncTable, 3, @"0") isEqualToString:@"eQSL"] &&
+                      [cell(syncTable, 3, @"4") isEqualToString:@(std::to_string(records - 1).c_str())] && [cell(syncTable, 2, @"6") isEqualToString:@"—"] &&
+                      [cell(syncTable, 1, @"8") isEqualToString:@"never"],
+                  "QSL Sync: eQSL uploaded %s, Club Log confirmations %s, LoTW last download %s", cell(syncTable, 3, @"4").UTF8String,
+                  cell(syncTable, 2, @"6").UTF8String, cell(syncTable, 1, @"8").UTF8String);
+            [syncTable selectRowIndexes:[NSIndexSet indexSetWithIndex:2] byExtendingSelection:NO];
+            CHECK(findButton(sync.contentView, @"Upload...").enabled && !findButton(sync.contentView, @"Download Confirmations...").enabled,
+                  "Club Log: Upload, but no confirmations to download");
+            if (sync) {
+                [sync.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(sync.contentView) == 0, "QSL Sync does not overlap");
+                snapshot(sync, "qsl-sync");
+            }
+            [sync orderOut:nil];
             [[NSFileManager defaultManager] removeItemAtPath:logPath error:nil];
         }
 
@@ -3097,8 +3195,8 @@ int main(int argc, char **argv) {
             setenv("ADIFLINT_TEST_WSJTX_LOG", watchPath.c_str(), 1);
             run("Import WSJT-X Log...");
             unsetenv("ADIFLINT_TEST_WSJTX_LOG");
-            NSWindow *gw2 = windowTitled(@"Merge Another Log");
-            CHECK(gw2.visible && labelContaining(gw2.contentView, @"wsjtx_log.adi") != nil, "Import: the WSJT-X log, in Merge");
+            NSWindow *gw2 = windowTitled(@"Compare and Merge Logs");
+            CHECK(gw2.visible && labelContaining(gw2.contentView, @"wsjtx_log.adi") != nil, "Import: the WSJT-X log, in Compare");
             [gw2 orderOut:nil];
         }
 

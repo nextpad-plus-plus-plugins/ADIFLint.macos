@@ -2,7 +2,8 @@
 
 Everything ADIF Lint does, window by window. Every command is on the **Plugins → ADIF
 Lint** menu, and New QSO, Log Table, Check Log and Spots also have toolbar buttons.
-**Import…**, **Export…**, **Upload…** and **Enrich…** open the window you used last; the
+**Import…**, **Export…** and **Enrich…** open the window you used last (**QSL Sync…** opens
+each upload window); the
 popup at the top of each switches to the others, in the same place. Every change a command makes to your log is one undo step, and nothing is
 saved to disk until you save the file.
 
@@ -448,9 +449,19 @@ have more errors afterwards; nothing changes until **Apply**.
   SIG_INFO or POTA reference, so park-to-park lines repeated for each park of a two-fer
   stay. It keeps the record with the most fields and can copy fields only the removed one
   had. Untick any set before removing.
-- **Merge Another Log…** adds another file's records at the end, rebuilt in this log's
-  layout with lengths counted this log's way, skipping QSOs it already has, then sorts by
-  date and time if you like. It warns about USERDEF fields this log's header lacks.
+- **Compare and Merge Logs…** compares this log with another file QSO by QSO: the same
+  call, band and mode starting within 2 minutes, with no different station or park, is the
+  same QSO. **Show** lists the differences (the default), the QSOs only in that log or only
+  in this one, those in both that differ, the same ones, or everything. The difference
+  column reads `FIELD here | there` (`—` where a record lacks the field); values that differ
+  only in case, a time written `1200` or `120000`, or a number's digits (`14.074` and
+  `14.074000`) count as the same. Double-click a row to read all its differences and go to
+  the record. Ticked QSOs only in that log are added (in this log's layout, with lengths
+  counted this log's way); for ticked QSOs in both, the fields this log lacks are copied,
+  and with **Also replace values that differ** the ones it has differently too. **Apply**
+  does it in one undo step and sorts by date and time if you like; a QSO already uploaded
+  to QRZ.com or Club Log is marked modified when its data changes. It warns about USERDEF
+  fields this log's header lacks.
 
 ### Sort and Organize
 
@@ -485,7 +496,7 @@ choices are remembered.
   - Dates must be year first (2026-10-06, 2026/10/06 or 20261006), since 06/10 could be
     either month; times may be 22:30, 2230 or 22:30:15; a frequency in kHz becomes MHz;
     the apostrophe Export CSV puts before a formula is taken off.
-- **Import… → WSJT-X log file** opens Merge Another Log on WSJT-X's own log
+- **Import… → WSJT-X log file** opens Compare and Merge Logs on WSJT-X's own log
   (`~/Library/Application Support/WSJT-X/wsjtx_log.adi`), to add the QSOs this log doesn't
   have. The Monitor adds new ones as you log them.
 - **Export… → CSV** shows the log as it will be saved, then **Save CSV…** writes it (RFC
@@ -550,7 +561,14 @@ What each site gives:
 
 ## Uploading
 
-**Upload… → QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL** list the QSOs not yet
+**QSL Sync (Upload, Confirmations)…** shows each service for the open log: whether its
+account is saved, the QSOs to upload (and how many changed since an upload), uploaded, that
+can't be sent, and confirmed (LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V, or QRZ.com Logbook's
+confirmed status as Import writes it), the newest upload date in the log, and when you last
+downloaded from it. Select a service, then **Upload…** (or double-click it) or **Download
+Confirmations…**, which opens its Import window. Club Log has no confirmations to download.
+
+The upload windows (QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL) list the QSOs not yet
 sent, by the ADIF status field, with the ones that can't be sent (no MODE…) in red.
 **Nothing is sent until you press Upload.** Each QSO's result is shown, and the accepted
 ones get the status field Y and today's date: QRZCOM_QSO_UPLOAD_STATUS and _DATE,
@@ -575,6 +593,17 @@ unticked while you edit the log.
   with `-p`. Only exit code 0 marks records: for 8 or 9 TQSL doesn't say which QSOs it
   skipped, so nothing is marked and its report is shown. TQSL is stopped if it hasn't
   finished in 10 minutes.
+- **LoTW pre-flight:** the Station Location popup lists the locations in TQSL's
+  `station_data` (in `~/.tqsl`, TQSL's folder on a Mac, or `$TQSLDIR`); a station profile's
+  TQSL location is used when none is chosen. Each QSO's station fields are compared with
+  the location the way TQSL compares them, and TQSL refuses one that disagrees: the call
+  (STATION_CALLSIGN, else OPERATOR), MY_DXCC, MY_GRIDSQUARE (a 4-character grid matches a
+  longer one that starts with it), MY_STATE and MY_CNTY for the entities TQSL knows them
+  for (US, Canada, Russia, China, Australia, Japan, Finland), and the zones. Those QSOs are
+  listed as can't send, with the field that disagrees and another location they match, so
+  you can upload them with that one. A field the location or the QSO leaves empty never
+  counts. (TQSL source, read 2026-10-10; a value written as TQSL's label rather than its
+  code, such as a state's full name, is flagged though TQSL would take it.)
 - **Club Log:** one batch upload to `putlogs.php` with your account email, an Application
   Password and an API key. Club Log gives each program its own key: request one at
   clublog.org/requestapikey.php, and never publish it. Club Log blocks programs that

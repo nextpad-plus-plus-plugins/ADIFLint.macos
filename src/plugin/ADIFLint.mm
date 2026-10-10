@@ -2544,7 +2544,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdTimeShift, "Time Shift...", logtools::cmdTimeShift);
     setItem(kCmdOrganize, "Sort and Organize...", logtools::cmdOrganize);
     setItem(kCmdDupes, "Remove Duplicates...", logtools::cmdRemoveDuplicates);
-    setItem(kCmdMerge, "Merge Another Log...", logtools::cmdMergeLog);
+    setItem(kCmdMerge, "Compare and Merge Logs...", logtools::cmdCompareLogs);
     setItem(kSepReports, "", nullptr);
     setItem(kCmdSummary, "Log Summary...", logtools::cmdSummary);
     setItem(kCmdTracker, "Activation Tracker (POTA, WWFF, SOTA)...", logtools::cmdActivationTracker);
@@ -2552,7 +2552,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kSepServices, "", nullptr);
     setItem(kCmdImport, "Import...", families::cmdImport);
     setItem(kCmdExport, "Export...", families::cmdExport);
-    setItem(kCmdUpload, "Upload...", families::cmdUpload);
+    setItem(kCmdUpload, "QSL Sync (Upload, Confirmations)...", uploads::cmdQslSync);
     setItem(kCmdEnrich, "Enrich...", cmdEnrich);
     setItem(kCmdMonitor, "Monitor (WSJT-X, N1MM, Loggers)...", monitor::cmdMonitor);
     setItem(kSepView, "", nullptr);

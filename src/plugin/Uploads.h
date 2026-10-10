@@ -11,6 +11,10 @@ void cmdUploadQrz();
 void cmdUploadLotw();
 void cmdUploadClubLog();
 void cmdUploadEqsl();
+// QSL Sync: each service's QSOs to upload, uploaded and confirmed, with Upload and Download Confirmations.
+void cmdQslSync();
+// A download from a site finished (adif::ImportSite as int): QSL Sync shows when.
+void downloaded(int site);
 
 // The active document changed or another became active.
 void documentChanged();

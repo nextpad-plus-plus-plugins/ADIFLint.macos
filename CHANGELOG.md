@@ -20,7 +20,17 @@ Versions before 0.8.0 were development builds and were not published.
   each), into the file when it isn't open, or into a queue while it's open in another tab;
   a QSO the log already has isn't added again. It only listens, on this Mac unless you
   allow other computers.
-- **Import… → WSJT-X log file** merges WSJT-X's own log.
+- **Import… → WSJT-X log file** compares and merges WSJT-X's own log.
+- **Compare and Merge Logs…** (replacing Merge Another Log): two logs compared QSO by QSO,
+  listing QSOs only one has and the fields the same QSO has differently; add the ticked
+  QSOs and copy the fields this log lacks (or replace differing ones), in one undo step.
+- **QSL Sync (Upload, Confirmations)…** (replacing Upload…): each service's QSOs to upload,
+  changed, uploaded, unsendable and confirmed, the last upload and download, with Upload
+  and Download Confirmations.
+- **LoTW pre-flight**: the upload window checks each QSO's call, DXCC, grid, state, county
+  and zones against the TQSL Station Location as TQSL does, and names a location that
+  matches the ones it would refuse. Station Locations are read from TQSL's folder
+  (`~/.tqsl` or `$TQSLDIR`); a station profile's TQSL location is used when none is chosen.
 
 - **Station profiles**: named sets of your station's fields (callsign, operator, grid,
   state, county, rig, antenna, power, TQSL location), edited in their own window and chosen
@@ -56,9 +66,10 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Changed
 
-- **A shorter menu**: 25 commands instead of 39. **Import…**, **Export…**, **Upload…** and
-  **Enrich…** each open the window used last, with a popup at its top for the others (Import
-  from: LoTW, QRZ.com Logbook, eQSL, CSV file). Check Log replaces **Validate Now**; Sort
+- **A shorter menu**: 27 commands instead of 39. **Import…**, **Export…** and **Enrich…**
+  each open the window used last, with a popup at its top for the others (Import from:
+  LoTW, QRZ.com Logbook, eQSL, CSV file, WSJT-X log file); the upload windows open from QSL
+  Sync and switch with the same popup. Check Log replaces **Validate Now**; Sort
   and Organize's **Date and Time** button replaces **Sort Records by Date and Time**;
   colouring, autocomplete and counting characters moved to Settings → Editor, and
   "Validate .adi Files While Typing" is now **Check .adi Files While Typing**. Nextpad++
@@ -85,6 +96,8 @@ Versions before 0.8.0 were development builds and were not published.
 - WWFF export files are named as WWFF asks, `KW9D @ KFF-1234 20261006.adi`: spaces around
   the `@`, a `/` in the call written as `-`, and an activation over consecutive UTC days in
   one file named for its first day (it was one file per day, `KW9D@KFF-1234 20261006.adi`).
+- The LoTW window looked for TQSL's Station Locations only in
+  `~/Library/Application Support/TrustedQSL`; TQSL keeps them in `~/.tqsl` on a Mac.
 
 ## [0.9.0] - 2026-10-09
 

@@ -1,5 +1,5 @@
 // Log tools in the plugin: Log Table, Summary, Activation Tracker, Worked
-// Before, Bulk Edit and Time Shift, Sort, Remove Duplicates, Merge Another Log,
+// Before, Bulk Edit and Time Shift, Sort, Remove Duplicates, Compare and Merge Logs,
 // CSV and POTA export. The ADIF work is in src/core/adif_tools; this file
 // builds the windows (ToolWindow) and edits the document through PluginHost.
 #pragma once
@@ -20,8 +20,8 @@ void cmdBulkEdit();
 void cmdTimeShift();
 void cmdOrganize();  // Sort and Organize: records by any fields, fields in any order
 void cmdRemoveDuplicates();
-void cmdMergeLog();
-void cmdImportWsjtxLog();  // Merge, from WSJT-X's own log
+void cmdCompareLogs();      // Compare and Merge Logs
+void cmdImportWsjtxLog();  // Compare and Merge, with WSJT-X's own log
 void cmdExportCsv();
 void cmdExportPota();
 void cmdPotaSpots();

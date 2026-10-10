@@ -1,12 +1,15 @@
 #import "Uploads.h"
 
 #import "Families.h"
+#import "Imports.h"
 #import "Lookup.h"
 #import "PluginHost.h"
+#import "Station.h"
 #import "ToolWindow.h"
 #include "Scintilla.h"
 #include "adif_spec.h"
 #include "adif_tools.h"
+#include "adif_qsl.h"
 #include "adif_upload.h"
 
 #include <sys/stat.h>
@@ -70,16 +73,28 @@ std::string tqslPath() {
     return "";
 }
 
-// Station Location names TQSL has saved, if its station_data file is where TQSL
-// keeps it on macOS; only used as suggestions.
+// TQSL's Station Locations, from station_data in its folder: $TQSLDIR, else ~/.tqsl
+// (tqsllib's tqsl_init, see adif_qsl.h); older Mac builds used Application Support.
+std::vector<adif::TqslLocation> tqslStationData(std::string *file = nullptr) {
+    std::vector<std::string> dirs;
+    if (const char *test = getenv("ADIFLINT_TEST_TQSL_DIR")) dirs.push_back(test);
+    else {
+        if (const char *env = getenv("TQSLDIR"); env && *env) dirs.push_back(env);
+        dirs.push_back(ADIFStd(NSHomeDirectory()) + "/.tqsl");
+        dirs.push_back(ADIFStd(NSHomeDirectory()) + "/Library/Application Support/TrustedQSL");
+    }
+    for (const std::string &d : dirs) {
+        NSData *data = [NSData dataWithContentsOfFile:ADIFString(d + "/station_data")];
+        if (!data) continue;
+        if (file) *file = d + "/station_data";
+        return adif::parseStationData(std::string((const char *)data.bytes, data.length));
+    }
+    return {};
+}
+
 NSArray<NSString *> *tqslLocations() {
     NSMutableArray *out = [NSMutableArray array];
-    NSString *file = [@"~/Library/Application Support/TrustedQSL/station_data" stringByExpandingTildeInPath];
-    NSData *d = [NSData dataWithContentsOfFile:file];
-    if (!d) return out;
-    NSXMLDocument *doc = [[NSXMLDocument alloc] initWithData:d options:NSXMLNodeLoadExternalEntitiesNever error:nil];
-    for (NSXMLElement *e in [doc nodesForXPath:@"//StationData" error:nil])
-        if (NSString *name = [e attributeForName:@"name"].stringValue) [out addObject:name];
+    for (const adif::TqslLocation &l : tqslStationData()) [out addObject:ADIFString(l.name)];
     return out;
 }
 
@@ -190,12 +205,49 @@ void plan(Upload &u, bool keepTicks = false) {
         }
         adif::UploadFields f = adif::uploadFields(u.service);
         u.items.clear();
+        // LoTW: QSOs TQSL would refuse with the chosen Station Location (adif_qsl.h), and the locations they match.
+        std::vector<adif::TqslLocation> locations;
+        const adif::TqslLocation *location = nullptr;
+        std::map<int, adif::Record> recordOf;
+        std::string stationData;
+        if (u.service == adif::UploadService::LoTW) {
+            locations = tqslStationData(&stationData);
+            [u.location removeAllItems];
+            for (const adif::TqslLocation &l : locations) [u.location addItemWithObjectValue:ADIFString(l.name)];
+            if (u.location.stringValue.length == 0) {
+                NSInteger p = station::chosenProfile();
+                std::vector<adif::StationProfile> profiles = station::profiles();
+                if (p >= 1 && (size_t)p <= profiles.size() && !profiles[(size_t)p - 1].tqslLocation.empty())
+                    u.location.stringValue = ADIFString(profiles[(size_t)p - 1].tqslLocation);
+            }
+            std::string chosen = ADIFStd(u.location.stringValue);
+            for (const adif::TqslLocation &l : locations)
+                if (adif::equalsNoCase(l.name, chosen)) location = &l;
+            if (location)
+                for (adif::Record &rec : adif::records(text, r.model)) recordOf[rec.group] = std::move(rec);
+        }
+        size_t refused = 0, elsewhere = 0;
+        std::string otherName;
         std::vector<std::vector<std::string>> rows;
         std::vector<int> sev;
         std::vector<bool> ticks;
         size_t wanted = 0, problems = 0, done = 0;
         for (adif::UploadItem &i : adif::uploadItems(text, r.model, u.service)) {
             if (u.selectionOnly.state == NSControlStateValueOn && !sel.count(i.group)) continue;
+            if (location && i.problem.empty() && !i.done && !i.skip) {
+                std::string why = adif::lotwLocationProblem(recordOf[i.group], *location);
+                if (!why.empty()) {
+                    ++refused;
+                    i.problem = "TQSL would refuse it: " + why;
+                    for (const adif::TqslLocation &l : locations)
+                        if (&l != location && adif::lotwLocationProblem(recordOf[i.group], l).empty()) {
+                            i.problem += "; it matches " + l.name;
+                            ++elsewhere;
+                            otherName = l.name;
+                            break;
+                        }
+                }
+            }
             if (i.done) ++done;
             if ((i.done || i.skip) && !includeDone) continue;
             std::string status = !i.problem.empty() ? "can't send: " + i.problem
@@ -231,7 +283,21 @@ void plan(Upload &u, bool keepTicks = false) {
                  (done && !includeDone ? " (" + std::to_string(done) + " already sent are not listed)" : "") +
                  ". Nothing is sent until you press Upload; afterwards each one sent gets " + f.status + " Y and " + f.date +
                  ".";
-        [u.w setStatus:ADIFString(st) severity:r.structuralErrors ? 1 : -1];
+        int severity = r.structuralErrors ? 1 : -1;
+        if (u.service == adif::UploadService::LoTW && !ADIFStd(u.location.stringValue).empty() && !stationData.empty() && !location) {
+            st += " TQSL has no Station Location named " + ADIFStd(u.location.stringValue) + " (" + plural(locations.size(), "location") +
+                  " in " + ADIFStd(ADIFString(stationData).stringByAbbreviatingWithTildeInPath) + ").";
+            severity = std::max(severity, 1);
+        } else if (refused) {
+            st += " " + plural(refused, "QSO") + " disagree with the Station Location " + location->name +
+                  " (call, grid, state, county or zones), so TQSL would refuse them" +
+                  (elsewhere ? "; " + std::to_string(elsewhere) + " match " + (elsewhere == refused ? otherName : "another location") +
+                                   ": upload those with that location"
+                             : "") +
+                  ".";
+            severity = std::max(severity, 1);
+        }
+        [u.w setStatus:ADIFString(st) severity:severity];
         if (r.structuralErrors)
             [u.w setStatus:@"The log has structural problems, so records may be read wrongly. Run Fix Lengths first." severity:2];
     } catch (...) {
@@ -545,6 +611,7 @@ void openUpload(adif::UploadService s) {
             u.location = ADIFComboBox(tqslLocations(), 220);
             u.location.stringValue = ADIFString(setting("tqslLocation"));
             u.location.placeholderString = @"as named in TQSL";
+            ADIFOnAction(u.location, ^{ plan(*pu, true); });
             [w addOptionRow:@[ ADIFLabel(@"Station Location:"), u.location,
                                ADIFLabel(@"(TQSL signs with this location's callsign certificate)") ]];
         }
@@ -606,6 +673,94 @@ void openUpload(adif::UploadService s) {
     [u.w show];
 }
 
+
+// ── QSL Sync: every service at a glance ──
+
+struct QslSync {
+    ADIFToolWindow *w = nil;
+    NSButton *upload = nil, *download = nil;
+} qsl;
+
+// Rows in the families' popup order; the label as the Upload popup names it.
+const adif::UploadService kSyncOrder[] = {adif::UploadService::QRZ, adif::UploadService::LoTW, adif::UploadService::ClubLog,
+                                          adif::UploadService::EQSL};
+const char *syncLabel(adif::UploadService s) {
+    switch (s) {
+        case adif::UploadService::QRZ: return "QRZ.com Logbook";
+        case adif::UploadService::LoTW: return "LoTW (TQSL)";
+        case adif::UploadService::ClubLog: return "Club Log";
+        case adif::UploadService::EQSL: return "eQSL";
+    }
+    return "";
+}
+const char *downloadKey(adif::UploadService s) {
+    return s == adif::UploadService::QRZ ? "lastDownloadQRZ" : s == adif::UploadService::LoTW ? "lastDownloadLoTW" : s == adif::UploadService::EQSL ? "lastDownloadEQSL" : "";
+}
+
+adif::UploadService syncSelected() {
+    std::vector<NSInteger> sel = [qsl.w selectedRows];
+    NSInteger row = sel.empty() ? -1 : sel.front();
+    return row >= 0 && row < 4 ? kSyncOrder[row] : adif::UploadService::QRZ;
+}
+
+void syncButtons() {
+    std::vector<NSInteger> sel = [qsl.w selectedRows];
+    bool any = !sel.empty();
+    qsl.upload.enabled = any;
+    qsl.download.enabled = any && syncSelected() != adif::UploadService::ClubLog;
+}
+
+void syncRefresh() {
+    if (!qsl.w) return;
+    try {
+        NppHandle h = scintilla();
+        const adif::LintResult &r = lint(h);
+        std::string_view text = adifhost::text(h);
+        [qsl.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+        std::vector<std::vector<std::string>> rows;
+        std::vector<int> sev;
+        std::vector<std::string> keys;
+        std::string waiting;
+        for (adif::UploadService s : kSyncOrder) {
+            adif::ServiceSummary sum = adif::serviceSummary(text, r.model, s);
+            NSString *acct = accountLine(s);
+            bool hasAccount = ![acct hasPrefix:@"No "];
+            std::string last = setting(downloadKey(s));
+            rows.push_back({syncLabel(s), hasAccount ? "saved" : "none", std::to_string(sum.toUpload),
+                            sum.modified ? std::to_string(sum.modified) : "", std::to_string(sum.uploaded),
+                            sum.problems ? std::to_string(sum.problems) : "",
+                            s == adif::UploadService::ClubLog ? "—" : std::to_string(sum.confirmed), adif::displayDate(sum.lastUpload),
+                            s == adif::UploadService::ClubLog ? "—" : last.empty() ? "never" : last});
+            sev.push_back(!hasAccount ? 0 : sum.toUpload ? 1 : 3);
+            keys.push_back(syncLabel(s));
+            if (sum.toUpload) waiting += (waiting.empty() ? "" : ", ") + std::to_string(sum.toUpload) + " for " + adif::uploadServiceName(s);
+        }
+        [qsl.w setRows:rows severities:sev keys:keys ticks:std::vector<bool>() keepTicks:NO];
+        std::string st = !adif::recordCount(r.model) ? "This document has no ADIF records."
+                         : waiting.empty()           ? "Everything is uploaded."
+                                                     : "QSOs waiting: " + waiting + ".";
+        st += " Select a service, then Upload... (it lists what would be sent first) or Download Confirmations... (it lists what "
+              "would change first). Club Log has no confirmations to download.";
+        [qsl.w setStatus:ADIFString(st) severity:-1];
+        syncButtons();
+    } catch (...) {
+    }
+}
+
+void syncOpen(bool download) {
+    adif::UploadService s = syncSelected();
+    if (!download) {
+        openUpload(s);
+        return;
+    }
+    switch (s) {
+        case adif::UploadService::QRZ: imports::cmdImportQrzLogbook(); break;
+        case adif::UploadService::LoTW: imports::cmdImportLotw(); break;
+        case adif::UploadService::EQSL: imports::cmdImportEqsl(); break;
+        case adif::UploadService::ClubLog: break;
+    }
+}
+
 }  // namespace
 
 namespace uploads {
@@ -615,6 +770,39 @@ void cmdUploadLotw() { openUpload(adif::UploadService::LoTW); }
 void cmdUploadClubLog() { openUpload(adif::UploadService::ClubLog); }
 void cmdUploadEqsl() { openUpload(adif::UploadService::EQSL); }
 
+void cmdQslSync() {
+    if (!qsl.w) {
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"QSL Sync" size:NSMakeSize(900, 330) headline:NO];
+        qsl.w = w;
+        [w setColumns:std::vector<ADIFToolColumn>{{"service", "Service", 130}, {"account", "Account", 64}, {"waiting", "To upload", 72},
+                                                  {"changed", "Changed", 64}, {"sent", "Uploaded", 68}, {"cannot", "Can't send", 72},
+                                                  {"confirmed", "Confirmed", 72}, {"last", "Last upload", 90},
+                                                  {"download", "Last download", 130}}
+            checkboxes:NO
+              sortable:NO];
+        w.onSelectionChanged = ^{ syncButtons(); };
+        w.onActivateRow = ^(NSInteger) { syncOpen(false); };
+        qsl.download = [w addButton:@"Download Confirmations..." trailing:NO action:^{ syncOpen(true); }];
+        [w addButton:@"Settings..." trailing:NO action:^{
+            adif::UploadService s = syncSelected();
+            openSettings(s == adif::UploadService::QRZ       ? ADIFSourceQRZLogbook
+                         : s == adif::UploadService::ClubLog ? ADIFSourceClubLog
+                         : s == adif::UploadService::EQSL    ? ADIFSourceEQSL
+                                                             : ADIFSourceLoTW);
+        }];
+        qsl.upload = [w addButton:@"Upload..." trailing:YES action:^{ syncOpen(false); }];
+        [w setDefaultButton:qsl.upload];
+    }
+    syncRefresh();
+    [qsl.w show];
+}
+
+void downloaded(int site) {
+    const char *key = site == 0 ? "lastDownloadLoTW" : site == 1 ? "lastDownloadQRZ" : "lastDownloadEQSL";
+    setSetting(key, utcNow("%Y-%m-%d %H:%M UTC"));
+    if (qsl.w && qsl.w.window.visible) syncRefresh();
+}
+
 void documentChanged() {
     static int64_t token = 0;
     int64_t mine = ++token;
@@ -622,6 +810,7 @@ void documentChanged() {
         if (mine != token) return;
         for (Upload &u : ups)
             if (u.w && u.w.window.visible && !u.running && !u.results) plan(u, true);
+        if (qsl.w && qsl.w.window.visible) syncRefresh();
     });
 }
 

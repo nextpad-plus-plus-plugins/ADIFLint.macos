@@ -77,8 +77,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   changing any data. The Log Table's **Organize Log…** starts from the table's sort and
   columns.
 - **Bulk Edit**, **Time Shift** (local time to UTC and back, daylight saving included),
-  **Remove Duplicates** and **Merge Another Log**, each previewed before it changes
-  anything.
+  **Remove Duplicates** and **Compare and Merge Logs** (QSOs only one log has, and what the
+  same QSO says differently in each), each previewed before it changes anything.
 - **Import CSV**, **Export CSV** and **Export Cabrillo**.
 
 **Online services**
@@ -86,6 +86,9 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   and the ones it has gain the site's confirmation and the details that come with it,
   after you review every change.
 - **Enrich** missing fields from QRZ.com, HamQTH or offline country data.
+- **QSL Sync** shows each service at a glance: QSOs to upload, uploaded, confirmed, and the
+  last download. Before a LoTW upload, each QSO's station fields are checked against your
+  TQSL Station Location the way TQSL checks them.
 - **Upload** to QRZ.com Logbook, LoTW (through TQSL), Club Log and eQSL. Each window lists
   exactly what would be sent, nothing is sent until you press Upload, and the ADIF
   upload-status fields are kept up to date.
@@ -167,13 +170,13 @@ tab); Settings suggests some.
 | Time Shift… | Convert times between UTC and a time zone, or shift by a fixed amount |
 | Sort and Organize… | Sort the records (by date and time in one click, or by any fields), and put every record's fields in one order |
 | Remove Duplicates… | Find QSOs logged twice and remove them after review |
-| Merge Another Log… | Add another log's QSOs that this one doesn't have |
+| Compare and Merge Logs… | Compare with another log: add the QSOs only it has, copy the fields this log lacks |
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, or a Cabrillo contest log |
-| Upload… | To QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL: list what would be sent, upload when you say so, mark it uploaded |
+| QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
 | Enrich… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
 | Monitor (WSJT-X, N1MM, Loggers)… | Add the QSOs WSJT-X, JS8Call, N1MM Logger+, GridTracker and other programs log to a log you choose, as they log them |
 | Record Panel | Show or hide the docked record table |
@@ -182,8 +185,8 @@ tab); Settings suggests some.
 | Settings… | Your station, editor options, country data, and accounts for the online services |
 | About ADIF Lint… | Version, licence and links |
 
-Import…, Export…, Upload… and Enrich… open the window you used last; the popup at its top
-switches to the others. The toolbar gets buttons for New QSO, Log Table, Check Log and
+Import…, Export… and Enrich… open the window you used last; the popup at its top switches to
+the others. QSL Sync opens each upload window. The toolbar gets buttons for New QSO, Log Table, Check Log and
 Spots.
 
 Every command that changes the log is one undo step, and nothing is saved until you save

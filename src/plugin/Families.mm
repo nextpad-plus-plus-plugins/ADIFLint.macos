@@ -23,7 +23,7 @@ const Member kImports[] = {
     {@"QRZ.com Logbook", @"Import from QRZ.com Logbook", imports::cmdImportQrzLogbook},
     {@"eQSL", @"Import from eQSL", imports::cmdImportEqsl},
     {@"CSV file", @"Import CSV", logtools::cmdImportCsv},
-    {@"WSJT-X log file", @"Merge Another Log", logtools::cmdImportWsjtxLog, false},
+    {@"WSJT-X log file", @"Compare and Merge Logs", logtools::cmdImportWsjtxLog, false},
 };
 const Member kExports[] = {
     {@"Activation logs (POTA, WWFF, SOTA)", @"Export Activation Logs", logtools::cmdExportPota},
