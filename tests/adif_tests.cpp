@@ -2313,6 +2313,32 @@ static void testContestAndZlota() {
     CHECK(isZlotaRef("ZLH/HB-072") && isZlotaRef("zlp/wk-0123") && !isZlotaRef("ZLX/HB-072") && !isZlotaRef("ZL1/HB-072") &&
               !isZlotaRef("ZLH/HB072"),
           "ZLOTA references");
+    CHECK(spotholeProgramWanted("GMA", "ADVENTURE", true) && spotholeProgramWanted("ZLOTA", "REGIONAL", true) &&
+              spotholeProgramWanted("MOTA", "EVENT", true) && !spotholeProgramWanted("SOTA", "ADVENTURE", true) &&
+              !spotholeProgramWanted("POTA", "ADVENTURE", true) && !spotholeProgramWanted("WWFF", "ADVENTURE", true) &&
+              !spotholeProgramWanted("Contest", "TRADITIONAL", false) && !spotholeProgramWanted("JOTA", "EVENT", false),
+          "Spothole programs: outdoor ones with references, never SOTA, not POTA or WWFF twice");
+    FieldList gma = spotholeSpotFields("GMA", "dl1abc/p", "7032.5", "CW", {"DA/NI-001"}, "JO42aa");
+    auto has = [](const FieldList &f, const char *n, const char *v) {
+        for (const auto &kv : f)
+            if (kv.first == n) return kv.second == v;
+        return false;
+    };
+    CHECK(has(gma, "CALL", "DL1ABC/P") && has(gma, "FREQ", "7.0325") && has(gma, "BAND", "40m") && has(gma, "MODE", "CW") &&
+              has(gma, "SIG", "GMA") && has(gma, "SIG_INFO", "DA/NI-001") && has(gma, "GRIDSQUARE", "JO42aa"),
+          "a GMA spot as New QSO fields");
+    FieldList two = spotholeSpotFields("WWBOTA", "M1DDD", "7067.5", "DV", {"B/G-0106", "b/g-0107"}, "");
+    bool noGrid = true, noMode = true;
+    for (const auto &kv : two) noGrid &= kv.first != "GRIDSQUARE";
+    for (const auto &kv : spotholeSpotFields("COTA", "OE1X", "14250", "PHONE", {"OEFF-1"}, "")) noMode &= kv.first != "MODE";
+    CHECK(has(two, "SIG_INFO", "B/G-0106,B/G-0107") && has(two, "MODE", "DIGITALVOICE") && noGrid && noMode,
+          "a two-bunker spot, DV, and PHONE left for you");
+    CHECK(has(spotholeSpotFields("IOTA", "EA8X", "14260", "SSB", {"af-004"}, ""), "IOTA", "AF-004"), "an IOTA spot fills IOTA");
+    std::string glog = std::string(kHeader) + "<CALL:6>DL1ABC <QSO_DATE:8>20261009 <TIME_ON:4>0100 <BAND:3>40m <MODE:2>CW "
+                                              "<SIG:3>GMA <SIG_INFO:19>DA/NI-001,da/ni-002 <IOTA:6>EU-005 <EOR>\n";
+    std::vector<Contact> gc = contacts(glog, lintModel(glog).model);
+    CHECK(gc.size() == 1 && gc[0].theirRefs.size() == 3 && gc[0].theirRefs[1] == "DA/NI-002" && gc[0].theirRefs[2] == "EU-005",
+          "any program's SIG_INFO list and IOTA count as worked (%zu)", gc.empty() ? 0 : gc[0].theirRefs.size());
     std::string zlog = std::string(kHeader) + "<CALL:6>ZL2ABC <QSO_DATE:8>20261009 <TIME_ON:4>0100 <BAND:3>40m <MODE:3>SSB "
                                               "<SIG:5>ZLOTA <SIG_INFO:10>zlh/hb-072 <EOR>\n";
     std::vector<Contact> cs = contacts(zlog, lintModel(zlog).model);

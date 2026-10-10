@@ -1911,14 +1911,21 @@ std::set<std::string> workedReferences() {
 struct Spot {
     std::string time, activator, khz, mode, reference, park, location, spotter, comments, band;
     std::string key;  // spotId, so a refresh keeps the selection on the same spot
+    std::string program, grid;    // Spothole: the program (GMA, WWBOTA...) and where the reference is
+    std::vector<std::string> refs;  // Spothole: every reference of the spot
 };
+
+enum { kSpotsPota, kSpotsWwff, kSpotsSpothole };
 
 struct {
     ADIFToolWindow *w = nil;
     NSSearchField *search = nil;
-    NSPopUpButton *band = nil, *mode = nil, *program = nil;
+    NSPopUpButton *band = nil, *mode = nil, *program = nil, *activity = nil;
     NSButton *use = nil;
     adif::Program shown = adif::Program::POTA;  // the program of `all`
+    bool spothole = false;                      // `all` came from Spothole
+    std::vector<std::string> programs;          // Spothole's programs ADIF Lint asks for
+    double lastSpothole = 0;                    // when Spothole was last asked
     std::vector<Spot> all;
     std::vector<size_t> rowSpot;  // model row -> index into all
     NSTimer *timer = nil;
@@ -1955,6 +1962,7 @@ void spotsShow() {
     } catch (...) {
     }
     std::set<std::string> refs = workedReferences();
+    std::string program = spots.spothole && spots.activity.indexOfSelectedItem > 0 ? ADIFStd(spots.activity.titleOfSelectedItem) : "";
     std::vector<std::vector<std::string>> rows;
     std::vector<int> sev;
     std::vector<std::string> keys;
@@ -1962,6 +1970,7 @@ void spotsShow() {
     for (size_t i = 0; i < spots.all.size(); ++i) {
         const Spot &sp = spots.all[i];
         if (!band.empty() && sp.band != band) continue;
+        if (!program.empty() && sp.program != program) continue;
         std::string m = sp.mode;
         bool other = m != "SSB" && m != "CW" && m != "FT8" && m != "FT4";
         if ((modeIdx == 1 && m != "SSB") || (modeIdx == 2 && m != "CW") || (modeIdx == 3 && m != "FT8") ||
@@ -1969,6 +1978,7 @@ void spotsShow() {
             continue;
         bool workedToday = today.count(adif::lookupCall(sp.activator) + "|" + sp.band) > 0;
         bool workedRef = refs.count(sp.reference) > 0;
+        for (const std::string &r : sp.refs) workedRef = workedRef || refs.count(r) > 0;
         std::string lotw = ADIFLotwLastUpload(sp.activator);
         rows.push_back({sp.time, sp.activator, sp.khz, sp.mode, sp.reference, sp.park, sp.location,
                         workedToday ? "today" : workedRef ? "worked" : "NEW", lotw, sp.comments});
@@ -1978,24 +1988,121 @@ void spotsShow() {
     }
     [spots.w setRows:rows severities:sev keys:keys ticks:kNoTicks keepTicks:NO];
     spots.use.enabled = [spots.w selectedRows].size() == 1;
-    bool wwff = spots.shown == adif::Program::WWFF;
-    std::string status = spots.loading ? std::string("Fetching spots from ") + (wwff ? "spots.wwff.co..." : "pota.app...")
+    NSInteger source = spots.program.indexOfSelectedItem;
+    bool wwff = spots.shown == adif::Program::WWFF || spots.spothole;
+    std::string status = spots.loading ? std::string("Fetching spots from ") +
+                                             (source == kSpotsSpothole ? "spothole.app..." : source == kSpotsWwff ? "spots.wwff.co..." : "pota.app...")
                          : spots.fetched.empty()
                              ? ""
                              : plural(rows.size(), "spot") + (rows.size() == spots.all.size() ? "" : " of " + std::to_string(spots.all.size())) +
                                    " at " + spots.fetched +
-                                   " UTC (refreshed every minute). Double-click one, or select it and Use in New QSO. "
-                                   "Green NEW: a " + (wwff ? "reference" : "park") +
+                                   (spots.spothole ? " UTC from Spothole (spothole.app; refreshed every 2 minutes; SOTA left out)."
+                                                   : " UTC (refreshed every minute).") +
+                                   " Double-click one, or select it and Use in New QSO. Green NEW: a " + (wwff ? "reference" : "park") +
                                    " not in your logs; blue: that station worked today on that band.";
     if (!status.empty()) [spots.w setStatus:ADIFString(status) severity:-1];
+}
+
+// Spothole's spots, in Spot form: dx_call, freq (Hz), mode, time_iso (UTC), activities (the first is the
+// program), activity_refs (id, name, grid), dx_grid with dx_location_good, de_call, comment, id.
+std::vector<Spot> spotholeSpots(NSArray<NSDictionary *> *list) {
+    std::vector<Spot> all;
+    for (NSDictionary *d in list) {
+        Spot sp;
+        sp.activator = jsonString(d, @"dx_call", 20);
+        for (char &c : sp.activator) c = (char)std::toupper((unsigned char)c);
+        id freq = d[@"freq"];
+        double hz = [freq isKindOfClass:NSNumber.class] ? [freq doubleValue] : 0;
+        if (sp.activator.empty() || hz <= 0) continue;
+        char khz[32];
+        std::snprintf(khz, sizeof khz, "%.3f", hz / 1000);
+        sp.khz = khz;
+        while (!sp.khz.empty() && sp.khz.back() == '0') sp.khz.pop_back();
+        if (!sp.khz.empty() && sp.khz.back() == '.') sp.khz.pop_back();
+        if (adif::khzToMHz(sp.khz).empty()) continue;
+        std::string t = jsonString(d, @"time_iso", 40);  // "2026-10-10T16:27:47+00:00"
+        sp.time = t.size() >= 16 ? t.substr(11, 5) : t;
+        sp.mode = jsonString(d, @"mode", 12);
+        for (char &c : sp.mode) c = (char)std::toupper((unsigned char)c);
+        NSArray *acts = [d[@"activities"] isKindOfClass:NSArray.class] ? d[@"activities"] : @[];
+        if (acts.count && [acts[0] isKindOfClass:NSString.class]) sp.program = ADIFStd(acts[0]);
+        NSArray *refs = [d[@"activity_refs"] isKindOfClass:NSArray.class] ? d[@"activity_refs"] : @[];
+        for (id r in refs) {
+            if (![r isKindOfClass:NSDictionary.class]) continue;
+            std::string ref = jsonString(r, @"id", 30);
+            for (char &c : ref) c = (char)std::toupper((unsigned char)c);
+            if (ref.empty()) continue;
+            sp.refs.push_back(ref);
+            if (sp.park.empty()) sp.park = jsonString(r, @"name");
+            if (sp.grid.empty()) sp.grid = jsonString(r, @"grid", 10);
+        }
+        if (sp.grid.empty() && [d[@"dx_location_good"] isEqual:@YES]) sp.grid = jsonString(d, @"dx_grid", 10);
+        sp.reference = sp.refs.empty() ? "" : sp.refs[0] + (sp.refs.size() > 1 ? " +" + std::to_string(sp.refs.size() - 1) : "");
+        sp.location = sp.program;
+        sp.spotter = jsonString(d, @"de_call", 20);
+        sp.comments = jsonString(d, @"comment");
+        sp.band = adif::bandForFrequency(adif::khzToMHz(sp.khz));
+        sp.key = jsonString(d, @"id", 80);
+        if (sp.key.empty()) sp.key = sp.activator + "|" + sp.reference + "|" + sp.khz + "|" + sp.mode;
+        all.push_back(std::move(sp));
+    }
+    std::stable_sort(all.begin(), all.end(), [](const Spot &a, const Spot &b) { return a.time > b.time; });
+    return all;
+}
+
+// Spothole: its programs once (outdoor ones with references; never SOTA, and not POTA or WWFF, read from
+// their own sites), then one request for all of them, filtered here, as Spothole asks of clients.
+void spotholeFetch(NSString *agent) {
+    spots.lastSpothole = CFAbsoluteTimeGetCurrent();
+    void (^fetchSpots)(void) = ^{
+        std::string csv;
+        for (const std::string &p : spots.programs) csv += (csv.empty() ? "" : ",") + p;
+        ADIFFetchSpotholeSpots(agent, ADIFString(csv), ^(NSArray<NSDictionary *> *list, NSString *error) {
+            spots.loading = false;
+            if (error) {
+                [spots.w setStatus:[@"Could not fetch spots from Spothole: " stringByAppendingString:error] severity:2];
+                return;
+            }
+            if (spots.program.indexOfSelectedItem != kSpotsSpothole) return;  // you moved on meanwhile
+            spots.all = spotholeSpots(list);
+            spots.spothole = true;
+            spots.fetched = utcNow("%H:%M");
+            spotsShow();
+        });
+    };
+    if (!spots.programs.empty()) return fetchSpots();
+    ADIFFetchSpotholePrograms(agent, ^(NSArray<NSDictionary *> *programs, NSString *error) {
+        if (error) {
+            spots.loading = false;
+            [spots.w setStatus:[@"Could not reach Spothole: " stringByAppendingString:error] severity:2];
+            return;
+        }
+        for (NSDictionary *a in programs) {
+            std::string name = jsonString(a, @"name", 40), type = jsonString(a, @"activity_type", 20);
+            if (adif::spotholeProgramWanted(name, type, [a[@"has_refs"] isEqual:@YES])) spots.programs.push_back(name);
+        }
+        NSString *keep = spots.activity.indexOfSelectedItem > 0 ? spots.activity.titleOfSelectedItem : ADIFString(setting("spotsSpotholeProgram"));
+        [spots.activity removeAllItems];
+        [spots.activity addItemWithTitle:@"All programs"];
+        for (const std::string &p : spots.programs) [spots.activity addItemWithTitle:ADIFString(p)];
+        if (keep.length && [spots.activity itemWithTitle:keep]) [spots.activity selectItemWithTitle:keep];
+        if (spots.programs.empty()) {
+            spots.loading = false;
+            [spots.w setStatus:@"Spothole lists no programs to show." severity:2];
+            return;
+        }
+        fetchSpots();
+    });
 }
 
 void spotsFetch() {
     if (spots.loading) return;
     spots.loading = true;
     if (spots.all.empty()) spotsShow();
-    NSString *agent = [NSString stringWithFormat:@"ADIF Lint/%s (Nextpad++ plugin)", ADIFLINT_VERSION];
-    adif::Program program = spots.program.indexOfSelectedItem == 1 ? adif::Program::WWFF : adif::Program::POTA;
+    NSString *agent = [NSString stringWithFormat:@"ADIF Lint/%s (Nextpad++ plugin; https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)",
+                                                 ADIFLINT_VERSION];
+    if (spots.program.indexOfSelectedItem == kSpotsSpothole) return spotholeFetch(agent);
+    adif::Program program = spots.program.indexOfSelectedItem == kSpotsWwff ? adif::Program::WWFF : adif::Program::POTA;
     auto received = ^(NSArray<NSDictionary *> *list, NSString *error) {
         spots.loading = false;
         if (error) {
@@ -2029,6 +2136,7 @@ void spotsFetch() {
             std::stable_sort(all.begin(), all.end(), [](const Spot &a, const Spot &b) { return a.time > b.time; });
             spots.all = std::move(all);
             spots.shown = program;
+            spots.spothole = false;
             spots.fetched = utcNow("%H:%M");
             spotsShow();
             return;
@@ -2057,6 +2165,7 @@ void spotsFetch() {
         std::stable_sort(all.begin(), all.end(), [](const Spot &a, const Spot &b) { return a.time > b.time; });
         spots.all = std::move(all);
         spots.shown = program;
+        spots.spothole = false;
         spots.fetched = utcNow("%H:%M");
         spotsShow();
     };
@@ -2067,7 +2176,8 @@ void spotsFetch() {
 void spotsUse(NSInteger row) {
     if (row < 0 || (size_t)row >= spots.rowSpot.size() || !spots.handler) return;
     const Spot &sp = spots.all[spots.rowSpot[(size_t)row]];
-    spots.handler(adif::programSpotFields(spots.shown, sp.activator, sp.khz, sp.mode, sp.reference));
+    spots.handler(spots.spothole ? adif::spotholeSpotFields(sp.program, sp.activator, sp.khz, sp.mode, sp.refs, sp.grid)
+                                 : adif::programSpotFields(spots.shown, sp.activator, sp.khz, sp.mode, sp.reference));
     [spots.w setStatus:ADIFString("Copied " + sp.activator + " at " + sp.reference + " (" + sp.khz + " kHz " + sp.mode +
                                   ") to New QSO.")
               severity:-1];
@@ -2505,15 +2615,29 @@ void cmdPotaSpots() {
     if (!spots.w) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(1060, 520) headline:NO];
         spots.w = w;
-        spots.program = ADIFPopup(@[ @"POTA", @"WWFF" ]);
-        spots.program.toolTip = @"Parks on the Air spots from pota.app, or World Wide Flora & Fauna spots from spots.wwff.co";
-        if (setting("spotsProgram") == "WWFF") [spots.program selectItemAtIndex:1];
+        spots.program = ADIFPopup(@[ @"POTA", @"WWFF", @"More programs (Spothole)" ]);
+        spots.program.toolTip = @"Parks on the Air spots from pota.app, World Wide Flora & Fauna spots from spots.wwff.co, or "
+                                @"other programs' spots (GMA, WWBOTA, ZLOTA, IOTA, castles, lighthouses...) from spothole.app";
+        if (setting("spotsProgram") == "WWFF") [spots.program selectItemAtIndex:kSpotsWwff];
+        if (setting("spotsProgram") == "SPOTHOLE") [spots.program selectItemAtIndex:kSpotsSpothole];
+        spots.activity = ADIFPopup(@[ @"All programs" ]);
+        spots.activity.toolTip = @"Show one program's spots";
+        spots.activity.hidden = spots.program.indexOfSelectedItem != kSpotsSpothole;
+        ADIFOnAction(spots.activity, ^{
+            setSetting("spotsSpotholeProgram", spots.activity.indexOfSelectedItem > 0 ? ADIFStd(spots.activity.titleOfSelectedItem) : "");
+            spotsShow();
+        });
         ADIFOnAction(spots.program, ^{
-            setSetting("spotsProgram", spots.program.indexOfSelectedItem == 1 ? "WWFF" : "POTA");
+            NSInteger i = spots.program.indexOfSelectedItem;
+            setSetting("spotsProgram", i == kSpotsSpothole ? "SPOTHOLE" : i == kSpotsWwff ? "WWFF" : "POTA");
+            spots.activity.hidden = i != kSpotsSpothole;
             spots.all.clear();
             spots.fetched.clear();
+            spots.spothole = false;
             spotsShow();
-            spotsFetch();
+            // Spothole asks clients not to poll it faster than it reads its sources (2 minutes for POTA).
+            if (i != kSpotsSpothole || CFAbsoluteTimeGetCurrent() - spots.lastSpothole >= 115) spotsFetch();
+            else [spots.w setStatus:@"Spothole was asked less than 2 minutes ago; its spots come with the next refresh." severity:-1];
         });
         spots.search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
         spots.search.placeholderString = @"Filter: call, park, state...";
@@ -2526,10 +2650,10 @@ void cmdPotaSpots() {
         spots.mode = ADIFPopup(@[ @"All modes", @"SSB", @"CW", @"FT8", @"FT4", @"Other" ]);
         ADIFOnAction(spots.band, ^{ spotsShow(); });
         ADIFOnAction(spots.mode, ^{ spotsShow(); });
-        [w addOptionRow:@[ spots.program, spots.search, spots.band, spots.mode ]];
+        [w addOptionRow:@[ spots.program, spots.activity, spots.search, spots.band, spots.mode ]];
         [w setColumns:std::vector<ADIFToolColumn>{{"time", "UTC", 50}, {"call", "Activator", 90}, {"khz", "kHz", 70},
                                                   {"mode", "Mode", 50}, {"park", "Reference", 84}, {"name", "Name", 230},
-                                                  {"loc", "Location", 70}, {"worked", "Worked", 56}, {"lotw", "LoTW", 84},
+                                                  {"loc", "Area / Program", 96}, {"worked", "Worked", 56}, {"lotw", "LoTW", 84},
                                                   {"comments", "Comments", 200}}
             checkboxes:NO
               sortable:YES];
@@ -2545,7 +2669,12 @@ void cmdPotaSpots() {
         spots.timer = [NSTimer timerWithTimeInterval:60
                                              repeats:YES
                                                block:^(NSTimer *t) {
-                                                   if (spots.w.window.visible) spotsFetch();
+                                                   if (!spots.w.window.visible) return;
+                                                   // Spothole every 2 minutes, as it asks; POTA and WWFF every minute.
+                                                   if (spots.program.indexOfSelectedItem == kSpotsSpothole &&
+                                                       CFAbsoluteTimeGetCurrent() - spots.lastSpothole < 115)
+                                                       return;
+                                                   spotsFetch();
                                                }];
         [[NSRunLoop mainRunLoop] addTimer:spots.timer forMode:NSRunLoopCommonModes];
     }

@@ -340,7 +340,7 @@ struct Contact {
     std::string call;      // as logged, upper case
     std::string baseCall;  // lookupCall(call): "VE3/K1ABC/P" -> "K1ABC"
     std::string date, time, band, mode, myPark, theirPark;
-    std::vector<std::string> theirRefs;  // the other station's POTA, WWFF, SOTA and ZLOTA references
+    std::vector<std::string> theirRefs;  // the other station's references: POTA, WWFF, SOTA, IOTA, and SIG_INFO for other programs
     int record = 0;
 };
 std::vector<Contact> contacts(std::string_view text, const DocModel &m);

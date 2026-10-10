@@ -49,7 +49,7 @@ struct MapPark {
 };
 struct MapData {
     std::vector<MapSquare> squares;   // from GRIDSQUARE and VUCC_GRIDS
-    std::vector<MapPark> parks;       // the other station's POTA, WWFF, SOTA or ZLOTA reference, where GRIDSQUARE says where
+    std::vector<MapPark> parks;       // the other station's references (POTA, WWFF, SOTA, IOTA, SIG_INFO), where GRIDSQUARE says where
     std::vector<std::string> mine;    // MY_GRIDSQUARE values (4 or more characters), each once
     std::vector<std::pair<std::string, bool>> calls;  // every CALL with whether that QSO is confirmed (entities)
     std::vector<MapQso> qsos;                         // the records shown, in log order (calls[i] is qsos[i]'s)

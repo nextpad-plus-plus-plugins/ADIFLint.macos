@@ -2618,7 +2618,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     std::memset(funcItem, 0, sizeof funcItem);
     loadSettings();
     setItem(kCmdNewQso, "New QSO...", cmdNewQso);
-    setItem(kCmdSpots, "Spots (POTA, WWFF)...", logtools::cmdPotaSpots);
+    setItem(kCmdSpots, "Spots (POTA, WWFF, More)...", logtools::cmdPotaSpots);
     setItem(kCmdStartActivation, "Start Activation...", station::cmdStartActivation);
     setItem(kSepLog, "", nullptr);
     setItem(kCmdLogTable, "Log Table...", logtools::cmdLogTable);

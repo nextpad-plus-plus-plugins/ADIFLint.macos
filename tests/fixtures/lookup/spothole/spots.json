@@ -1,0 +1,11 @@
+[
+ {"id": "a1", "dx_call": "DL1ABC/P", "freq": 7032500.0, "mode": "CW", "band": "40m", "time": 1760100000, "time_iso": "2025-10-10T12:40:00+00:00",
+  "activities": ["GMA"], "activity_refs": [{"id": "DA/NI-001", "activity": "GMA", "name": "Brocken", "grid": "JO51ht"}],
+  "dx_grid": "JO51ht", "dx_location_good": true, "de_call": "DL2XYZ", "comment": "599 tnx", "qrt": false, "source": "GMA"},
+ {"id": "b2", "dx_call": "M1DDD/P", "freq": 7067500.0, "mode": "SSB", "band": "40m", "time": 1760099800, "time_iso": "2025-10-10T12:36:40+00:00",
+  "activities": ["WWBOTA"], "activity_refs": [{"id": "B/G-0106", "activity": "WWBOTA", "name": "ROC Post Tow Law", "grid": "IO94cr"}],
+  "dx_grid": "IO94cr", "dx_location_good": true, "de_call": "M1DDD/P", "comment": "B/G-0106", "qrt": false, "source": "WWBOTA"},
+ {"id": "c3", "dx_call": "ZL2ABC", "freq": 7090000.0, "mode": "PHONE", "band": "40m", "time": 1760099500, "time_iso": "2025-10-10T12:31:40+00:00",
+  "activities": ["ZLOTA"], "activity_refs": [{"id": "ZLH/HB-072", "activity": "ZLOTA", "name": "Tarn Bivvy"}],
+  "dx_grid": "RF80", "dx_location_good": false, "de_call": "ZL3XX", "comment": "", "qrt": false, "source": "ZLOTA"}
+]

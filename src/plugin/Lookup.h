@@ -92,6 +92,15 @@ void ADIFDownloadSiteQsos(adif::ImportSite site, NSString *from, NSString *to, v
 // WWFF spots from https://spots.wwff.co/static/spots.json (WWFF asks for no more than
 // one fetch every 30 seconds). Test mode: <fake dir>/wwff/spots.json.
 void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
+// Spothole (spothole.app, API v3): spots from many programs at once. Its conditions of use
+// (spothole.app/help/usage/clients#terms, read 2026-10-10): identify the software, poll at a
+// sensible rate (it reads POTA every 2 minutes, so no faster than that), expect downtime,
+// check for API changes now and then. No QRZ.com or HamQTH login is ever sent to it.
+// The programs it knows (GET /api/v3/options, "activities"). Test mode: <fake dir>/spothole/options.json.
+void ADIFFetchSpotholePrograms(NSString *agent, void (^done)(NSArray<NSDictionary *> *programs, NSString *error));
+// Spots of these programs (comma-separated names), not QRT, from the last hour (GET /api/v3/spots).
+// Test mode: <fake dir>/spothole/spots.json.
+void ADIFFetchSpotholeSpots(NSString *agent, NSString *programs, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
 // ARRL's LoTW user activity list, https://lotw.arrl.org/lotw-user-activity.csv (about 6 MB).
 // Test mode: <fake dir>/lotw/lotw-user-activity.csv.
 void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error));

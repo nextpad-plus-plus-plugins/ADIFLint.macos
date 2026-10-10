@@ -243,6 +243,32 @@ bool isZlotaRef(std::string_view ref) {
     return true;
 }
 
+bool spotholeProgramWanted(std::string_view name, std::string_view type, bool hasRefs) {
+    std::string n = up(name), t = up(type);
+    if (!hasRefs || n.empty() || n == "POTA" || n == "WWFF" || n == "SOTA") return false;
+    return t == "ADVENTURE" || t == "REGIONAL" || t == "EVENT";
+}
+
+std::vector<std::pair<std::string, std::string>> spotholeSpotFields(std::string_view program, std::string_view activator,
+                                                                    std::string_view kHz, std::string_view mode,
+                                                                    const std::vector<std::string> &refs, std::string_view grid) {
+    std::string m = up(mode);
+    if (m == "DV") m = "DIGITALVOICE";
+    if (m == "PHONE") m.clear();
+    auto out = spotFields(activator, kHz, m, "");
+    std::string list, prog = std::string(program);
+    for (const std::string &r : refs)
+        if (std::string ref = up(r); !ref.empty() && ref.find(',') == std::string::npos) list += (list.empty() ? "" : ",") + ref;
+    if (!prog.empty() && !list.empty()) {
+        out.emplace_back("SIG", prog);
+        out.emplace_back("SIG_INFO", list);
+        if (up(prog) == "IOTA" && refs.size() == 1) out.emplace_back("IOTA", up(refs.front()));
+    }
+    std::string g(grid);
+    if (isAdifGridSquare(g)) out.emplace_back("GRIDSQUARE", g);
+    return out;
+}
+
 ReferenceHistory referenceHistory(std::string_view ref, const std::vector<WorkedHit> &hits) {
     ReferenceHistory h;
     std::string want = up(ref.substr(0, ref.find('@')));

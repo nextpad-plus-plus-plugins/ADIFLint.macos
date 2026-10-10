@@ -48,6 +48,18 @@ std::vector<std::pair<std::string, std::string>> programSpotFields(Program p, st
 // api/assets, read 2026-10-10). Logged as SIG ZLOTA with the reference in SIG_INFO.
 bool isZlotaRef(std::string_view ref);
 
+// Spothole (spothole.app, API v3; read 2026-10-10): spots from many programs in one form.
+// The programs ADIF Lint asks it for: those with references whose type is ADVENTURE, REGIONAL
+// or EVENT, but not POTA and WWFF (read from their own sites) or SOTA (its terms keep
+// AI-written software off its data without approval).
+bool spotholeProgramWanted(std::string_view name, std::string_view type, bool hasRefs);
+// A Spothole spot as New QSO fields: spotFields() (Spothole's DV is DIGITALVOICE; PHONE and
+// DATA leave MODE to you), SIG the program and SIG_INFO its references (comma-separated),
+// IOTA for an IOTA spot, and GRIDSQUARE when Spothole knows where the reference is.
+std::vector<std::pair<std::string, std::string>> spotholeSpotFields(std::string_view program, std::string_view activator,
+                                                                    std::string_view kHz, std::string_view mode,
+                                                                    const std::vector<std::string> &refs, std::string_view grid);
+
 // Hunting: how often a reference was worked in these contacts (any program;
 // a POTA reference's @location is ignored).
 struct ReferenceHistory {

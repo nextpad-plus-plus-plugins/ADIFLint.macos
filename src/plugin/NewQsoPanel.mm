@@ -108,7 +108,8 @@ static NSColor *severityColor(int severity) {
     _fields.toolTip = @"Choose and order the fields this window asks for";
     _fields.translatesAutoresizingMaskIntoConstraints = NO;
     _spots = [NSButton buttonWithTitle:@"Spots..." target:self action:@selector(spotsPressed:)];
-    _spots.toolTip = @"POTA and WWFF activators spotted now: pick one to fill CALL, FREQ, MODE and their reference";
+    _spots.toolTip = @"Activators spotted now (POTA, WWFF, and GMA, WWBOTA, IOTA and more from Spothole): pick one to fill CALL, "
+                     @"FREQ, MODE and their reference";
     _spots.translatesAutoresizingMaskIntoConstraints = NO;
     _contest = [NSButton buttonWithTitle:@"Contest..." target:self action:@selector(contestPressed:)];
     _contest.toolTip = @"ARRL Field Day, Winter Field Day or serial numbers: the exchange to ask for, the contest's fields and "

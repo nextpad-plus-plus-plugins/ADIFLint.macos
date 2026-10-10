@@ -27,6 +27,11 @@ Versions before 0.8.0 were development builds and were not published.
 - **QSL Sync (Upload, Confirmations)…** (replacing Upload…): each service's QSOs to upload,
   changed, uploaded, unsendable and confirmed, the last upload and download, with Upload
   and Download Confirmations.
+- **Spots → More programs (Spothole)**: spots from dozens of programs (GMA, WWBOTA, ZLOTA,
+  IOTA, HEMA, castles, lighthouses...) through spothole.app, with a program filter, every 2
+  minutes as Spothole asks; SOTA is left out. Using a spot fills SIG and SIG_INFO (and IOTA,
+  and GRIDSQUARE when known). Any program's references in SIG_INFO, and IOTA, now count as
+  worked and show on the Map. The menu item is now Spots (POTA, WWFF, More)….
 - **Contest…** in New QSO: ARRL Field Day, Winter Field Day or serial numbers. New QSO asks
   for the other station's exchange (CLASS and ARRL_SECT, or SRX), writes CONTEST_ID, the
   exchanges (STX_STRING, SRX_STRING, MY_ARRL_SECT) or the next STX, and warns of duplicates

@@ -334,19 +334,33 @@ macOS may ask whether Nextpad++ may accept incoming connections.
 
 ## Spots
 
-**Spots (POTA, WWFF)…** (or **Spots…** in New QSO) lists the activators spotted now, from
-`api.pota.app` or `spots.wwff.co`, refreshed every minute while the window is open, with
-band and mode filters and a search box.
+**Spots (POTA, WWFF, More)…** (or **Spots…** in New QSO) lists the activators spotted now,
+with band and mode filters and a search box. The popup at the top chooses where from:
+
+- **POTA** (`api.pota.app`) or **WWFF** (`spots.wwff.co`), refreshed every minute while the
+  window is open.
+- **More programs (Spothole)**: spots from [Spothole](https://spothole.app), which gathers
+  them from dozens of programs: GMA, WWBOTA (bunkers), ZLOTA, IOTA, HEMA, SiOTA, castles,
+  lighthouses, beaches, mills, WAB and WAI, and more. A second popup shows one program at a
+  time. ADIF Lint asks for every program with references except POTA and WWFF (read from
+  their own sites above) and SOTA, whose terms don't allow software like this to use its
+  data without approval. It asks once every 2 minutes, as Spothole asks of the programs
+  that use it, identifies itself, and never sends a login. Spothole is a volunteer's free
+  service, so it may sometimes be down.
 
 - Double-click a spot (or select it and press **Use in New QSO**) to fill CALL, FREQ,
   BAND, MODE and the reference: SIG (POTA or WWFF) and SIG_INFO, plus POTA_REF or
-  WWFF_REF. SSB becomes LSB below 10 MHz (except 60 m) and USB above; FT4 becomes MFSK
-  with SUBMODE FT4.
+  WWFF_REF. A Spothole spot gives SIG the program (GMA, WWBOTA...) and SIG_INFO its
+  references, IOTA for an IOTA spot, and GRIDSQUARE when the window shows it and Spothole
+  knows where the reference is. SSB becomes LSB below 10 MHz (except 60 m) and USB above;
+  FT4 becomes MFSK with SUBMODE FT4; Spothole's DV becomes DIGITALVOICE, and its PHONE
+  leaves MODE for you to choose.
 - If New QSO shows none of SIG_INFO, POTA_REF and WWFF_REF, SIG and SIG_INFO rows are
   added so the reference is logged.
 - The **Worked** column says **NEW** (green) for a park or reference that isn't in this
   log or your logs folder, **worked** for one that is, and **today** (blue) for a station
-  already worked today on that band.
+  already worked today on that band. References logged in SIG_INFO for any program, and
+  in IOTA, count as worked, and show on the Map's Parks layer where the QSO has a grid.
 
 ## Log Table, Summary and Worked Before
 

@@ -1,0 +1,11 @@
+{"bands": [], "modes": ["CW", "PHONE", "SSB", "DV"], "max_spot_age": 86400,
+ "activities": [
+  {"name": "Contest", "description": "Contest", "activity_type": "TRADITIONAL", "has_refs": false},
+  {"name": "POTA", "description": "Parks on the Air", "activity_type": "ADVENTURE", "has_refs": true},
+  {"name": "SOTA", "description": "Summits on the Air", "activity_type": "ADVENTURE", "has_refs": true},
+  {"name": "WWFF", "description": "World Wide Flora & Fauna", "activity_type": "ADVENTURE", "has_refs": true},
+  {"name": "GMA", "description": "Global Mountain Activity", "activity_type": "ADVENTURE", "has_refs": true},
+  {"name": "WWBOTA", "description": "Worldwide Bunkers on the Air", "activity_type": "ADVENTURE", "has_refs": true},
+  {"name": "ZLOTA", "description": "New Zealand on the Air", "activity_type": "REGIONAL", "has_refs": true},
+  {"name": "JOTA", "description": "Jamboree on the Air", "activity_type": "EVENT", "has_refs": false}
+ ]}

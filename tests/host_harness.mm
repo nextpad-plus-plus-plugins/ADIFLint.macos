@@ -724,7 +724,7 @@ int main(int argc, char **argv) {
             *h = checkLogHeadline();
             return *h == "No problems found." || h->rfind("0 errors, 0 warnings", 0) == 0;
         };
-        for (const char *name : {"New QSO...", "Spots (POTA, WWFF)...", "Start Activation...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
+        for (const char *name : {"New QSO...", "Spots (POTA, WWFF, More)...", "Start Activation...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
                                  "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
                                  "Compare and Merge Logs...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...", "Map (Grids, DXCC, Parks)...",
                                  "Import...", "Export...", "QSL Sync (Upload, Confirmations)...", "Enrich...", "Monitor (WSJT-X, N1MM, Loggers)...", "Record Panel", "Reformat: One Record per Line",
@@ -1739,7 +1739,7 @@ int main(int argc, char **argv) {
             }
 
             // POTA spots (fixture): the malformed spot is dropped; one fills New QSO.
-            run("Spots (POTA, WWFF)...");
+            run("Spots (POTA, WWFF, More)...");
             NSWindow *spw = windowTitled(@"Spots");
             NSTableView *spt = spw ? findTable(spw.contentView) : nil;
             for (int i = 0; i < 40 && spt && [spt.dataSource numberOfRowsInTableView:spt] == 0; ++i) pump(0.05);
@@ -1874,6 +1874,57 @@ int main(int argc, char **argv) {
                         qsoControl(qw5, @"SIG").stringValue = @"";
                         qsoControl(qw5, @"SIG_INFO").stringValue = @"";
                         [qw5 orderOut:nil];
+                    }
+                }
+                // More programs, from Spothole (fixtures): its programs without SOTA, POTA or WWFF, and a program filter.
+                [programPop selectItemWithTitle:@"More programs (Spothole)"];
+                [programPop sendAction:programPop.action to:programPop.target];
+                for (int i = 0; i < 40 && ![cell(spt, 0, @"6") isEqualToString:@"GMA"]; ++i) pump(0.05);
+                NSInteger gma = -1;
+                for (NSInteger r = 0; r < [spt.dataSource numberOfRowsInTableView:spt]; ++r)
+                    if ([cell(spt, r, @"1") isEqualToString:@"DL1ABC/P"]) gma = r;
+                CHECK([spt.dataSource numberOfRowsInTableView:spt] == 3 && gma >= 0 && [cell(spt, gma, @"2") isEqualToString:@"7032.5"] &&
+                          [cell(spt, gma, @"4") isEqualToString:@"DA/NI-001"] && [cell(spt, gma, @"6") isEqualToString:@"GMA"] &&
+                          [cell(spt, gma, @"7") isEqualToString:@"NEW"],
+                      "Spothole spots: %ld rows", (long)[spt.dataSource numberOfRowsInTableView:spt]);
+                NSMutableArray *pops2 = [NSMutableArray array];
+                collect(spw.contentView, NSPopUpButton.class, pops2);
+                NSPopUpButton *programs = nil;
+                for (NSPopUpButton *pb in pops2)
+                    if ([pb indexOfItemWithTitle:@"All programs"] >= 0) programs = pb;
+                CHECK(programs && !programs.hidden && [programs indexOfItemWithTitle:@"WWBOTA"] >= 0 && [programs indexOfItemWithTitle:@"ZLOTA"] >= 0 &&
+                          [programs indexOfItemWithTitle:@"SOTA"] < 0 && [programs indexOfItemWithTitle:@"POTA"] < 0 &&
+                          [programs indexOfItemWithTitle:@"WWFF"] < 0 && [programs indexOfItemWithTitle:@"JOTA"] < 0,
+                      "Spothole's programs: outdoor ones with references, never SOTA (%ld)", (long)programs.numberOfItems);
+                [programs selectItemWithTitle:@"WWBOTA"];
+                [programs sendAction:programs.action to:programs.target];
+                CHECK([spt.dataSource numberOfRowsInTableView:spt] == 1 && [cell(spt, 0, @"1") isEqualToString:@"M1DDD/P"], "the program filter");
+                [programs selectItemAtIndex:0];
+                [programs sendAction:programs.action to:programs.target];
+                CHECK([labelWithLines(spw.contentView, 4) containsString:@"from Spothole (spothole.app; refreshed every 2 minutes; SOTA left out)"],
+                      "the status names Spothole: %s", labelWithLines(spw.contentView, 4).UTF8String);
+                if (spw) {
+                    [spw.contentView layoutSubtreeIfNeeded];
+                    CHECK(overlaps(spw.contentView) == 0, "Spots with Spothole does not overlap");
+                    snapshot(spw, "spots-spothole");
+                }
+                for (NSInteger r = 0; r < [spt.dataSource numberOfRowsInTableView:spt]; ++r)
+                    if ([cell(spt, r, @"1") isEqualToString:@"DL1ABC/P"]) gma = r;
+                if (gma >= 0) {
+                    [spt selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)gma] byExtendingSelection:NO];
+                    [findButton(spw.contentView, @"Use in New QSO") performClick:nil];
+                    pump(0.3);
+                    NSWindow *qw6 = qsoWindow();
+                    CHECK(qw6 && [qsoControl(qw6, @"CALL").stringValue isEqualToString:@"DL1ABC/P"] &&
+                              [qsoControl(qw6, @"FREQ").stringValue isEqualToString:@"7.0325"] &&
+                              [qsoControl(qw6, @"SIG").stringValue isEqualToString:@"GMA"] &&
+                              [qsoControl(qw6, @"SIG_INFO").stringValue isEqualToString:@"DA/NI-001"],
+                          "a GMA spot from Spothole copied to New QSO");
+                    if (qw6) {
+                        qsoControl(qw6, @"CALL").stringValue = @"";
+                        qsoControl(qw6, @"SIG").stringValue = @"";
+                        qsoControl(qw6, @"SIG_INFO").stringValue = @"";
+                        [qw6 orderOut:nil];
                     }
                 }
                 [programPop selectItemWithTitle:@"POTA"];

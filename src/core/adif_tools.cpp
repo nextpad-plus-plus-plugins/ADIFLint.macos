@@ -1607,8 +1607,14 @@ std::vector<Contact> contacts(std::string_view text, const DocModel &m) {
         c.theirPark = joinList(theirParks(r));
         for (Program p : {Program::POTA, Program::WWFF, Program::SOTA})
             for (std::string &ref : programRefs(r, p, false)) c.theirRefs.push_back(std::move(ref));
-        if (equalsNoCase(trim(r.get("SIG")), "ZLOTA") && !trim(r.get("SIG_INFO")).empty())
-            c.theirRefs.push_back(upperAscii(trim(r.get("SIG_INFO"))));
+        // Other programs, logged as SIG with SIG_INFO (ZLOTA, GMA, WWBOTA...), and IOTA.
+        std::string sig = upperAscii(trim(r.get("SIG")));
+        if (!sig.empty() && sig != "POTA" && sig != "WWFF" && sig != "SOTA")
+            for (const std::string &ref : splitList(r.get("SIG_INFO")))
+                if (std::find(c.theirRefs.begin(), c.theirRefs.end(), ref) == c.theirRefs.end()) c.theirRefs.push_back(ref);
+        if (std::string iota = upperAscii(trim(r.get("IOTA"))); !iota.empty() &&
+            std::find(c.theirRefs.begin(), c.theirRefs.end(), iota) == c.theirRefs.end())
+            c.theirRefs.push_back(iota);
         c.record = r.number;
         out.push_back(std::move(c));
     }

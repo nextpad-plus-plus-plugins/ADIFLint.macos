@@ -52,8 +52,9 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   rule.
 - Callsign lookup as you type: country, zones and continent offline, or name, QTH and grid
   from QRZ.com or HamQTH, with distance and bearing and what your logs say about the park.
-- POTA and WWFF spots, marked NEW when the park or reference isn't in your logs; pick one
-  to fill New QSO.
+- POTA and WWFF spots, and dozens more programs' (GMA, WWBOTA, IOTA, castles,
+  lighthouses...) through [Spothole](https://spothole.app), marked NEW when the reference
+  isn't in your logs; pick one to fill New QSO.
 - **Monitor**: QSOs logged in WSJT-X, JTDX, JS8Call, N1MM Logger+, GridTracker (to DXKeeper,
   HRD, N1MM or Log4OM) or another program that sends ADIF over UDP are added to the log you
   choose as you log them: into the open log, into the file when it's closed, or queued
@@ -168,7 +169,7 @@ tab); Settings suggests some.
 | Command | Does |
 |---|---|
 | New QSO… | Log contacts one after another |
-| Spots (POTA, WWFF)… | Activators spotted now; pick one to fill New QSO |
+| Spots (POTA, WWFF, More)… | Activators spotted now, from POTA, WWFF, or Spothole for GMA, WWBOTA, IOTA and dozens more; pick one to fill New QSO |
 | Start Activation… | A POTA, WWFF or SOTA activation: a new log, your station profile and the activation's fields in every QSO; Finish checks and exports |
 | Log Table… | The log as a spreadsheet: sort, filter, edit, copy and paste, add and delete rows and columns |
 | Check Log… | Every problem in one list, with its repair; repair the ticked ones in one step |
@@ -216,6 +217,7 @@ HTTPS.
 | eQSL | `www.eqsl.cc` | Upload and Import (eQSL) | Your username and password, the log's date range and the QSOs you upload |
 | POTA | `api.pota.app` | The Spots window (POTA), every minute while it is open | Nothing but the request |
 | WWFF | `spots.wwff.co` | The Spots window (WWFF), every minute while it is open | Nothing but the request |
+| Spothole | `spothole.app` | The Spots window (More programs), every 2 minutes while it is open | The programs asked for (never a login) |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
 | LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |
 

@@ -120,7 +120,17 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
             std::vector<std::string> refs;
             for (Program p : {Program::POTA, Program::WWFF, Program::SOTA})
                 for (const std::string &ref : programRefs(r, p, false)) refs.push_back(ref);
-            if (equalsNoCase(trimmed(r.get("SIG")), "ZLOTA") && isZlotaRef(r.get("SIG_INFO"))) refs.push_back(upper(trimmed(r.get("SIG_INFO"))));
+            std::string sig = upper(trimmed(r.get("SIG")));
+            if (!sig.empty() && sig != "POTA" && sig != "WWFF" && sig != "SOTA") {  // other programs: SIG_INFO's list
+                std::string info = r.get("SIG_INFO");
+                for (size_t b = 0; b < info.size();) {
+                    size_t e = info.find(',', b);
+                    if (e == std::string::npos) e = info.size();
+                    if (std::string ref = upper(trimmed(info.substr(b, e - b))); !ref.empty()) refs.push_back(ref);
+                    b = e + 1;
+                }
+            }
+            if (std::string iota = upper(trimmed(r.get("IOTA"))); !iota.empty()) refs.push_back(iota);
             for (const std::string &ref : refs) out.parks.push_back({ref, theirGrid, index});
         }
         std::string my = upper(trimmed(r.get("MY_GRIDSQUARE")));

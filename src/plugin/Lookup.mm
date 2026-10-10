@@ -853,6 +853,63 @@ void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *s
     });
 }
 
+void ADIFFetchSpotholePrograms(NSString *agent, void (^done)(NSArray<NSDictionary *> *programs, NSString *error)) {
+    auto parse = ^NSArray<NSDictionary *> *(NSData *d) {
+        id json = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+        NSArray *list = [json isKindOfClass:NSDictionary.class] ? json[@"activities"] : nil;
+        NSMutableArray *out = [NSMutableArray array];
+        for (id a in [list isKindOfClass:NSArray.class] ? list : @[])
+            if ([a isKindOfClass:NSDictionary.class]) [out addObject:a];
+        return out.count ? out : nil;
+    };
+    if (NSString *dir = fakeDir()) {
+        NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"spothole/options.json"]];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSArray *list = parse(d);
+            done(list, list ? nil : @"no test Spothole options");
+        });
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://spothole.app/api/v3/options"]];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    [r setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+    httpSend(r, ^(NSData *body, NSString *error) {
+        if (error) {
+            done(nil, error);
+            return;
+        }
+        NSArray *list = parse(body);
+        done(list, list ? nil : @"Spothole sent something other than its list of programs");
+    });
+}
+
+void ADIFFetchSpotholeSpots(NSString *agent, NSString *programs, void (^done)(NSArray<NSDictionary *> *spots, NSString *error)) {
+    if (NSString *dir = fakeDir()) {
+        NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"spothole/spots.json"]];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSString *error = nil;
+            NSArray *spots = spotObjects(d, &error);
+            done(spots, error);
+        });
+        return;
+    }
+    NSURLComponents *c = [NSURLComponents componentsWithString:@"https://spothole.app/api/v3/spots"];
+    c.queryItems = @[ [NSURLQueryItem queryItemWithName:@"activity" value:programs], [NSURLQueryItem queryItemWithName:@"allow_qrt" value:@"false"],
+                      [NSURLQueryItem queryItemWithName:@"max_age" value:@"3600"] ];
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:c.URL];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    [r setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+    httpSend(r, ^(NSData *body, NSString *error) {
+        if (error) {
+            done(nil, error);
+            return;
+        }
+        NSString *problem = nil;
+        NSArray *spots = spotObjects(body, &problem);
+        done(spots, problem ? @"Spothole sent something other than a list of spots" : nil);
+    });
+}
+
 void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error)) {
     if (NSString *dir = fakeDir()) {
         NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"lotw/lotw-user-activity.csv"]];
