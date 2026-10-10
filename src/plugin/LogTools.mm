@@ -996,19 +996,19 @@ void workedRefresh() {
 
 // ── Bulk Edit and Time Shift ────────────────────────────────────────────────
 
-enum { kActSet, kActReplace, kActRemove, kActRename, kActShift, kActDistance };
+enum { kActSet, kActReplace, kActCase, kActRemove, kActRename, kActShift, kActDistance };
 enum { kScopeAll, kScopeSelection, kScopeTable };
 enum { kShiftToUtc, kShiftFromUtc, kShiftFixed };
 
 struct {
     ADIFToolWindow *w = nil;
-    NSPopUpButton *action = nil, *scope = nil, *filterKind = nil, *shiftMode = nil;
+    NSPopUpButton *action = nil, *scope = nil, *filterKind = nil, *shiftMode = nil, *textCase = nil;
     NSComboBox *field = nil, *newName = nil, *filterField = nil, *zone = nil;
     NSTextField *zoneInfo = nil;
     NSStackView *rowShiftMode = nil, *rowZone = nil;
     NSTextField *value = nil, *find = nil, *replace = nil, *days = nil, *hours = nil, *minutes = nil, *filterValue = nil;
     NSButton *onlyMissing = nil, *useFilter = nil, *apply = nil, *preview = nil;
-    NSStackView *rowField = nil, *rowSet = nil, *rowReplace = nil, *rowRename = nil, *rowShift = nil;
+    NSStackView *rowField = nil, *rowSet = nil, *rowReplace = nil, *rowRename = nil, *rowShift = nil, *rowCase = nil;
     size_t previewCount = 0;
     intptr_t buffer = 0;
 } bulk;
@@ -1053,6 +1053,7 @@ void bulkLayout() {
     bulk.rowField.hidden = a == kActShift || a == kActDistance;
     bulk.rowSet.hidden = a != kActSet;
     bulk.rowReplace.hidden = a != kActReplace;
+    bulk.rowCase.hidden = a != kActCase;
     bulk.rowRename.hidden = a != kActRename;
     bulk.rowShiftMode.hidden = a != kActShift;
     bulk.rowZone.hidden = a != kActShift || fixed;
@@ -1158,9 +1159,15 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
         *plan = adif::planTimeShiftWith(text, r.model, groups, shiftFor);
     } else {
         adif::BulkEdit op;
-        static const adif::BulkAction actions[] = {adif::BulkAction::Set, adif::BulkAction::Replace, adif::BulkAction::Remove,
-                                                   adif::BulkAction::Rename};
-        op.action = actions[std::clamp<NSInteger>(bulk.action.indexOfSelectedItem, 0, 3)];
+        switch (bulk.action.indexOfSelectedItem) {
+            case kActReplace: op.action = adif::BulkAction::Replace; break;
+            case kActCase: op.action = adif::BulkAction::Case; break;
+            case kActRemove: op.action = adif::BulkAction::Remove; break;
+            case kActRename: op.action = adif::BulkAction::Rename; break;
+            default: op.action = adif::BulkAction::Set; break;
+        }
+        static const adif::TextCase cases[] = {adif::TextCase::Upper, adif::TextCase::Lower, adif::TextCase::Title};
+        op.textCase = cases[std::clamp<NSInteger>(bulk.textCase.indexOfSelectedItem, 0, 2)];
         op.field = ADIFStd(bulk.field.stringValue);
         if (op.action == adif::BulkAction::Replace) {
             op.find = ADIFStd(bulk.find.stringValue);
@@ -1293,11 +1300,12 @@ void openBulkEdit(bool shift, bool fromTable) {
         if (!bulk.w) {
             ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Bulk Edit" size:NSMakeSize(760, 620) headline:NO];
             bulk.w = w;
-            bulk.action = ADIFPopup(@[ @"Set a field", @"Replace text in a field", @"Remove a field", @"Rename a field",
-                                       @"Shift date and time", @"Fill DISTANCE from grid squares" ]);
+            bulk.action = ADIFPopup(@[ @"Set a field", @"Replace text in a field", @"Change case", @"Remove a field",
+                                       @"Rename a field", @"Shift date and time", @"Fill DISTANCE from grid squares" ]);
             [w addOptionRow:@[ ADIFLabel(@"Action:"), bulk.action ]];
-            bulk.field = ADIFComboBox(@[], 200);
-            bulk.field.placeholderString = @"e.g. MY_GRIDSQUARE";
+            bulk.field = ADIFComboBox(@[], 240);
+            bulk.field.placeholderString = @"e.g. MY_GRIDSQUARE, or NAME, QTH";
+            bulk.field.toolTip = @"One field, or several separated by commas (not for Rename).";
             bulk.rowField = [w addOptionRow:@[ ADIFLabel(@"Field:"), bulk.field ]];
             bulk.value = ADIFTextField(@"new value", 220);
             bulk.onlyMissing = ADIFCheckbox(@"Only where it is missing or empty", NO);
@@ -1306,6 +1314,10 @@ void openBulkEdit(bool shift, bool fromTable) {
             bulk.replace = ADIFTextField(@"replacement", 160);
             bulk.rowReplace = [w addOptionRow:@[ ADIFLabel(@"Find:"), bulk.find, ADIFLabel(@"Replace with:"), bulk.replace,
                                                   ADIFLabel(@"(any case)") ]];
+            bulk.textCase = ADIFPopup(@[ @"UPPER CASE", @"lower case", @"Title Case (names and places)" ]);
+            bulk.textCase.toolTip = @"Title Case writes O'Brien, McDonald and Smith-Jones, keeps II, III and IV, and leaves words "
+                                    @"with digits (3RD, W1AW) alone.";
+            bulk.rowCase = [w addOptionRow:@[ ADIFLabel(@"Case:"), bulk.textCase ]];
             bulk.newName = ADIFComboBox(@[], 200);
             bulk.rowRename = [w addOptionRow:@[ ADIFLabel(@"New name:"), bulk.newName ]];
             bulk.shiftMode = ADIFPopup(@[ @"From local time to UTC", @"From UTC to local time", @"By a fixed amount" ]);
@@ -1344,7 +1356,8 @@ void openBulkEdit(bool shift, bool fromTable) {
             [w addButton:@"Tick All" trailing:NO action:^{ [bulk.w setAllTicked:YES]; }];
             [w addButton:@"Untick All" trailing:NO action:^{ [bulk.w setAllTicked:NO]; }];
             bulk.apply = [w addButton:@"Apply Changes" trailing:YES action:^{ bulkApply(); }];
-            for (NSControl *c in @[ bulk.action, bulk.scope, bulk.filterKind, bulk.onlyMissing, bulk.useFilter, bulk.shiftMode, bulk.zone ])
+            for (NSControl *c in @[ bulk.action, bulk.scope, bulk.filterKind, bulk.onlyMissing, bulk.useFilter, bulk.shiftMode, bulk.zone,
+                                    bulk.textCase ])
                 ADIFOnAction(c, ^{
                     bulkLayout();
                     bulkClear(@"Settings changed. Preview again.");

@@ -798,6 +798,48 @@ static void testEnrich() {
               std::string::npos,
           "portable record got only the name");
 
+    // Callbook codes ADIF retired become the current ones; counties take ADIF's spelling.
+    auto with = [](std::map<std::string, std::string> raw, const char *dxcc, const char *state, const char *county) {
+        raw["dxcc"] = dxcc, raw["state"] = state, raw["county"] = county;
+        return mapQrz(raw);
+    };
+    CHECK(with(qrzSample(), "50", "NL", "")["STATE"] == "NLE" && with(qrzSample(), "50", "bc", "")["STATE"] == "BCN" &&
+              with(qrzSample(), "263", "ZL", "")["STATE"] == "ZE" && with(qrzSample(), "50", "DF", "")["STATE"] == "CMX",
+          "retired subdivision codes are replaced (NL -> NLE, BC -> BCN, ZL -> ZE, DF -> CMX)");
+    CHECK(with(qrzSample(), "6", "AK", "Matanuska Susitna")["CNTY"] == "AK,Matanuska-Susitna" &&
+              with(qrzSample(), "6", "AK", "valdez cordova")["CNTY"] == "AK,Valdez-Cordova",
+          "Alaska counties in ADIF's spelling");
+    CHECK(!with(qrzSample(), "6", "AK", "Nowhere").count("CNTY") && with(qrzSample(), "291", "TX", "Travis")["CNTY"] == "TX,Travis",
+          "an Alaska county ADIF doesn't list is left out; US counties (not listed by ADIF) are kept");
+
+    // An empty field is filled, not added a second time.
+    {
+        std::string e = std::string(kHeader) + "<CALL:5>XE2NK <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m <MODE:3>SSB "
+                                               "<STATE:0> <DXCC:2>50 <EOR>\n";
+        LintResult er = lintModel(e);
+        EnrichOptions eo;
+        eo.fields = {"STATE"};
+        std::vector<EnrichChange> ec;
+        proposeChanges(e, er.model, 1, with(qrzSample(), "50", "NL", ""), eo, "QRZ.com", ec);
+        std::string filled = applyTextEdits(e, enrichmentEdits(e, er.model, ec, LengthUnit::Bytes, true));
+        LintResult fr = lintModel(filled);
+        CHECK(ec.size() == 1 && filled.find("<STATE:3>NLE <DXCC:2>50") != std::string::npos && fr.errors == 0 && fr.warnings == 0,
+              "empty STATE filled in place with the current code:\n%s\n%s", filled.c_str(), dump(fr).c_str());
+    }
+    // A value ADIF Lint would report is never offered; judged with the record's other new values.
+    {
+        std::string e = std::string(kHeader) + "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m <MODE:3>SSB <EOR>\n";
+        LintResult er = lintModel(e);
+        EnrichOptions eo;
+        eo.fields = {"DXCC", "STATE", "REGION"};
+        std::vector<EnrichChange> ec, rejected;
+        proposeChanges(e, er.model, 1, FieldMap{{"DXCC", "291"}, {"STATE", "ZZ"}, {"REGION", "SY"}}, eo, "test", ec, &rejected);
+        CHECK(ec.size() == 1 && ec[0].field == "DXCC" && rejected.size() == 2 && rejected[0].field == "STATE" &&
+                  rejected[0].note.find("not one of ADIF's STATE codes for United States") != std::string::npos &&
+                  rejected[1].note.find("REGION SY is within DXCC 248") != std::string::npos,
+              "rejected values: %zu offered, %zu rejected (%s)", ec.size(), rejected.size(),
+              rejected.empty() ? "" : rejected[0].note.c_str());
+    }
 }
 
 // Reformatting the official file must keep every field and marker, in order.
@@ -858,6 +900,33 @@ static void testToolsBasics() {
 }
 
 static void testBulkEdit() {
+    // Change case: ASCII only; Title Case for names and places.
+    CHECK(changeCase("o'brien-SMITH", TextCase::Title) == "O'Brien-Smith" && changeCase("MCDONALD", TextCase::Title) == "McDonald" &&
+              changeCase("JOHN SMITH III", TextCase::Title) == "John Smith III" && changeCase("DON'T  STOP", TextCase::Title) == "Don't  Stop" &&
+              changeCase("123 MAIN ST", TextCase::Title) == "123 Main St" && changeCase("NEAR W1AW", TextCase::Title) == "Near W1AW" &&
+              changeCase("st. louis", TextCase::Title) == "St. Louis" && changeCase("J\xC3\x9CRG", TextCase::Title) == "J\xC3\x9Crg",
+          "Title Case: %s / %s / %s", changeCase("o'brien-SMITH", TextCase::Title).c_str(), changeCase("MCDONALD", TextCase::Title).c_str(),
+          changeCase("st. louis", TextCase::Title).c_str());
+    CHECK(changeCase("Fred Lloyd", TextCase::Upper) == "FRED LLOYD" && changeCase("FRED", TextCase::Lower) == "fred", "upper and lower");
+    CHECK(fieldNameList("name, qth MY_CITY;name") == std::vector<std::string>({"NAME", "QTH", "MY_CITY"}), "field lists");
+    {
+        std::string t = std::string(kHeader) + "<CALL:4>K1AB <NAME:10>FRED LLOYD <QTH:10>SCOTTSDALE <EOR>\n"
+                                               "<CALL:4>K2CD <NAME:4>Mary <QTH:7>boulder <EOR>\n";
+        LintResult r = lintModel(t);
+        BulkEdit op;
+        op.action = BulkAction::Case;
+        op.textCase = TextCase::Title;
+        op.field = "NAME, QTH";
+        ChangePlan p = planBulkEdit(t, r.model, {1, 2}, op);
+        CHECK(p.changes.size() == 3 && p.records == 2 && p.changes[0].after == "Fred Lloyd" && p.changes[1].after == "Scottsdale" &&
+                  p.changes[2].after == "Boulder",
+              "Change case over two fields: %zu changes in %zu records", p.changes.size(), p.records);
+        op.action = BulkAction::Rename;
+        op.newName = "X_NAME";
+        CHECK(planBulkEdit(t, r.model, {1, 2}, op).skipReason == "Rename one field at a time.", "Rename takes one field");
+        op.action = BulkAction::Remove;
+        CHECK(planBulkEdit(t, r.model, {1, 2}, op).changes.size() == 4, "Remove takes a list too");
+    }
     std::string t = std::string(kHeader) +
                     "<CALL:4>K1AB <QSO_DATE:8>20240115 <TIME_ON:4>1830 <BAND:3>20m <MODE:3>SSB <MY_GRIDSQUARE:6>EM28ab <EOR>\n"
                     "<CALL:4>N0CX <QSO_DATE:8>20240115 <TIME_ON:4>1840 <BAND:3>20m <MODE:2>CW <EOR>\n"
@@ -1932,6 +2001,8 @@ static void testQuickFixes() {
          "<CALL:4>K1AB <QSO_DATE:8>"},
         {"import-only", "<CALL:5>XE1AA <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <DXCC:2>50 <STATE:2>DF <EOR>\n",
          "<STATE:3>CMX <EOR>"},
+        {"dup-field", "<CALL:5>XE2NK <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <STATE:0> <DXCC:2>50 <STATE:3>NLE <EOR>\n",
+         "<STATE:3>NLE <DXCC:2>50 <EOR>"},
         {"deleted-code", "<CALL:4>VE3A <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <ARRL_SECT:3>GTA <EOR>\n",
          "<ARRL_SECT:2>GH <EOR>"},
         {"normalize", "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <ANT_AZ:3>370 <EOR>\n",

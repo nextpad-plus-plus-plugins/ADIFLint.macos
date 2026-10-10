@@ -52,7 +52,8 @@ struct Upload {
         bool ok = false;
     };
     std::vector<Sent> sent;
-    size_t next = 0;
+    size_t next = 0, inFlight = 0;
+    unsigned run = 0;  // which upload an answer belongs to
     std::string fatal;
     NSTask *task = nil;
 };
@@ -348,9 +349,12 @@ void recordResult(Upload &u, size_t i, bool ok, const std::string &text, int sev
     [u.w setRowSeverity:severity row:(NSInteger)u.sent[i].row];
 }
 
-// QRZ and eQSL take one QSO per request: send them one after another.
+// QRZ and eQSL take one QSO per request (the QRZ Logbook API's INSERT "is a single
+// record operation"; it has no batch insert, checked 2026-10-10). QRZ uploads go
+// three at a time; eQSL's one after another.
 void sendNext(Upload &u) {
     if (u.cancelled || !u.fatal.empty() || u.next >= u.sent.size()) {
+        if (u.inFlight) return;  // the last answers are still coming
         size_t ok = 0;
         for (const Upload::Sent &s : u.sent) ok += s.ok;
         std::string summary = u.fatal.empty() ? (u.cancelled ? "Stopped. " : "") + std::string("Sent ") + std::to_string(ok) +
@@ -360,15 +364,24 @@ void sendNext(Upload &u) {
         finish(u, summary, !u.fatal.empty() ? 2 : ok == u.sent.size() ? 3 : 1);
         return;
     }
+    const bool qrz = u.service == adif::UploadService::QRZ;
+    const size_t limit = qrz ? 3 : 1;
+    if (u.inFlight >= limit) return;
     size_t i = u.next++;
+    ++u.inFlight;
     [u.w setStatus:ADIFString("Sending " + std::to_string(i + 1) + " of " + std::to_string(u.sent.size()) + ": " + u.sent[i].call +
-                              "...")
+                              (qrz ? " (3 at a time)..." : "..."))
              severity:-1];
     Upload *pu = &u;
+    unsigned run = u.run;
     auto later = ^{
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ sendNext(*pu); });
+        if (pu->run != run) return;
+        --pu->inFlight;
+        if (qrz) sendNext(*pu);
+        else dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ sendNext(*pu); });
     };
-    if (u.service == adif::UploadService::QRZ) {
+    if (qrz) sendNext(u);  // fill the other slots
+    if (qrz) {
         // M (changed since upload), or sending again one already uploaded: replace QRZ's copy.
         bool replace = u.items[u.sent[i].row].replace || u.items[u.sent[i].row].done;
         ADIFQrzLogbookInsert(agent(), ADIFString(u.sent[i].adi), replace, ^(NSString *reply, NSString *error) {
@@ -426,7 +439,8 @@ void startUpload(Upload &u) {
         std::string_view text = adifhost::text(h);
         std::vector<bool> ticks = [u.w ticked];
         u.sent.clear();
-        u.next = 0;
+        u.next = u.inFlight = 0;
+        ++u.run;
         u.fatal.clear();
         u.cancelled = false;
         std::string nick = u.nickname ? ADIFStd(u.nickname.stringValue) : std::string();

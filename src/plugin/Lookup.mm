@@ -305,6 +305,11 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
     NSString *_session;  // QRZ Key or HamQTH session_id
     NSString *_notice;
     std::map<std::string, std::pair<bool, std::map<std::string, std::string>>> _cache;
+    // Lookups run several at a time but share one session: while a sign-in is under
+    // way the others wait for it ("clients should expect to perform only one login
+    // operation per session", QRZ XML spec 1.34).
+    BOOL _signingIn;
+    NSMutableArray *_waiting;  // blocks taking (NSString *error)
 }
 
 - (instancetype)initWithSource:(ADIFSource)source agent:(NSString *)agent {
@@ -330,7 +335,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
     done(found, raw, nil, NO);
 }
 
-- (void)handle:(NSData *)body call:(NSString *)call retried:(BOOL)retried done:(ADIFCallbookDone)done {
+- (void)handle:(NSData *)body call:(NSString *)call key:(NSString *)used retried:(BOOL)retried done:(ADIFCallbookDone)done {
     NSXMLElement *root = parseRoot(body);
     if (!root) {
         done(NO, std::map<std::string, std::string>(),
@@ -354,7 +359,8 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
                    [err rangeOfString:@"timeout" options:NSCaseInsensitiveSearch].location != NSNotFound ||
                    [err rangeOfString:@"invalid session" options:NSCaseInsensitiveSearch].location != NSNotFound;
     if (expired && !retried) {
-        _session = nil;
+        // Another lookup may already have signed in again: drop only the key this one used.
+        if (!_session || [_session isEqualToString:used]) _session = nil;
         [self request:call retried:YES done:done];
         return;
     }
@@ -364,20 +370,31 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
 
 - (void)request:(NSString *)call retried:(BOOL)retried done:(ADIFCallbookDone)done {
     if (!_session) {
+        if (!_waiting) _waiting = [NSMutableArray array];
+        __weak ADIFCallbookClient *weakSelf = self;
+        [_waiting addObject:^(NSString *error) {
+            ADIFCallbookClient *me = weakSelf;
+            if (error || !me) done(NO, std::map<std::string, std::string>(), error ?: @"The lookup was cancelled.", YES);
+            else [me request:call retried:retried done:done];
+        }];
+        if (_signingIn) return;
+        _signingIn = YES;
         callbookLogin(_source, _agent, ^(NSString *session, NSString *notice, NSString *error) {
-            if (error) {
-                done(NO, std::map<std::string, std::string>(), error, YES);
-                return;
+            self->_signingIn = NO;
+            if (!error) {
+                self->_session = session;
+                self->_notice = notice;
             }
-            self->_session = session;
-            self->_notice = notice;
-            [self request:call retried:retried done:done];
+            NSArray *waiting = [self->_waiting copy];
+            [self->_waiting removeAllObjects];
+            for (void (^next)(NSString *) in waiting) next(error);
         });
         return;
     }
+    NSString *used = _session;
     httpGet([self lookupURL:call], ^(NSData *body, NSString *error) {
         if (error) done(NO, std::map<std::string, std::string>(), error, NO);
-        else [self handle:body call:call retried:retried done:done];
+        else [self handle:body call:call key:used retried:retried done:done];
     });
 }
 
@@ -401,7 +418,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
         NSData *body = [NSData dataWithContentsOfFile:path];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!body) [self finish:call found:NO raw:std::map<std::string, std::string>() done:done];
-            else [self handle:body call:call retried:YES done:done];
+            else [self handle:body call:call key:nil retried:YES done:done];
         });
         return;
     }

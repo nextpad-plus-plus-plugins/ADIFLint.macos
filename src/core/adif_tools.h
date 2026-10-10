@@ -75,16 +75,25 @@ std::string summaryReport(std::string_view text, const DocModel &m, std::string_
 
 // ── Bulk edits ──────────────────────────────────────────────────────────────
 
-enum class BulkAction { Set, Replace, Remove, Rename };
+enum class BulkAction { Set, Replace, Remove, Rename, Case };
+enum class TextCase { Upper, Lower, Title };
 
 struct BulkEdit {
     BulkAction action = BulkAction::Set;
-    std::string field;          // the field to change
+    std::string field;          // the field to change; all but Rename take a list ("NAME, QTH")
     std::string value;          // Set: the new value; Replace: the replacement text
     std::string find;           // Replace: the text to find (ASCII case-insensitive), every occurrence
     std::string newName;        // Rename: the new field name
     bool onlyMissing = false;   // Set: only records without the field (or with it empty)
+    TextCase textCase = TextCase::Upper;  // Case
 };
+
+// Text in another case (ASCII letters only; other bytes are kept). Title Case is for
+// names and places: "o'brien-SMITH" -> "O'Brien-Smith", "MCDONALD" -> "McDonald",
+// "JOHN SMITH III" -> "John Smith III"; a word with a digit (an address, a call) is kept.
+std::string changeCase(std::string_view s, TextCase c);
+// Field names from "NAME, QTH MY_CITY" (commas or spaces), upper case, each once, in order.
+std::vector<std::string> fieldNameList(std::string_view s);
 
 struct RecordFilter {
     enum Kind { All, Equals, Contains, Missing, Present };

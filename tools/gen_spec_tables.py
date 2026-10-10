@@ -9,11 +9,13 @@ comes from that file.
 
 Usage:  python3 tools/gen_spec_tables.py [spec/adif-3.1.7/all.json] [src/core/adif_spec_317.cpp]
 """
+import collections
 import datetime
 import html
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -141,6 +143,22 @@ def ymd(v, days=0):
     return d.strftime("%Y%m%d")
 
 
+def name_key(name):
+    """A subdivision name for comparison: no accents, case or punctuation ("Nuevo León" = "Nuevo Leon")."""
+    n = unicodedata.normalize("NFKD", name or "")
+    n = "".join(c for c in n if not unicodedata.combining(c)).lower()
+    return re.sub(r"[^a-z0-9]", "", n)
+
+
+def current_codes_by_name(enum):
+    """(DXCC, name key) -> codes of the subdivisions that are neither import-only nor deleted."""
+    out = collections.defaultdict(list)
+    for rec in enum["Records"].values():
+        if not truthy(rec.get("Import-only")) and not truthy(rec.get("Deleted")):
+            out[(rec.get("DXCC Entity Code"), name_key(rec.get("Primary Administrative Subdivision")))].append(rec["Code"])
+    return out
+
+
 def validity(ename, rec):
     """The QSO dates a value is valid for (spec II.C "Deletion"), as (from, before):
     from inclusive, before exclusive, YYYYMMDD or None. ARRL_Section has From and
@@ -213,6 +231,9 @@ def main():
             sys.exit(f"enumeration {ename!r} has no column mapping")
         vcol, scol = ENUM_COLUMNS[ename]
         vals = []
+        # An import-only subdivision code whose subdivision is listed again under a new code
+        # (Mexico's NL is now NLE, "Nuevo León"): that code is its replacement.
+        by_name = current_codes_by_name(enums[ename]) if ename == "Primary_Administrative_Subdivision" else {}
         for rec in enums[ename]["Records"].values():
             value = rec[vcol]
             scope = rec.get(scol) if scol else None
@@ -222,6 +243,10 @@ def main():
             comment = rec.get("Comments") or ""
             replaced = comment if comment.lower().startswith("replaced by ") else None
             since, before = validity(ename, rec)
+            if imp and not replaced and by_name:
+                same = by_name.get((rec.get("DXCC Entity Code"), name_key(rec.get("Primary Administrative Subdivision"))), [])
+                if len(same) == 1:
+                    replaced = "replaced by " + same[0]
             note = (rec.get("Description") or replaced) if imp else replaced if before else None
             vals.append((sort_key(value), scope, value, note, imp, since, before))
         vals.sort(key=lambda v: v[0])

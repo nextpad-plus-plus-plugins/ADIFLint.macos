@@ -9,6 +9,32 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Bulk Edit → Change case**: UPPER CASE, lower case or Title Case for names and places
+  (`O'Brien-Smith`, `McDonald`, `III` kept; words with digits left alone). **Field** takes
+  several fields separated by commas (`NAME, QTH`) for every action but Rename.
+
+### Changed
+
+- **Enrich is much faster on large logs**: it looks up only calls with a record that lacks
+  one of the chosen fields, four at a time on one QRZ.com or HamQTH session (one at a time
+  after an error), and shows the time left.
+- **QSL Sync → QRZ.com Logbook** sends three QSOs at a time instead of one after another
+  with a pause (the QRZ Logbook API takes one QSO per INSERT and has no batch upload).
+- Check Log repairs a field repeated with one copy empty (`<STATE:0>` plus `<STATE:3>NLE`),
+  keeping the value once.
+- Retired subdivision codes whose subdivision ADIF lists again under a new code (Mexico's
+  `NL` is `NLE`, the Netherlands' `ZL` is `ZE`, 41 in all) get that code as their repair.
+
+### Fixed
+
+- Enrich added a second STATE (or other field) to a record that had the field empty
+  (`<STATE:0>`), a duplicate-field error; it now fills the empty one.
+- Enrich wrote state codes ADIF retired (QRZ.com's `NL` for Nuevo León) and county names
+  in the callbook's spelling (`AK,Matanuska Susitna`), which lint as problems. It now writes
+  the current code and ADIF's spelling, and leaves out any value ADIF Lint would report.
+
 ## [1.0.0] - 2026-10-10
 
 ### Added

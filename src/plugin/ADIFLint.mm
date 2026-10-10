@@ -200,8 +200,11 @@ static struct {
         std::vector<std::string> fields;
         bool selectionOnly = false, skipAway = true;
         size_t selB = 0, selE = 0;
-        std::vector<std::string> calls;  // unique calls to look up
+        std::vector<std::string> calls;  // unique calls to look up: those with a record that lacks a chosen field
         size_t next = 0, notFound = 0, failed = 0;
+        size_t inFlight = 0, done = 0, parallel = 4, recordsComplete = 0;
+        double started = 0;  // seconds, for the time left
+        unsigned run = 0;    // which Find Data an answer belongs to
         std::string firstError;
         std::map<std::string, adif::FieldMap> found;
         std::vector<adif::EnrichChange> changes;
@@ -2269,7 +2272,8 @@ static void enrichFinish() {
     [g.enrich.panel setBusy:NO];
     try {
         if (g.enrich.buffer != currentBuffer()) {
-            [g.enrich.panel setStatus:@"The log is no longer the active document. Switch back to it and press Find Data again."
+            [g.enrich.panel setStatus:@"The log is no longer the active document. Switch back to it and press Find Data again: "
+                                       @"the calls looked up are kept, so it takes moments."
                              severity:2];
             return;
         }
@@ -2280,7 +2284,7 @@ static void enrichFinish() {
         opt.fields = g.enrich.fields;
         opt.perQsoData = perQsoSource(g.enrich.source);
         opt.skipLocationAwayFromHome = g.enrich.skipAway;
-        std::vector<adif::EnrichChange> changes;
+        std::vector<adif::EnrichChange> changes, rejected;
         std::vector<int> scope = enrichScope(r.model);
         std::string note = ADIFSourceName(g.enrich.source).UTF8String;
         size_t matched = 0;
@@ -2290,13 +2294,13 @@ static void enrichFinish() {
                 adif::FieldMap f = adif::countryFields(countries, adif::groupValue(text, r.model, r.model.groups[(size_t)gi], "CALL"));
                 if (f.empty()) continue;
                 ++matched;
-                adif::proposeChanges(text, r.model, gi, f, opt, "From the call's prefix (AD1C country file)", changes);
+                adif::proposeChanges(text, r.model, gi, f, opt, "From the call's prefix (AD1C country file)", changes, &rejected);
             }
         } else {
             for (int gi : scope) {
                 std::string call = adif::lookupCall(adif::groupValue(text, r.model, r.model.groups[(size_t)gi], "CALL"));
                 auto it = g.enrich.found.find(call);
-                if (it != g.enrich.found.end()) adif::proposeChanges(text, r.model, gi, it->second, opt, note, changes);
+                if (it != g.enrich.found.end()) adif::proposeChanges(text, r.model, gi, it->second, opt, note, changes, &rejected);
             }
         }
         g.enrich.changes = changes;
@@ -2316,10 +2320,18 @@ static void enrichFinish() {
             if (g.enrich.notFound) status += " (" + std::to_string(g.enrich.notFound) + " not found)";
             if (g.enrich.failed) status += "; " + std::to_string(g.enrich.failed) + " lookups failed: " + g.enrich.firstError;
             status += ". ";
+            if (size_t n = g.enrich.recordsComplete)
+                status += n == 1 ? std::string("1 record already had these fields, so its call was not looked up. ")
+                                 : std::to_string(n) + " records already had these fields, so their calls were not looked up. ";
         }
         status += changes.empty() ? "Nothing to add: those records already have these fields."
                                   : std::to_string(changes.size()) + " changes for " + std::to_string(records.size()) +
                                         " records. Untick any you don't want, then Apply.";
+        if (!rejected.empty()) {
+            const adif::EnrichChange &x = rejected.front();
+            status += " Left out " + std::to_string(rejected.size()) + (rejected.size() == 1 ? " value" : " values") +
+                      " that ADIF Lint would report, such as " + x.call + " " + x.field + " " + x.value + ": " + x.note;
+        }
         if (g.enrich.client.notice) status += std::string(" ") + g.enrich.client.notice.UTF8String;
         [g.enrich.panel setStatus:@(status.c_str()) severity:g.enrich.failed ? 1 : -1];
     } catch (...) {
@@ -2327,33 +2339,52 @@ static void enrichFinish() {
     }
 }
 
+// Lookups run a few at a time (each callbook request is one call; neither service
+// has a batch lookup). After an error they go one at a time, with a pause.
 static void enrichNextLookup() {
-    if (g.enrich.cancelled || g.enrich.next >= g.enrich.calls.size()) {
-        enrichFinish();
+    auto &e = g.enrich;
+    if (!e.running) return;
+    if (e.cancelled || e.next >= e.calls.size()) {
+        if (!e.inFlight) enrichFinish();
         return;
     }
-    NSString *call = @(g.enrich.calls[g.enrich.next].c_str());
-    [g.enrich.panel setProgress:(double)g.enrich.next / (double)g.enrich.calls.size()];
-    [g.enrich.panel setStatus:[NSString stringWithFormat:@"Looking up %@ (%zu of %zu)...", call, g.enrich.next + 1,
-                                                         g.enrich.calls.size()]
-                     severity:-1];
-    ADIFSource src = g.enrich.source;
-    [g.enrich.client lookup:call
-                 completion:^(BOOL found, const std::map<std::string, std::string> &raw, NSString *error, BOOL fatal) {
-                     if (!g.enrich.running) return;
-                     if (fatal) {
-                         enrichFail(error ?: @"The lookup failed.");
-                         return;
-                     }
-                     if (found) g.enrich.found[call.UTF8String] = src == ADIFSourceQRZ ? adif::mapQrz(raw) : adif::mapHamQth(raw);
-                     else if (error) {
-                         if (!g.enrich.failed++) g.enrich.firstError = error.UTF8String;
-                     } else ++g.enrich.notFound;
-                     ++g.enrich.next;
-                     // A short pause between requests, to be gentle with the service.
-                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(),
-                                    ^{ enrichNextLookup(); });
-                 }];
+    while (e.inFlight < e.parallel && e.next < e.calls.size() && !e.cancelled) {
+        NSString *call = @(e.calls[e.next++].c_str());
+        ++e.inFlight;
+        ADIFSource src = e.source;
+        unsigned run = e.run;  // answers from an earlier Find Data are ignored
+        [e.client lookup:call
+              completion:^(BOOL found, const std::map<std::string, std::string> &raw, NSString *error, BOOL fatal) {
+                  auto &x = g.enrich;
+                  if (!x.running || x.run != run) return;
+                  --x.inFlight;
+                  ++x.done;
+                  if (fatal) {
+                      enrichFail(error ?: @"The lookup failed.");
+                      return;
+                  }
+                  if (found) x.found[call.UTF8String] = src == ADIFSourceQRZ ? adif::mapQrz(raw) : adif::mapHamQth(raw);
+                  else if (error) {
+                      if (!x.failed++) x.firstError = error.UTF8String;
+                      x.parallel = 1;  // the service is struggling or refusing: slow down
+                  } else ++x.notFound;
+                  double total = (double)x.calls.size(), elapsed = CFAbsoluteTimeGetCurrent() - x.started;
+                  [x.panel setProgress:(double)x.done / total];
+                  std::string st = "Looked up " + std::to_string(x.done) + " of " + std::to_string(x.calls.size()) + " calls";
+                  if (x.done >= 8 && x.done < x.calls.size()) {
+                      long left = std::lround(elapsed / (double)x.done * (total - (double)x.done));
+                      st += left < 90 ? ", about " + std::to_string(std::max(1L, left)) + " seconds left"
+                                      : ", about " + std::to_string((left + 30) / 60) + " minutes left";
+                  }
+                  if (x.parallel == 1 && x.failed) st += " (one at a time after an error)";
+                  [x.panel setStatus:@((st + "...").c_str()) severity:-1];
+                  if (x.parallel == 1)
+                      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(),
+                                     ^{ enrichNextLookup(); });
+                  else
+                      enrichNextLookup();
+              }];
+    }
 }
 
 static void enrichFind() {
@@ -2399,7 +2430,10 @@ static void enrichFind() {
         e.buffer = currentBuffer();
         e.running = true;
         e.cancelled = false;
-        e.next = e.notFound = e.failed = 0;
+        e.next = e.notFound = e.failed = e.inFlight = e.done = e.recordsComplete = 0;
+        e.parallel = 4;
+        e.started = CFAbsoluteTimeGetCurrent();
+        ++e.run;
         e.firstError.clear();
         e.found.clear();
         e.changes.clear();
@@ -2410,12 +2444,28 @@ static void enrichFind() {
             enrichFinish();
             return;
         }
+        // Only calls with a record that lacks one of the chosen fields (Enrich fills missing
+        // fields): a log already enriched needs few or no lookups.
         std::set<std::string> unique;
         for (int gi : scope) {
-            std::string call = adif::lookupCall(adif::groupValue(text, r.model, r.model.groups[(size_t)gi], "CALL"));
+            const adif::ModelGroup &grp = r.model.groups[(size_t)gi];
+            bool away = e.skipAway && adif::awayFromHome(text, r.model, grp);
+            bool needs = false;
+            for (const std::string &f : e.fields)
+                if (adif::groupValue(text, r.model, grp, f).empty() && !(away && adif::isLocationField(f))) needs = true;
+            if (!needs) {
+                ++e.recordsComplete;
+                continue;
+            }
+            std::string call = adif::lookupCall(adif::groupValue(text, r.model, grp, "CALL"));
             if (!call.empty() && unique.insert(call).second) e.calls.push_back(call);
         }
+        if (e.calls.empty()) {
+            enrichFinish();
+            return;
+        }
         if (!e.client) e.client = [[ADIFCallbookClient alloc] initWithSource:e.source agent:@"ADIFLint-" ADIFLINT_VERSION];
+        [e.panel setStatus:[NSString stringWithFormat:@"Looking up %zu calls, %zu at a time...", e.calls.size(), e.parallel] severity:-1];
         enrichNextLookup();
     } catch (...) {
         enrichFail(@"Something went wrong starting the lookups.");

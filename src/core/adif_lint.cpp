@@ -928,10 +928,16 @@ Linter::Fields Linter::index(const std::vector<Spec> &group, const char *where) 
                 sp.name + " appears more than once in this " + where +
                     (std::strcmp(where, "header") == 0 ? " (§III.C.1.a)." : " (§III.C.1.b)."));
         if (!stored()) continue;
-        // The same value twice: removing this copy loses nothing.
-        bool same = sp.lengthOk && it->second->lengthOk &&
-                    view(sp.valueB, sp.cleanE) == view(it->second->valueB, it->second->cleanE);
-        if (same) annotate("dup-field", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}}, "remove this copy");
+        // The same value twice, or one copy empty (a tool added the field instead of filling
+        // <STATE:0>): keeping the value and removing a copy loses nothing.
+        bool lengths = sp.lengthOk && it->second->lengthOk;
+        std::string_view mine = view(sp.valueB, sp.cleanE), first = view(it->second->valueB, it->second->cleanE);
+        if (lengths && (mine == first || mine.empty()))
+            annotate("dup-field", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}},
+                     mine.empty() && !first.empty() ? "remove this empty copy" : "remove this copy");
+        else if (lengths && first.empty())
+            annotate("dup-field", sp.name, {setTo(sp.name, std::string(mine)), FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}},
+                     sp.name + " " + std::string(mine) + ", once");
         else annotate("dup-field", sp.name);
     }
     return f;
@@ -1325,7 +1331,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
     auto importOnly = [&](const EnumValue *ev) {
         if (!ev->importOnly) return;
         std::string msg = "'" + std::string(v) + "' is an import-only (deprecated) " + sp.name + " value; exporters must not write it.";
-        if (ev->note) msg += std::string(" Spec: ") + ev->note;
+        if (ev->note) msg += std::string(" ADIF: ") + ev->note + (startsWithNoCase(ev->note, "replaced by ") ? "." : "");
         diagValue(Severity::Warning, sp, vEnd, std::move(msg));
         // The spec names the new code ("replaced by CMX" for Mexico's DF).
         std::string_view note = ev->note ? std::string_view(ev->note) : std::string_view();

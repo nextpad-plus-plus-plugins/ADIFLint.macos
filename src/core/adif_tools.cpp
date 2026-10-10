@@ -126,6 +126,35 @@ std::string joinList(const std::vector<std::string> &v, const char *sep = ",") {
     return out;
 }
 
+namespace {
+bool asciiLetter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+char upperChar(char c) { return (c >= 'a' && c <= 'z') ? (char)(c - 32) : c; }
+char lowerChar(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
+
+// One word of Title Case, in place: [b, e) of `s`.
+void titleWord(std::string &s, size_t b, size_t e) {
+    for (size_t i = b; i < e; ++i)
+        if (s[i] >= '0' && s[i] <= '9') return;  // 3RD, W1AW: leave it
+    std::string up;
+    for (size_t i = b; i < e; ++i) up.push_back(upperChar(s[i]));
+    if (up == "II" || up == "III" || up == "IV") {
+        for (size_t i = b; i < e; ++i) s[i] = upperChar(s[i]);
+        return;
+    }
+    for (size_t i = b; i < e; ++i) s[i] = lowerChar(s[i]);
+    size_t part = b;  // where the current part (between hyphens, slashes...) starts
+    for (size_t i = b; i < e; ++i) {
+        bool start = i == part;
+        // O'Brien, D'Arcy: a capital after an apostrophe that follows one letter; not Don't.
+        if (!start && i > b && s[i - 1] == '\'' && i - 1 == part + 1 && asciiLetter(s[part])) start = true;
+        if (start && asciiLetter(s[i])) s[i] = upperChar(s[i]);
+        if (i == part && i + 3 < e && lowerChar(s[i]) == 'm' && s[i + 1] == 'c' && asciiLetter(s[i + 2]))
+            s[i + 2] = upperChar(s[i + 2]);  // McDonald
+        if (s[i] == '-' || s[i] == '/' || s[i] == '(' || s[i] == '.') part = i + 1;
+    }
+}
+}  // namespace
+
 bool validFieldName(std::string_view n) {
     if (n.empty()) return false;
     for (char c : n)
@@ -483,11 +512,56 @@ bool matchesFilter(const Record &r, const RecordFilter &f) {
     }
 }
 
+std::vector<std::string> fieldNameList(std::string_view s) {
+    std::vector<std::string> out;
+    std::string cur;
+    auto flush = [&] {
+        if (!cur.empty() && std::find(out.begin(), out.end(), cur) == out.end()) out.push_back(cur);
+        cur.clear();
+    };
+    for (char c : s) {
+        if (c == ',' || c == ' ' || c == '\t' || c == ';') flush();
+        else cur.push_back((char)((c >= 'a' && c <= 'z') ? c - 32 : c));
+    }
+    flush();
+    return out;
+}
+
+
+std::string changeCase(std::string_view in, TextCase c) {
+    std::string s(in);
+    switch (c) {
+        case TextCase::Upper:
+            for (char &ch : s) ch = upperChar(ch);
+            break;
+        case TextCase::Lower:
+            for (char &ch : s) ch = lowerChar(ch);
+            break;
+        case TextCase::Title:
+            for (size_t i = 0; i < s.size();) {
+                if (s[i] == ' ') {
+                    ++i;
+                    continue;
+                }
+                size_t j = i;
+                while (j < s.size() && s[j] != ' ') ++j;
+                titleWord(s, i, j);
+                i = j;
+            }
+            break;
+    }
+    return s;
+}
+
 ChangePlan planBulkEdit(std::string_view text, const DocModel &m, const std::vector<int> &groups, const BulkEdit &op) {
     ChangePlan plan;
-    std::string field = upperAscii(trim(op.field));
-    if (!validFieldName(field)) {
-        plan.skipReason = "Choose a field.";
+    std::vector<std::string> fields = fieldNameList(op.field);
+    if (fields.empty() || !std::all_of(fields.begin(), fields.end(), [](const std::string &f) { return validFieldName(f); })) {
+        plan.skipReason = fields.size() > 1 ? "Field names are letters, digits and _, separated by commas." : "Choose a field.";
+        return plan;
+    }
+    if (op.action == BulkAction::Rename && fields.size() > 1) {
+        plan.skipReason = "Rename one field at a time.";
         return plan;
     }
     std::string newName = upperAscii(trim(op.newName));
@@ -499,20 +573,21 @@ ChangePlan planBulkEdit(std::string_view text, const DocModel &m, const std::vec
         plan.skipReason = "Enter the text to find.";
         return plan;
     }
-    if (op.action == BulkAction::Rename && (!validFieldName(newName) || newName == field)) {
+    if (op.action == BulkAction::Rename && (!validFieldName(newName) || newName == fields[0])) {
         plan.skipReason = "Enter a new field name (letters, digits and _).";
         return plan;
     }
     for (int gi : groups) {
         if (gi < 0 || (size_t)gi >= m.groups.size() || m.groups[(size_t)gi].header) continue;
         const ModelGroup &g = m.groups[(size_t)gi];
+        size_t before = plan.changes.size();
+        for (const std::string &field : fields) {
         std::vector<size_t> occ = fieldsNamed(text, m, g, field);
         PlannedChange c;
         c.group = gi;
         c.record = recordNumber(m, gi);
         c.call = std::string(groupValue(text, m, g, "CALL"));
         c.field = field;
-        size_t before = plan.changes.size();
         switch (op.action) {
             case BulkAction::Set: {
                 if (occ.empty()) {
@@ -546,6 +621,18 @@ ChangePlan planBulkEdit(std::string_view text, const DocModel &m, const std::vec
                     plan.changes.push_back(c);
                 }
                 break;
+            case BulkAction::Case:
+                for (size_t idx : occ) {
+                    std::string cur(fieldValue(text, m.fields[idx]));
+                    std::string next = changeCase(cur, op.textCase);
+                    if (next == cur) continue;
+                    c.kind = PlannedChange::Change;
+                    c.fieldIndex = idx;
+                    c.before = cur;
+                    c.after = next;
+                    plan.changes.push_back(c);
+                }
+                break;
             case BulkAction::Remove:
                 for (size_t idx : occ) {
                     c.kind = PlannedChange::Remove;
@@ -568,6 +655,7 @@ ChangePlan planBulkEdit(std::string_view text, const DocModel &m, const std::vec
                     plan.changes.push_back(c);
                 }
                 break;
+        }
         }
         if (plan.changes.size() > before) ++plan.records;
     }

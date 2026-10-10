@@ -83,12 +83,41 @@ void putEntity(FieldMap &out, const std::string &dxcc) {
     }
 }
 
-// STATE only when ADIF lists that code for the entity (Primary_Administrative_Subdivision[DXCC]).
+// STATE only as a code ADIF lists for the entity (Primary_Administrative_Subdivision[DXCC]).
+// A code ADIF retired becomes its replacement (QRZ.com still has Mexico's NL, now NLE).
 void putState(FieldMap &out, const std::string &state, const std::string &dxcc) {
     const EnumDef *e = findEnum("Primary_Administrative_Subdivision");
-    if (state.empty() || !e) return;
     std::string code = stripZeros(dxcc);
-    if (!code.empty() && enumHasScope(*e, code) && findEnumValue(*e, state, code)) out["STATE"] = upper(state);
+    if (state.empty() || !e || code.empty() || !enumHasScope(*e, code)) return;
+    std::string to = currentSubdivision(*e, state, code);
+    if (!to.empty()) out["STATE"] = to;
+}
+
+// CNTY in ADIF's own spelling where ADIF lists the entity's counties (Alaska:
+// "AK,Matanuska-Susitna" for a callbook's "Matanuska Susitna"); left out when it
+// lists them and none matches. Others (the US, Hawaii) are not listed: kept as given.
+void putCounty(FieldMap &out, const std::string &state, const std::string &county, const std::string &dxcc) {
+    if (state.empty() || county.empty()) return;
+    std::string want = state + "," + county;
+    const EnumDef *e = findEnum("Secondary_Administrative_Subdivision");
+    if (!e || !enumHasScope(*e, dxcc)) {
+        put(out, "CNTY", want);
+        return;
+    }
+    auto letters = [](std::string_view s) {
+        std::string o;
+        for (char c : s)
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) o.push_back((char)(c | 0x20));
+        return o;
+    };
+    std::string key = letters(want);
+    for (size_t i = 0; i < e->count; ++i) {
+        const EnumValue &v = e->values[i];
+        if (v.scope && dxcc == v.scope && !v.importOnly && letters(v.value) == key) {
+            out["CNTY"] = v.value;
+            return;
+        }
+    }
 }
 
 void putLocation(FieldMap &out, const std::string &lat, const std::string &lon) {
@@ -112,6 +141,18 @@ long daysFromCivil(int y, int m, int d) {
 }
 
 }  // namespace
+
+std::string currentSubdivision(const EnumDef &e, std::string_view code, std::string_view dxcc) {
+    const EnumValue *v = findEnumValue(e, code, dxcc);
+    if (!v) return "";
+    if (!v->importOnly && !v->before) return upper(code);
+    std::string_view note = v->note ? std::string_view(v->note) : std::string_view();
+    if (note.size() > 12 && equalsNoCase(note.substr(0, 12), "replaced by ") && note.find_first_of(" ,", 12) == std::string_view::npos) {
+        const EnumValue *to = findEnumValue(e, note.substr(12), dxcc);
+        if (to && !to->importOnly && !to->before) return upper(note.substr(12));
+    }
+    return "";
+}
 
 // QSO_DATE + TIME_ON -> minutes since 1970, or -1 when malformed.
 long qsoMinutes(std::string_view date, std::string_view time) {
@@ -142,8 +183,7 @@ FieldMap mapQrz(const std::map<std::string, std::string> &raw) {
     putEntity(out, dxcc);
     std::string state = get(raw, "state"), county = get(raw, "county");
     putState(out, state, dxcc);
-    if (usEntity(stripZeros(dxcc)) && out.count("STATE") && !county.empty())
-        put(out, "CNTY", out["STATE"] + "," + county);
+    if (usEntity(stripZeros(dxcc)) && out.count("STATE")) putCounty(out, out["STATE"], county, stripZeros(dxcc));
     // QRZ's geoloc says where its coordinates came from; "dxcc", "state" and
     // "none" are too coarse to be a station's grid or position.
     std::string geoloc = get(raw, "geoloc");
@@ -167,8 +207,7 @@ FieldMap mapHamQth(const std::map<std::string, std::string> &raw) {
     putEntity(out, dxcc);
     std::string state = get(raw, "us_state"), county = get(raw, "us_county");
     putState(out, state, dxcc);
-    if (usEntity(stripZeros(dxcc)) && out.count("STATE") && !county.empty())
-        put(out, "CNTY", out["STATE"] + "," + county);
+    if (usEntity(stripZeros(dxcc)) && out.count("STATE")) putCounty(out, out["STATE"], county, stripZeros(dxcc));
     std::string grid = get(raw, "grid");
     if (isAdifGridSquare(grid)) out["GRIDSQUARE"] = grid;
     putLocation(out, get(raw, "latitude"), get(raw, "longitude"));
@@ -252,14 +291,44 @@ static bool upgradesStatus(const std::string &field, std::string_view current, s
     return false;
 }
 
+std::string valueProblem(std::string_view text, const DocModel &m, int group, const std::string &field, const std::string &value,
+                         const FieldMap *also) {
+    if (group < 0 || (size_t)group >= m.groups.size()) return "";
+    const ModelGroup &g = m.groups[(size_t)group];
+    auto spec = [](std::string_view name, std::string_view v) {
+        return "<" + std::string(name) + ":" + std::to_string(v.size()) + ">" + std::string(v) + " ";
+    };
+    // The record as it would be: its other fields (with the other changes offered), then this one.
+    std::string rec = "x <EOH>\n";
+    for (size_t i = 0; i < g.fieldCount; ++i) {
+        const ModelField &f = m.fields[g.firstField + i];
+        std::string name = upper(fieldName(text, f));
+        if (name == field || (also && also->count(name))) continue;
+        rec += spec(name, fieldValue(text, f));
+    }
+    if (also)
+        for (const auto &kv : *also)
+            if (kv.first != field) rec += spec(kv.first, kv.second);
+    size_t at = rec.size();
+    rec += spec(field, value);
+    size_t end = rec.size();
+    rec += "<EOR>\n";
+    LintOptions opt;
+    opt.maxDiagnostics = 200;
+    for (const Diagnostic &d : lint(rec, opt).diagnostics)
+        if (d.severity != Severity::Info && d.start >= at && d.start < end) return d.message;
+    return "";
+}
+
 void proposeChanges(std::string_view text, const DocModel &m, int group, const FieldMap &data, const EnrichOptions &opt,
-                    const std::string &note, std::vector<EnrichChange> &out) {
+                    const std::string &note, std::vector<EnrichChange> &out, std::vector<EnrichChange> *rejected) {
     if (group < 0 || (size_t)group >= m.groups.size()) return;
     const ModelGroup &g = m.groups[(size_t)group];
     if (g.header) return;
     bool away = !opt.perQsoData && opt.skipLocationAwayFromHome && awayFromHome(text, m, g);
     std::string call(groupValue(text, m, g, "CALL"));
     int record = recordNumber(m, group);
+    std::vector<EnrichChange> offered;
     for (const std::string &field : opt.fields) {
         auto it = data.find(field);
         if (it == data.end() || it->second.empty()) continue;
@@ -267,16 +336,31 @@ void proposeChanges(std::string_view text, const DocModel &m, int group, const F
         std::string current(groupValue(text, m, g, field));
         EnrichChange c{group, record, call, field, current, it->second, false, true, note};
         if (current.empty()) {
-            out.push_back(std::move(c));
+            offered.push_back(std::move(c));
         } else if (equalsNoCase(current, it->second)) {
             continue;
         } else if (upgradesStatus(field, current, it->second)) {
             c.replace = true;  // a confirmation upgrades N/R/Q/I: always worth offering
-            out.push_back(std::move(c));
+            offered.push_back(std::move(c));
         } else if (opt.proposeReplacements) {
             c.replace = true;
             c.accepted = false;
+            offered.push_back(std::move(c));
+        }
+    }
+    // Never offer a value ADIF Lint would then report (a retired code, a county ADIF spells
+    // differently, a REGION of another entity...), judged with the record's other new values.
+    FieldMap also;
+    for (const EnrichChange &c : offered)
+        if (c.accepted) also[c.field] = c.value;
+    for (EnrichChange &c : offered) {
+        std::string problem = valueProblem(text, m, group, c.field, c.value, &also);
+        if (problem.empty()) {
             out.push_back(std::move(c));
+        } else if (rejected) {
+            c.accepted = false;
+            c.note = problem;
+            rejected->push_back(std::move(c));
         }
     }
 }
@@ -300,6 +384,16 @@ std::vector<TextEdit> enrichmentEdits(std::string_view text, const DocModel &m, 
             }
             continue;
         }
+        // The field may be there with no data (<STATE:0>): fill it rather than add a second one.
+        bool filled = false;
+        for (size_t i = 0; i < g.fieldCount && !filled; ++i) {
+            const ModelField &f = m.fields[g.firstField + i];
+            if (equalsNoCase(fieldName(text, f), c.field)) {
+                edits.push_back(setFieldValue(text, f, c.value, unit, utf8));
+                filled = true;
+            }
+        }
+        if (filled) continue;
         TextEdit e = insertField(text, m, g, c.field, c.value, unit, utf8);
         auto it = inserts.find(c.group);
         if (it == inserts.end()) inserts.emplace(c.group, e);

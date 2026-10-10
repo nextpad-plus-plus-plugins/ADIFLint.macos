@@ -525,7 +525,11 @@ rows selected in the Log Table, optionally only where another field is, contains
 or has a value. **Preview** lists every change (untick any) and says whether the log would
 have more errors afterwards; nothing changes until **Apply**.
 
-- **Bulk Edit…** sets, replaces text in, removes or renames a field. A rename that would
+- **Bulk Edit…** sets, replaces text in, changes the case of, removes or renames a field.
+  **Field** takes several fields separated by commas (`NAME, QTH, MY_CITY`), except for a
+  rename. **Change case** writes UPPER CASE, lower case or Title Case; Title Case is for
+  names and places (`O'BRIEN-SMITH` → `O'Brien-Smith`, `MCDONALD` → `McDonald`, `III`
+  kept) and leaves words with digits (`3RD`, `W1AW`) alone. A rename that would
   duplicate a field in a record skips that record. **Fill DISTANCE from grid squares**
   writes DISTANCE (km, great circle between the centres of MY_GRIDSQUARE and GRIDSQUARE)
   where both grids are known.
@@ -689,7 +693,8 @@ unticked while you edit the log.
   reads cleanly again, as its own undo step. Changes to QSL and upload fields themselves
   don't count.
 - **QRZ.com Logbook:** one INSERT per QSO with your logbook API key
-  ([QRZ Logbook API](https://www.qrz.com/docs/logbook/QRZLogbookAPI.html)). A QSO the
+  ([QRZ Logbook API](https://www.qrz.com/docs/logbook/QRZLogbookAPI.html); INSERT is a
+  single-record operation and the API has no batch upload), three at a time. A QSO the
   logbook already has counts as sent; a key error stops the run.
 - **LoTW:** runs TQSL (`/Applications/TrustedQSL/tqsl.app`, or choose it) as
   `tqsl -x -d -u -a compliant -l "<Station Location>" file`, which signs with that Station
@@ -735,7 +740,17 @@ LON. Every proposed change is listed for review; nothing changes until you press
 
 Rules for every source:
 
-- Only fields a record lacks are filled; existing values are never replaced.
+- Only fields a record lacks are filled; existing values are never replaced. A field that
+  is there but empty (`<STATE:0>`) is filled in place, not added a second time.
+- Only calls with a record that lacks one of the chosen fields are looked up, so running
+  Enrich again on an enriched log takes moments. Lookups run four at a time on one QRZ.com
+  or HamQTH session (neither has a batch lookup), with the time left shown; after an error
+  they go one at a time. Calls already looked up while Nextpad++ is open are not asked
+  again, so after switching documents, Find Data again is quick.
+- Values are written as ADIF codes: a state code ADIF retired becomes its replacement
+  (QRZ.com still has Mexico's `NL`, now `NLE`), and Alaska's boroughs take ADIF's spelling
+  (`AK,Matanuska-Susitna`). A value ADIF Lint would then report, judged with the record's
+  other new values, is left out, and the status line says how many and why.
 - COUNTRY comes from ADIF's own DXCC entity table ("UNITED STATES OF AMERICA"), so it
   matches LoTW and ADIF.
 - Callbooks give a station's home data. For portable calls (`K1ABC/P`, `VE3/K1ABC`) and

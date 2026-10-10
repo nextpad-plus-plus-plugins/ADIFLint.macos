@@ -11,6 +11,7 @@
 
 #include "adif_edit.h"
 #include "adif_lint.h"
+#include "adif_spec.h"
 
 #include <map>
 #include <string>
@@ -65,8 +66,17 @@ struct EnrichOptions {
 bool awayFromHome(std::string_view text, const DocModel &m, const ModelGroup &g);
 
 // Offer changes for one record (DocModel group) from the data found for it.
+// A value ADIF Lint would report in that record (an error or warning on the
+// field) is not offered; with `rejected`, it is put there, its note the problem.
 void proposeChanges(std::string_view text, const DocModel &m, int group, const FieldMap &data, const EnrichOptions &opt,
-                    const std::string &note, std::vector<EnrichChange> &out);
+                    const std::string &note, std::vector<EnrichChange> &out, std::vector<EnrichChange> *rejected = nullptr);
+// What ADIF Lint would report (error or warning) on `field` = `value` in this record, with
+// `also` (other new values) in place; "" when nothing.
+std::string valueProblem(std::string_view text, const DocModel &m, int group, const std::string &field, const std::string &value,
+                         const FieldMap *also = nullptr);
+// The code to write for a subdivision `code` of DXCC entity `dxcc`: the code, or the
+// one ADIF replaced it by (Mexico's NL is NLE); "" when ADIF doesn't list it there.
+std::string currentSubdivision(const EnumDef &e, std::string_view code, std::string_view dxcc);
 
 // Edits for the accepted changes, against the text the model came from: new
 // fields go in one insertion at each record's end (matching its separator),

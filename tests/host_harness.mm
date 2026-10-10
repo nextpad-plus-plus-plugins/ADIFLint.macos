@@ -1382,8 +1382,10 @@ int main(int argc, char **argv) {
             choose(0);
             [findData performClick:nil];
             waitForStatus(ew, @"Found", 3);
-            CHECK([labelWithLines(ew.contentView, 3) containsString:@"Found 1 of"], "lookups after saving: %s",
-                  labelWithLines(ew.contentView, 3).UTF8String);
+            // AA7BQ's record has its fields since the first run, so only the others are looked up.
+            CHECK([labelWithLines(ew.contentView, 3) containsString:@"Found 0 of 3 calls (3 not found)"] &&
+                      [labelWithLines(ew.contentView, 3) containsString:@"1 record already had these fields"],
+                  "lookups after saving: %s", labelWithLines(ew.contentView, 3).UTF8String);
             [ew orderOut:nil];
         }
         }  // if (ew)
@@ -1612,6 +1614,27 @@ int main(int argc, char **argv) {
                 CHECK(H.doc.find("<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>2230") != std::string::npos &&
                           H.doc.find("<TIME_ON:4>2310") != std::string::npos,
                       "times moved 30 minutes:\n%s", H.doc.c_str());
+
+                // Change case over a list of fields, the action chosen by its title.
+                run("Bulk Edit...");
+                NSPopUpButton *act = nil, *caseMenu = nil;
+                for (NSPopUpButton *pb in pops) {
+                    if ([pb indexOfItemWithTitle:@"Change case"] >= 0) act = pb;
+                    if ([pb indexOfItemWithTitle:@"lower case"] >= 0) caseMenu = pb;
+                }
+                CHECK(act && caseMenu, "Change case and its Case popup exist");
+                [act selectItemWithTitle:@"Change case"];
+                [act sendAction:act.action to:act.target];
+                [caseMenu selectItemWithTitle:@"lower case"];
+                [caseMenu sendAction:caseMenu.action to:caseMenu.target];
+                ((NSComboBox *)combos[0]).stringValue = @"my_state, CALL";
+                [findButton(bw.contentView, @"Preview") performClick:nil];
+                CHECK(tableRows(bt) == 20 && status(bw).find("20 changes in 10 records") == 0, "lower case for MY_STATE and CALL: %s",
+                      status(bw).c_str());
+                [bw.contentView layoutSubtreeIfNeeded];
+                CHECK(!caseMenu.superview.hidden && overlaps(bw.contentView) == 0, "Change case controls show and do not overlap (%d)",
+                      overlaps(bw.contentView));
+                snapshot(bw, "bulk-case");
                 [bw orderOut:nil];
             }
 
