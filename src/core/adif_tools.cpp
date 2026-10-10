@@ -1607,6 +1607,8 @@ std::vector<Contact> contacts(std::string_view text, const DocModel &m) {
         c.theirPark = joinList(theirParks(r));
         for (Program p : {Program::POTA, Program::WWFF, Program::SOTA})
             for (std::string &ref : programRefs(r, p, false)) c.theirRefs.push_back(std::move(ref));
+        if (equalsNoCase(trim(r.get("SIG")), "ZLOTA") && !trim(r.get("SIG_INFO")).empty())
+            c.theirRefs.push_back(upperAscii(trim(r.get("SIG_INFO"))));
         c.record = r.number;
         out.push_back(std::move(c));
     }

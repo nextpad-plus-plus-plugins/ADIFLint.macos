@@ -32,7 +32,7 @@ static NSColor *severityColor(int severity) {
     ADIFFlippedView *_document;
     NSGridView *_grid;
     NSLayoutConstraint *_scrollHeight;
-    NSButton *_currentTime, *_log, *_close, *_fields, *_spots;
+    NSButton *_currentTime, *_log, *_close, *_fields, *_spots, *_contest;
     NSTextField *_lookupInfo;
     NSStackView *_lookupRow;
     NSPopUpButton *_lookup, *_station;
@@ -110,6 +110,10 @@ static NSColor *severityColor(int severity) {
     _spots = [NSButton buttonWithTitle:@"Spots..." target:self action:@selector(spotsPressed:)];
     _spots.toolTip = @"POTA and WWFF activators spotted now: pick one to fill CALL, FREQ, MODE and their reference";
     _spots.translatesAutoresizingMaskIntoConstraints = NO;
+    _contest = [NSButton buttonWithTitle:@"Contest..." target:self action:@selector(contestPressed:)];
+    _contest.toolTip = @"ARRL Field Day, Winter Field Day or serial numbers: the exchange to ask for, the contest's fields and "
+                       @"its duplicate rule";
+    _contest.translatesAutoresizingMaskIntoConstraints = NO;
 
     _lookup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_lookup addItemsWithTitles:@[ @"Off", @"Country data", @"QRZ.com", @"HamQTH" ]];
@@ -136,7 +140,7 @@ static NSColor *severityColor(int severity) {
     _lookupRow.alignment = NSLayoutAttributeCenterY;
     _lookupRow.translatesAutoresizingMaskIntoConstraints = NO;
 
-    for (NSView *v in @[ _target, _scroll, _currentTime, _lookupRow, _lookupInfo, _note, _summary, _log, _close, _fields, _spots ])
+    for (NSView *v in @[ _target, _scroll, _currentTime, _lookupRow, _lookupInfo, _note, _summary, _log, _close, _fields, _spots, _contest ])
         [root addSubview:v];
     const CGFloat m = 12;
     _scrollHeight = [_scroll.heightAnchor constraintEqualToConstant:300];
@@ -177,7 +181,9 @@ static NSColor *severityColor(int severity) {
         [_fields.centerYAnchor constraintEqualToAnchor:_log.centerYAnchor],
         [_spots.leadingAnchor constraintEqualToAnchor:_fields.trailingAnchor constant:8],
         [_spots.centerYAnchor constraintEqualToAnchor:_log.centerYAnchor],
-        [_spots.trailingAnchor constraintLessThanOrEqualToAnchor:_close.leadingAnchor constant:-8],
+        [_contest.leadingAnchor constraintEqualToAnchor:_spots.trailingAnchor constant:8],
+        [_contest.centerYAnchor constraintEqualToAnchor:_log.centerYAnchor],
+        [_contest.trailingAnchor constraintLessThanOrEqualToAnchor:_close.leadingAnchor constant:-8],
     ]];
     return self;
 }
@@ -314,6 +320,10 @@ static NSColor *severityColor(int severity) {
 
 - (void)spotsPressed:(id)sender {
     if (self.onSpots) self.onSpots();
+}
+
+- (void)contestPressed:(id)sender {
+    if (self.onContest) self.onContest();
 }
 
 - (void)lookupChanged:(id)sender {

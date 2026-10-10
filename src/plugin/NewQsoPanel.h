@@ -25,6 +25,7 @@ struct ADIFQsoRow {
 @property(nonatomic, copy) void (^onLog)(void);     // Log QSO pressed
 @property(nonatomic, copy) void (^onCustomize)(void);  // Fields... pressed
 @property(nonatomic, copy) void (^onSpots)(void);      // Spots... pressed
+@property(nonatomic, copy) void (^onContest)(void);    // Contest... pressed
 // Look up the call as you type: 0 off, 1 country data (offline), 2 QRZ.com, 3 HamQTH.
 @property(nonatomic) NSInteger lookupSource;
 @property(nonatomic, copy) void (^onLookupChanged)(NSInteger source);

@@ -42,6 +42,15 @@ std::vector<PotaFile> programExport(Program p, std::string_view text, const DocM
 std::vector<std::pair<std::string, std::string>> programSpotFields(Program p, std::string_view activator, std::string_view kHz,
                                                                    std::string_view mode, std::string_view reference);
 
+// ZLOTA (New Zealand On The Air, ontheair.nz): references are ZLP/ (park), ZLH/
+// (hut), ZLI/ (island), ZLL/ (lake), ZLV/ (volcano) or ZLB/ (lighthouse), then a
+// two-letter area and a number, such as ZLH/HB-072 (its api/assettypes and
+// api/assets, read 2026-10-10).
+bool isZlotaRef(std::string_view ref);
+// A ZLOTA spot as New QSO fields: spotFields() with SIG ZLOTA and SIG_INFO.
+std::vector<std::pair<std::string, std::string>> zlotaSpotFields(std::string_view activator, std::string_view kHz,
+                                                                 std::string_view mode, std::string_view reference);
+
 // Hunting: how often a reference was worked in these contacts (any program;
 // a POTA reference's @location is ignored).
 struct ReferenceHistory {

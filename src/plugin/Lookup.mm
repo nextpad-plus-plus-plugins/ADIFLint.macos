@@ -853,6 +853,30 @@ void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *s
     });
 }
 
+void ADIFFetchZlotaSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error)) {
+    if (NSString *dir = fakeDir()) {
+        NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"zlota/spots.json"]];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSString *error = nil;
+            NSArray *spots = spotObjects(d, &error);
+            done(spots, error);
+        });
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://ontheair.nz/api/spots?zlota_only=true"]];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    [r setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+    httpSend(r, ^(NSData *body, NSString *error) {
+        if (error) {
+            done(nil, error);
+            return;
+        }
+        NSString *problem = nil;
+        NSArray *spots = spotObjects(body, &problem);
+        done(spots, problem ? @"ontheair.nz sent something other than a list of spots" : nil);
+    });
+}
+
 // ── Country data ────────────────────────────────────────────────────────────
 
 void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSString *release, NSString *error)) {

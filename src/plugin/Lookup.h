@@ -92,6 +92,9 @@ void ADIFDownloadSiteQsos(adif::ImportSite site, NSString *from, NSString *to, v
 // WWFF spots from https://spots.wwff.co/static/spots.json (WWFF asks for no more than
 // one fetch every 30 seconds). Test mode: <fake dir>/wwff/spots.json.
 void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
+// ZLOTA spots from https://ontheair.nz/api/spots?zlota_only=true (its API page asks for
+// polling at intervals of 60 seconds or more). Test mode: <fake dir>/zlota/spots.json.
+void ADIFFetchZlotaSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
 // The newest Big CTY cty.csv from www.country-files.com: the release list's first
 // bigcty-*.zip, unzipped. `release` is its name ("bigcty-20260915").
 // Test mode: <fake dir>/cty/cty.csv.

@@ -3200,6 +3200,105 @@ int main(int argc, char **argv) {
             [gw2 orderOut:nil];
         }
 
+
+        // ── Contests in New QSO: Field Day, then serial numbers ──
+        {
+            H.doc = "fd\n<ADIF_VER:5>3.1.7\n<EOH>\n";
+            H.path = std::string(tmp.UTF8String) + "/fieldday.adi";
+            H.openFiles.clear();
+            notify(NPPN_BUFFERACTIVATED);
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.3);
+            run("New QSO...");
+            NSWindow *qwc = qsoWindow();
+            CHECK(qwc && findButton(qwc.contentView, @"Contest...") != nil, "New QSO has a Contest button");
+            [findButton(qwc.contentView, @"Contest...") performClick:nil];
+            NSWindow *cwin = windowTitled(@"Contest");
+            CHECK(cwin.visible, "the Contest window opens");
+            NSMutableArray *cfields = [NSMutableArray array];
+            collect(cwin.contentView, NSTextField.class, cfields);
+            NSTextField *sent = nil, *cid = nil;
+            for (NSTextField *f in cfields) {
+                if ([f.placeholderString hasPrefix:@"e.g. 1D"]) sent = f;
+                if ([f.placeholderString hasPrefix:@"e.g. CQ-WPX"]) cid = f;
+            }
+            NSPopUpButton *preset = findPopupWith(cwin.contentView, @"Winter Field Day");
+            [preset selectItemAtIndex:0];
+            [preset sendAction:preset.action to:preset.target];
+            sent.stringValue = @"1d";
+            [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:sent];
+            CHECK(!findButton(cwin.contentView, @"Start").enabled && [labelWithLines(cwin.contentView, 4) containsString:@"class and section"],
+                  "Start waits for a whole exchange: %s", labelWithLines(cwin.contentView, 4).UTF8String);
+            sent.stringValue = @"1D IL";
+            [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:sent];
+            [findButton(cwin.contentView, @"Start") performClick:nil];
+            pump(0.3);
+            qwc = qsoWindow();
+            CHECK(qsoControl(qwc, @"CLASS") && qsoControl(qwc, @"ARRL_SECT"), "New QSO asks for CLASS and ARRL_SECT");
+            auto logOne = [&](NSString *call, NSString *band, NSString *mode, NSString *cls, NSString *sect) {
+                qsoControl(qwc, @"CALL").stringValue = call;
+                qsoControl(qwc, @"BAND").stringValue = band;
+                qsoControl(qwc, @"MODE").stringValue = mode;
+                if (cls) qsoControl(qwc, @"CLASS").stringValue = cls;
+                if (sect) qsoControl(qwc, @"ARRL_SECT").stringValue = sect;
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qwc, @"CALL")];
+                pump(0.3);
+                std::string summary = summaryLabel(qwc.contentView).stringValue.UTF8String;
+                [findButton(qwc.contentView, @"Log QSO") performClick:nil];
+                pump(0.3);
+                return summary;
+            };
+            logOne(@"K1ABC", @"20m", @"SSB", @"3a", @"ema");
+            CHECK(H.doc.find("<CONTEST_ID:14>ARRL-FIELD-DAY") != std::string::npos && H.doc.find("<STX_STRING:5>1D IL") != std::string::npos &&
+                      H.doc.find("<SRX_STRING:6>3A EMA") != std::string::npos && H.doc.find("<MY_ARRL_SECT:2>IL") != std::string::npos &&
+                      H.doc.find("<CLASS:2>3A") != std::string::npos,
+                  "a Field Day QSO:\n%s", H.doc.c_str());
+            logOne(@"G4XYZ", @"20m", @"CW", @"1A", @"DX");
+            CHECK(H.doc.find("<SRX_STRING:5>1A DX") != std::string::npos && H.doc.find("<ARRL_SECT:2>DX") == std::string::npos,
+                  "DX goes into SRX_STRING, not ARRL_SECT");
+            std::string dupSummary = logOne(@"K1ABC", @"20m", @"FM", @"3A", @"EMA");
+            CHECK(dupSummary.find("already in the contest on 20m Phone") != std::string::npos, "FM after SSB is a Field Day dupe: %s",
+                  dupSummary.c_str());
+            std::string hl;
+            CHECK(noErrors(&hl), "the Field Day log is clean: %s", hl.c_str());
+            if (cwin) {
+                [cwin.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(cwin.contentView) == 0, "Contest does not overlap");
+                snapshot(cwin, "contest");
+            }
+            if (qwc) {
+                [qwc.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(qwc.contentView) == 0, "New QSO with contest rows does not overlap (%d)", overlaps(qwc.contentView));
+            }
+            // Serial numbers count up.
+            [findButton(cwin.contentView, @"Stop") performClick:nil];
+            [preset selectItemAtIndex:2];
+            [preset sendAction:preset.action to:preset.target];
+            cid.stringValue = @"CQ-WPX-SSB";
+            [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:cid];
+            [findButton(cwin.contentView, @"Start") performClick:nil];
+            pump(0.3);
+            qwc = qsoWindow();
+            CHECK(qsoControl(qwc, @"SRX") != nil, "serials: New QSO asks for SRX");
+            qsoControl(qwc, @"SRX").stringValue = @"15";
+            logOne(@"W2AA", @"40m", @"SSB", nil, nil);
+            qsoControl(qwc, @"SRX").stringValue = @"22";
+            logOne(@"W3BB", @"40m", @"SSB", nil, nil);
+            size_t w2 = H.doc.find("<CALL:4>W2AA"), w3 = H.doc.find("<CALL:4>W3BB");
+            auto recordAt = [&](size_t at) { return at == std::string::npos ? std::string() : H.doc.substr(at, H.doc.find("<EOR>", at) - at); };
+            CHECK(recordAt(w2).find("<CONTEST_ID:10>CQ-WPX-SSB") != std::string::npos && recordAt(w2).find("<SRX:2>15") != std::string::npos &&
+                      recordAt(w2).find("<STX:1>1") != std::string::npos && recordAt(w3).find("<STX:1>2") != std::string::npos,
+                  "serials 1 and 2:\n%s", H.doc.c_str());
+            [findButton(cwin.contentView, @"Stop") performClick:nil];
+            pump(0.2);
+            logOne(@"W4CC", @"40m", @"SSB", nil, nil);
+            size_t w4 = H.doc.find("<CALL:4>W4CC");
+            CHECK(w4 != std::string::npos && H.doc.find("CONTEST_ID", w4) == std::string::npos && H.doc.find("<STX:", w4) == std::string::npos,
+                  "after Stop, QSOs carry no contest fields:\n%s", w4 == std::string::npos ? "" : H.doc.substr(w4).c_str());
+            [cwin orderOut:nil];
+            [qsoWindow() orderOut:nil];
+        }
+
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");
         notify(NPPN_SHUTDOWN);
 

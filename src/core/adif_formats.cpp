@@ -249,6 +249,21 @@ CabrilloLog toCabrillo(const std::vector<Record> &recs, const CabrilloOptions &o
         std::string mine = stationCall(r);
         if (mine.empty()) mine = up(o.callsign);
         auto value = [](const std::string &a, const std::string &b) { return !a.empty() ? a : b; };
+        // The Field Days: no reports; class and section as their own words (W1AW 2A CT K1ABC 3A EMA).
+        std::string contest = up(trim(r.get("CONTEST_ID")));
+        if (contest == "ARRL-FIELD-DAY" || contest == "WFD") {
+            std::string sent = up(trim(r.get("STX_STRING")));
+            std::string rcvd = up(trim(r.get("SRX_STRING")));
+            if (rcvd.empty()) rcvd = up(trim(trim(r.get("CLASS")) + " " + trim(r.get("ARRL_SECT"))));
+            bool missing = sent.empty() || rcvd.empty();
+            out.incomplete += missing;
+            std::string l = "QSO: " + std::string(5 - std::min<size_t>(5, freq.size()), ' ') + freq + " " + mode + (mode.size() < 2 ? " " : "") +
+                            " " + date.substr(0, 4) + "-" + date.substr(4, 2) + "-" + date.substr(6, 2) + " " + time.substr(0, 4) + " " +
+                            (mine.empty() ? "-" : mine) + " " + (sent.empty() ? "-" : sent) + " " + call + " " + (rcvd.empty() ? "-" : rcvd) + "\n";
+            t += l;
+            ++out.qsos;
+            continue;
+        }
         std::string rstS = trim(r.get("RST_SENT")), rstR = trim(r.get("RST_RCVD"));
         std::string exS = value(trim(r.get("STX_STRING")), trim(r.get("STX"))), exR = value(trim(r.get("SRX_STRING")), trim(r.get("SRX")));
         bool missing = false;

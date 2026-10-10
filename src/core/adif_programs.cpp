@@ -231,6 +231,29 @@ std::vector<std::pair<std::string, std::string>> programSpotFields(Program p, st
     return out;
 }
 
+bool isZlotaRef(std::string_view ref) {
+    std::string r = up(ref);
+    if (r.size() < 10 || r.size() > 11 || r.compare(0, 2, "ZL") != 0 || std::string("PHILVB").find(r[2]) == std::string::npos ||
+        r[3] != '/' || r[6] != '-')
+        return false;
+    for (size_t i = 4; i < 6; ++i)
+        if (r[i] < 'A' || r[i] > 'Z') return false;
+    for (size_t i = 7; i < r.size(); ++i)
+        if (r[i] < '0' || r[i] > '9') return false;
+    return true;
+}
+
+std::vector<std::pair<std::string, std::string>> zlotaSpotFields(std::string_view activator, std::string_view kHz,
+                                                                 std::string_view mode, std::string_view reference) {
+    auto out = spotFields(activator, kHz, mode, "");
+    std::string ref = up(reference);
+    if (isZlotaRef(ref)) {
+        out.emplace_back("SIG", "ZLOTA");
+        out.emplace_back("SIG_INFO", ref);
+    }
+    return out;
+}
+
 ReferenceHistory referenceHistory(std::string_view ref, const std::vector<WorkedHit> &hits) {
     ReferenceHistory h;
     std::string want = up(ref.substr(0, ref.find('@')));

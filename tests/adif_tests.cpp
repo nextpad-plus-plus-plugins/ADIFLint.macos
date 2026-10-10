@@ -11,6 +11,7 @@
 #include "adif_capture.h"
 #include "adif_compare.h"
 #include "adif_qsl.h"
+#include "adif_contest.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -2257,6 +2258,70 @@ static void testCompareAndQsl() {
           qrz.modified);
 }
 
+static void testContestAndZlota() {
+    ContestSetup fd;
+    fd.preset = ContestPreset::FieldDay;
+    fd.sent = "1d il";
+    CHECK(sentProblem(fd).empty() && contestIdFor(fd) == "ARRL-FIELD-DAY", "Field Day: 1D IL");
+    fd.sent = "1D";
+    CHECK(sentProblem(fd).find("class and section") != std::string::npos, "Field Day: the section is needed");
+    fd.sent = "1D IL";
+    CHECK(classProblem(ContestPreset::FieldDay, "3A").empty() && classProblem(ContestPreset::FieldDay, "12F").empty() &&
+              !classProblem(ContestPreset::FieldDay, "3H").empty() && !classProblem(ContestPreset::FieldDay, "A").empty(),
+          "Field Day classes");
+    CHECK(classProblem(ContestPreset::WinterFieldDay, "2O").empty() && !classProblem(ContestPreset::WinterFieldDay, "2A").empty(),
+          "Winter Field Day classes");
+    CHECK(sectionProblem(ContestPreset::FieldDay, "wi").empty() && sectionProblem(ContestPreset::FieldDay, "DX").empty() &&
+              !sectionProblem(ContestPreset::FieldDay, "MX").empty() && sectionProblem(ContestPreset::WinterFieldDay, "MX").empty() &&
+              !sectionProblem(ContestPreset::FieldDay, "ZZ").empty(),
+          "sections: ARRL/RAC, DX, MX for WFD");
+    FieldList f = contestFields(fd, {{"CALL", "K1AB"}, {"CLASS", "3a"}, {"ARRL_SECT", "ct"}}, 0);
+    CHECK(f == FieldList({{"CONTEST_ID", "ARRL-FIELD-DAY"}, {"STX_STRING", "1D IL"}, {"MY_ARRL_SECT", "IL"}, {"SRX_STRING", "3A CT"}}),
+          "Field Day fields");
+    ContestSetup serial;
+    serial.preset = ContestPreset::Serial;
+    serial.contestId = "cq-wpx-ssb";
+    CHECK(contestFields(serial, {}, 7) == FieldList({{"CONTEST_ID", "CQ-WPX-SSB"}, {"STX", "7"}}), "serial fields");
+    std::string log = std::string(kHeader) +
+                      "<CALL:4>K1AB <QSO_DATE:8>20260627 <TIME_ON:4>1800 <BAND:3>20m <MODE:3>SSB <CONTEST_ID:14>ARRL-FIELD-DAY <STX:1>4 <EOR>\n"
+                      "<CALL:6>K1AB/P <QSO_DATE:8>20260627 <TIME_ON:4>1810 <BAND:3>40m <MODE:2>CW <CONTEST_ID:14>ARRL-FIELD-DAY <STX:2>12 <EOR>\n"
+                      "<CALL:4>K2CD <QSO_DATE:8>20260101 <TIME_ON:4>1800 <BAND:3>20m <MODE:3>SSB <STX:2>99 <EOR>\n";
+    LintResult r = lintModel(log);
+    CHECK(nextSerial(log, r.model, "ARRL-FIELD-DAY") == 13 && nextSerial(log, r.model, "") == 100, "next serial per contest");
+    Record q;
+    q.fields = {{"CALL", "K1AB"}, {"BAND", "20m"}, {"MODE", "FM"}};
+    CHECK(contestDupes(log, r.model, "ARRL-FIELD-DAY", q) == std::vector<int>({1}), "FM is Phone like SSB: a dupe");
+    q.fields = {{"CALL", "K1AB"}, {"BAND", "40m"}, {"MODE", "CW"}};
+    CHECK(contestDupes(log, r.model, "ARRL-FIELD-DAY", q) == std::vector<int>({2}), "K1AB/P is K1AB");
+    q.fields = {{"CALL", "K1AB"}, {"BAND", "20m"}, {"MODE", "FT8"}};
+    CHECK(contestDupes(log, r.model, "ARRL-FIELD-DAY", q).empty() && modeCategory("RTTY") == "DG", "Digital is its own mode");
+
+    {
+        std::string fdLog = std::string(kHeader) + "<CALL:5>K1ABC <QSO_DATE:8>20260627 <TIME_ON:4>1800 <FREQ:6>14.250 <MODE:3>SSB "
+                                                   "<STATION_CALLSIGN:4>W1AW <CONTEST_ID:14>ARRL-FIELD-DAY <STX_STRING:5>2A CT "
+                                                   "<CLASS:2>3A <ARRL_SECT:3>EMA <RST_SENT:2>59 <EOR>\n";
+        LintResult fr = lintModel(fdLog);
+        CabrilloOptions co;
+        co.contest = "ARRL-FD";
+        co.callsign = "W1AW";
+        CabrilloLog cr = toCabrillo(records(fdLog, fr.model), co);
+        CHECK(cr.text.find("QSO: 14250 PH 2026-06-27 1800 W1AW 2A CT K1ABC 3A EMA\n") != std::string::npos && cr.incomplete == 0,
+              "Field Day Cabrillo line:\n%s", cr.text.c_str());
+    }
+    CHECK(isZlotaRef("ZLH/HB-072") && isZlotaRef("zlp/wk-0123") && !isZlotaRef("ZLX/HB-072") && !isZlotaRef("ZL1/HB-072") &&
+              !isZlotaRef("ZLH/HB072"),
+          "ZLOTA references");
+    FieldList z = zlotaSpotFields("zl2abc", "7090.0", "SSB", "ZLH/HB-072");
+    bool sig = false, info = false;
+    for (const auto &kv : z) sig |= kv == std::pair<std::string, std::string>("SIG", "ZLOTA"), info |= kv.first == "SIG_INFO" && kv.second == "ZLH/HB-072";
+    CHECK(sig && info, "ZLOTA spot fields");
+    std::string zlog = std::string(kHeader) + "<CALL:6>ZL2ABC <QSO_DATE:8>20261009 <TIME_ON:4>0100 <BAND:3>40m <MODE:3>SSB "
+                                              "<SIG:5>ZLOTA <SIG_INFO:10>zlh/hb-072 <EOR>\n";
+    std::vector<Contact> cs = contacts(zlog, lintModel(zlog).model);
+    CHECK(cs.size() == 1 && std::find(cs[0].theirRefs.begin(), cs[0].theirRefs.end(), "ZLH/HB-072") != cs[0].theirRefs.end(),
+          "a ZLOTA hunt counts as worked");
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -2298,6 +2363,7 @@ int main(int argc, char **argv) {
     testProfiles();
     testCapture();
     testCompareAndQsl();
+    testContestAndZlota();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

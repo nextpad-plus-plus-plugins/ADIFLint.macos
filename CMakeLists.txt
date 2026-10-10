@@ -46,7 +46,8 @@ add_library(adif_core STATIC
     src/core/adif_profiles.cpp
     src/core/adif_capture.cpp
     src/core/adif_compare.cpp
-    src/core/adif_qsl.cpp)
+    src/core/adif_qsl.cpp
+    src/core/adif_contest.cpp)
 target_include_directories(adif_core PUBLIC src/core)
 target_compile_options(adif_core PRIVATE ${WARNINGS})
 set_target_properties(adif_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -89,7 +90,7 @@ add_test(NAME adiflint_tools COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli_tools.sh $
 if(NOT ADIF_SANITIZE)
     add_library(ADIFLint SHARED src/plugin/ADIFLint.mm src/plugin/RecordPanel.mm src/plugin/NewQsoPanel.mm
         src/plugin/EnrichPanel.mm src/plugin/Lookup.mm src/plugin/SettingsPanel.mm src/plugin/QsoFieldsPanel.mm
-        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm
+        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm
         src/plugin/Uploads.mm src/plugin/Imports.mm src/plugin/Country.mm)
     target_include_directories(ADIFLint PRIVATE
         third_party/nextpad
