@@ -95,13 +95,21 @@ std::string changeCase(std::string_view s, TextCase c);
 // Field names from "NAME, QTH MY_CITY" (commas or spaces), upper case, each once, in order.
 std::vector<std::string> fieldNameList(std::string_view s);
 
+// "Only where FIELD [not] <kind> VALUE". Text compares ignore ASCII case and the
+// spaces around a value. Less, Greater and Between compare numbers (dates too) by
+// value, an HHMM time as HHMM00, and other text alphabetically. A record without the
+// field matches only Missing (and Equals ""): `invert` (NOT) turns that around too.
 struct RecordFilter {
-    enum Kind { All, Equals, Contains, Missing, Present };
+    enum Kind { All, Equals, Contains, StartsWith, EndsWith, OneOf, Pattern, Regex, Less, Greater, Between, Missing, Present };
     Kind kind = All;
     std::string field;
-    std::string value;  // Equals/Contains, ASCII case-insensitive
+    std::string value;    // OneOf: "A, B, C"; Pattern: * any run, ? one character, the whole value;
+                          // Regex: ECMAScript, found anywhere (anchor with ^ $); Between: "low, high", inclusive
+    bool invert = false;  // NOT: the records that don't match
 };
 bool matchesFilter(const Record &r, const RecordFilter &f);
+// Why the filter can't be used, or "": a bad regular expression, Between without two values...
+std::string filterProblem(const RecordFilter &f);
 
 // One planned change to one field of one record.
 struct PlannedChange {

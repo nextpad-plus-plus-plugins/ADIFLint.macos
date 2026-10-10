@@ -521,9 +521,16 @@ enter, and a `/` in a callsign becomes `_` in the file name.
 ## Editing the whole log
 
 Bulk Edit and Time Shift work on all records, the records in the editor selection, or the
-rows selected in the Log Table, optionally only where another field is, contains, lacks
-or has a value. **Preview** lists every change (untick any) and says whether the log would
-have more errors afterwards; nothing changes until **Apply**.
+rows selected in the Log Table. **Only where** narrows them by one field: it **is**,
+**contains**, **starts with**, **ends with**, **is one of** (`K1AB, W3EF`), **matches
+pattern** (the whole value; `*` any run, `?` one character: `*/P`), **matches regular
+expression** (found anywhere; anchor with `^` and `$`), **is less than**, **is greater
+than**, **is between** (`20261001, 20261031`, both ends included), **is missing** or **is
+present**. Text ignores case; less, greater and between compare numbers and dates by value
+(an HHMM time as HHMM00). Tick **not** for the records that don't match; a record without
+the field never matches a comparison, so **not** includes it. **Preview** lists every change
+(untick any) and says whether the log would have more errors afterwards; nothing changes
+until **Apply**.
 
 - **Bulk Edit…** sets, replaces text in, changes the case of, removes or renames a field.
   **Field** takes several fields separated by commas (`NAME, QTH, MY_CITY`), except for a

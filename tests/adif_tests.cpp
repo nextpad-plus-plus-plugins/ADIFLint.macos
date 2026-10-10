@@ -900,6 +900,51 @@ static void testToolsBasics() {
 }
 
 static void testBulkEdit() {
+    // "Only where": every operator, and NOT.
+    {
+        std::string t = std::string(kHeader) +
+                        "<CALL:4>K1AB <COMMENT:10>73 DE KW9D <QSO_DATE:8>20261001 <TIME_ON:4>1230 <FREQ:6>14.074 <EOR>\n"
+                        "<CALL:6>K2CD/P <COMMENT:19>Thanks for the park <QSO_DATE:8>20261005 <TIME_ON:6>123045 <FREQ:5>7.074 <EOR>\n"
+                        "<CALL:4>W3EF <QSO_DATE:8>20261010 <TIME_ON:4>0001 <FREQ:4>21.3 <EOR>\n";
+        std::vector<Record> recs = records(t, lintModel(t).model);
+        auto which = [&](RecordFilter::Kind kind, const char *field, const char *value, bool invert = false) {
+            RecordFilter f;
+            f.kind = kind, f.field = field, f.value = value, f.invert = invert;
+            std::string out;
+            for (size_t i = 0; i < recs.size(); ++i)
+                if (matchesFilter(recs[i], f)) out += std::to_string(i + 1);
+            return out;
+        };
+        CHECK(which(RecordFilter::Equals, "COMMENT", " 73 de kw9d ") == "1" && which(RecordFilter::Equals, "COMMENT", "73 DE KW9D", true) == "23",
+              "is, and not is (a record without the field is 'not')");
+        CHECK(which(RecordFilter::Contains, "COMMENT", "PARK") == "2" && which(RecordFilter::Contains, "COMMENT", "park", true) == "13",
+              "contains, not contains");
+        CHECK(which(RecordFilter::StartsWith, "COMMENT", "73") == "1" && which(RecordFilter::EndsWith, "COMMENT", "Park") == "2",
+              "starts with, ends with");
+        CHECK(which(RecordFilter::OneOf, "CALL", "k1ab, W3EF") == "13", "is one of");
+        CHECK(which(RecordFilter::Pattern, "CALL", "*/P") == "2" && which(RecordFilter::Pattern, "CALL", "k?ab") == "1" &&
+                  which(RecordFilter::Pattern, "CALL", "K*") == "12" && which(RecordFilter::Pattern, "CALL", "K1A") == "",
+              "patterns match the whole value");
+        CHECK(which(RecordFilter::Regex, "COMMENT", "^73\\b") == "1" && which(RecordFilter::Regex, "CALL", "/p$", true) == "13",
+              "regular expressions, any case");
+        CHECK(which(RecordFilter::Less, "FREQ", "10") == "2" && which(RecordFilter::Greater, "FREQ", "10") == "13",
+              "numbers by value (7.074 < 10 < 14.074)");
+        CHECK(which(RecordFilter::Between, "QSO_DATE", "20261002, 20261010") == "23" &&
+                  which(RecordFilter::Between, "QSO_DATE", "20261010,20261002") == "23",
+              "between, inclusive, either order");
+        CHECK(which(RecordFilter::Less, "TIME_ON", "123030") == "13", "HHMM times compare as HHMM00");
+        CHECK(which(RecordFilter::Missing, "COMMENT", "") == "3" && which(RecordFilter::Missing, "COMMENT", "", true) == "12",
+              "missing, not missing");
+        CHECK(which(RecordFilter::Less, "COMMENT", "z") == "12" && which(RecordFilter::Less, "COMMENT", "z", true) == "3",
+              "no value never compares, so NOT includes it");
+        RecordFilter bad;
+        bad.kind = RecordFilter::Regex, bad.field = "COMMENT", bad.value = "(";
+        CHECK(!filterProblem(bad).empty(), "a bad regular expression is reported");
+        bad.kind = RecordFilter::Between, bad.value = "2026";
+        CHECK(filterProblem(bad).find("two values") != std::string::npos, "between needs two values");
+        bad.kind = RecordFilter::Equals, bad.value = "";
+        CHECK(filterProblem(bad).empty(), "is \"\" is fine (an empty value)");
+    }
     // Change case: ASCII only; Title Case for names and places.
     CHECK(changeCase("o'brien-SMITH", TextCase::Title) == "O'Brien-Smith" && changeCase("MCDONALD", TextCase::Title) == "McDonald" &&
               changeCase("JOHN SMITH III", TextCase::Title) == "John Smith III" && changeCase("DON'T  STOP", TextCase::Title) == "Don't  Stop" &&

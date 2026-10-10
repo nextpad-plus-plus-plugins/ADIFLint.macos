@@ -1631,6 +1631,29 @@ int main(int argc, char **argv) {
                 [findButton(bw.contentView, @"Preview") performClick:nil];
                 CHECK(tableRows(bt) == 20 && status(bw).find("20 changes in 10 records") == 0, "lower case for MY_STATE and CALL: %s",
                       status(bw).c_str());
+                // Only where CALL is not one of K1AB, K1AC: 8 records.
+                NSButton *useFilter = findButton(bw.contentView, @"Only where"), *notBox = findButton(bw.contentView, @"not");
+                NSComboBox *filterField = nil;
+                for (NSComboBox *c in combos)
+                    if ([c.placeholderString isEqualToString:@"field"]) filterField = c;
+                NSPopUpButton *op = nil;
+                for (NSPopUpButton *pb in pops)
+                    if ([pb indexOfItemWithTitle:@"is one of"] >= 0) op = pb;
+                CHECK(useFilter && notBox && filterField && op && op.numberOfItems == 12, "Only where: not, and 12 operators");
+                useFilter.state = NSControlStateValueOn;
+                [useFilter sendAction:useFilter.action to:useFilter.target];
+                notBox.state = NSControlStateValueOn;
+                [notBox sendAction:notBox.action to:notBox.target];
+                [op selectItemWithTitle:@"is one of"];
+                [op sendAction:op.action to:op.target];
+                filterField.stringValue = @"CALL";
+                NSTextField *filterValue = nil;
+                for (NSTextField *f in fields)
+                    if ([f.placeholderString isEqualToString:@"A, B, C"]) filterValue = f;
+                filterValue.stringValue = @"k1ab, K1AC";
+                [findButton(bw.contentView, @"Preview") performClick:nil];
+                CHECK(filterValue && tableRows(bt) == 16 && status(bw).find("16 changes in 8 records") == 0,
+                      "not is one of: %s", status(bw).c_str());
                 [bw.contentView layoutSubtreeIfNeeded];
                 CHECK(!caseMenu.superview.hidden && overlaps(bw.contentView) == 0, "Change case controls show and do not overlap (%d)",
                       overlaps(bw.contentView));

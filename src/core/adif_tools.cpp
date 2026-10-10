@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <functional>
 #include <map>
+#include <memory>
+#include <regex>
 #include <set>
 #include <tuple>
 #include <unordered_map>
@@ -500,16 +502,140 @@ std::string summaryReport(std::string_view text, const DocModel &m, std::string_
 
 // ── Bulk edits ──────────────────────────────────────────────────────────────
 
-bool matchesFilter(const Record &r, const RecordFilter &f) {
-    if (f.kind == RecordFilter::All || f.field.empty()) return true;
-    const std::string &v = r.get(f.field);
+namespace {
+
+// "*" any run of characters, "?" one, the whole value, ignoring ASCII case.
+bool globMatch(std::string_view s, std::string_view p) {
+    auto same = [](char a, char b) {
+        auto u = [](char c) { return (c >= 'a' && c <= 'z') ? (char)(c - 32) : c; };
+        return u(a) == u(b);
+    };
+    size_t i = 0, j = 0, star = std::string_view::npos, mark = 0;
+    while (i < s.size()) {
+        if (j < p.size() && p[j] != '*' && (p[j] == '?' || same(p[j], s[i]))) {
+            ++i, ++j;
+        } else if (j < p.size() && p[j] == '*') {
+            star = j++, mark = i;
+        } else if (star != std::string_view::npos) {
+            j = star + 1, i = ++mark;
+        } else {
+            return false;
+        }
+    }
+    while (j < p.size() && p[j] == '*') ++j;
+    return j == p.size();
+}
+
+// Order two values: numbers by value (an HHMM time as HHMM00), else text ignoring case.
+int compareValues(const std::string &field, std::string a, std::string b) {
+    const FieldDef *fd = findField(field);
+    if (fd && fd->type == DataType::Time) {
+        if (a.size() == 4) a += "00";
+        if (b.size() == 4) b += "00";
+    }
+    double x = 0, y = 0;
+    if (parseAdifNumber(a, &x) && parseAdifNumber(b, &y)) return x < y ? -1 : x > y ? 1 : 0;
+    return compareNoCase(a, b);
+}
+
+bool betweenValues(const std::string &spec, std::string *low, std::string *high) {
+    size_t comma = spec.find(',');
+    if (comma == std::string::npos) return false;
+    *low = trim(spec.substr(0, comma)), *high = trim(spec.substr(comma + 1));
+    return !low->empty() && !high->empty() && high->find(',') == std::string::npos;
+}
+
+// The compiled expression for the last pattern asked for (a filter runs it over every record).
+const std::regex *regexFor(const std::string &pattern) {
+    static thread_local std::string last;
+    static thread_local std::unique_ptr<std::regex> re;
+    if (!re || pattern != last) {
+        re.reset();
+        last = pattern;
+        try {
+            re = std::make_unique<std::regex>(pattern, std::regex::ECMAScript | std::regex::icase);
+        } catch (const std::regex_error &) {
+            return nullptr;
+        }
+    }
+    return re.get();
+}
+
+bool filterHolds(const Record &r, const RecordFilter &f) {
+    std::string v = trim(r.get(f.field)), want = trim(f.value);
     switch (f.kind) {
-        case RecordFilter::Equals: return equalsNoCase(trim(v), trim(f.value));
-        case RecordFilter::Contains: return !f.value.empty() && containsNoCase(v, f.value);
         case RecordFilter::Missing: return v.empty();
         case RecordFilter::Present: return !v.empty();
+        case RecordFilter::Equals: return equalsNoCase(v, want);
+        default: break;
+    }
+    if (v.empty()) return false;  // no value: no text to compare
+    switch (f.kind) {
+        case RecordFilter::Contains: return !want.empty() && containsNoCase(v, want);
+        case RecordFilter::StartsWith: return !want.empty() && v.size() >= want.size() && equalsNoCase(v.substr(0, want.size()), want);
+        case RecordFilter::EndsWith:
+            return !want.empty() && v.size() >= want.size() && equalsNoCase(v.substr(v.size() - want.size()), want);
+        case RecordFilter::OneOf:
+            for (const std::string &item : splitList(want))
+                if (equalsNoCase(v, item)) return true;
+            return false;
+        case RecordFilter::Pattern: return globMatch(v, want);
+        case RecordFilter::Regex: {
+            const std::regex *re = regexFor(f.value);
+            try {
+                return re && std::regex_search(v, *re);
+            } catch (const std::regex_error &) {  // too complex for this value
+                return false;
+            }
+        }
+        case RecordFilter::Less: return compareValues(f.field, v, want) < 0;
+        case RecordFilter::Greater: return compareValues(f.field, v, want) > 0;
+        case RecordFilter::Between: {
+            std::string low, high;
+            if (!betweenValues(want, &low, &high)) return false;
+            if (compareValues(f.field, low, high) > 0) std::swap(low, high);
+            return compareValues(f.field, v, low) >= 0 && compareValues(f.field, v, high) <= 0;
+        }
         default: return true;
     }
+}
+
+}  // namespace
+
+bool matchesFilter(const Record &r, const RecordFilter &f) {
+    if (f.kind == RecordFilter::All || f.field.empty()) return true;
+    return filterHolds(r, f) != f.invert;
+}
+
+std::string filterProblem(const RecordFilter &f) {
+    std::string want = trim(f.value), low, high;
+    switch (f.kind) {
+        case RecordFilter::Contains:
+        case RecordFilter::StartsWith:
+        case RecordFilter::EndsWith:
+        case RecordFilter::Pattern:
+        case RecordFilter::Regex:
+        case RecordFilter::Less:
+        case RecordFilter::Greater:
+            if (want.empty()) return "Type the value for \"Only where\".";
+            break;
+        case RecordFilter::OneOf:
+            if (splitList(want).empty()) return "Type the values for \"is one of\", separated by commas.";
+            break;
+        case RecordFilter::Between:
+            if (!betweenValues(want, &low, &high))
+                return "Type two values for \"is between\", low and high, separated by a comma (20261001, 20261031).";
+            break;
+        default: break;
+    }
+    if (f.kind == RecordFilter::Regex) {
+        try {
+            std::regex re(f.value, std::regex::ECMAScript | std::regex::icase);
+        } catch (const std::regex_error &e) {
+            return std::string("Not a regular expression ADIF Lint can use: ") + e.what() + ".";
+        }
+    }
+    return "";
 }
 
 std::vector<std::string> fieldNameList(std::string_view s) {

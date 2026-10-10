@@ -998,6 +998,12 @@ void workedRefresh() {
 
 enum { kActSet, kActReplace, kActCase, kActRemove, kActRename, kActShift, kActDistance };
 enum { kScopeAll, kScopeSelection, kScopeTable };
+// "Only where" operators, in the popup's order.
+const adif::RecordFilter::Kind kFilterKinds[] = {
+    adif::RecordFilter::Equals,  adif::RecordFilter::Contains, adif::RecordFilter::StartsWith, adif::RecordFilter::EndsWith,
+    adif::RecordFilter::OneOf,   adif::RecordFilter::Pattern,  adif::RecordFilter::Regex,      adif::RecordFilter::Less,
+    adif::RecordFilter::Greater, adif::RecordFilter::Between,  adif::RecordFilter::Missing,    adif::RecordFilter::Present};
+const size_t kFilterKindCount = sizeof(kFilterKinds) / sizeof(kFilterKinds[0]);
 enum { kShiftToUtc, kShiftFromUtc, kShiftFixed };
 
 struct {
@@ -1007,7 +1013,7 @@ struct {
     NSTextField *zoneInfo = nil;
     NSStackView *rowShiftMode = nil, *rowZone = nil;
     NSTextField *value = nil, *find = nil, *replace = nil, *days = nil, *hours = nil, *minutes = nil, *filterValue = nil;
-    NSButton *onlyMissing = nil, *useFilter = nil, *apply = nil, *preview = nil;
+    NSButton *onlyMissing = nil, *useFilter = nil, *filterNot = nil, *apply = nil, *preview = nil;
     NSStackView *rowField = nil, *rowSet = nil, *rowReplace = nil, *rowRename = nil, *rowShift = nil, *rowCase = nil;
     size_t previewCount = 0;
     intptr_t buffer = 0;
@@ -1059,9 +1065,21 @@ void bulkLayout() {
     bulk.rowZone.hidden = a != kActShift || fixed;
     bulk.rowShift.hidden = a != kActShift || !fixed;
     bulkZoneInfo();
-    bulk.filterValue.enabled = bulk.useFilter.state == NSControlStateValueOn &&
-                               bulk.filterKind.indexOfSelectedItem <= 1;  // is / contains
-    bulk.filterField.enabled = bulk.filterKind.enabled = bulk.useFilter.state == NSControlStateValueOn;
+    bool filtering = bulk.useFilter.state == NSControlStateValueOn;
+    adif::RecordFilter::Kind kind = kFilterKinds[std::clamp<NSInteger>(bulk.filterKind.indexOfSelectedItem, 0, kFilterKindCount - 1)];
+    bulk.filterValue.enabled = filtering && kind != adif::RecordFilter::Missing && kind != adif::RecordFilter::Present;
+    bulk.filterField.enabled = bulk.filterKind.enabled = bulk.filterNot.enabled = filtering;
+    switch (kind) {
+        case adif::RecordFilter::OneOf: bulk.filterValue.placeholderString = @"A, B, C"; break;
+        case adif::RecordFilter::Pattern: bulk.filterValue.placeholderString = @"e.g. K*/P (* any, ? one)"; break;
+        case adif::RecordFilter::Regex: bulk.filterValue.placeholderString = @"e.g. ^73\\b"; break;
+        case adif::RecordFilter::Between: bulk.filterValue.placeholderString = @"low, high"; break;
+        case adif::RecordFilter::Less:
+        case adif::RecordFilter::Greater: bulk.filterValue.placeholderString = @"number, date or text"; break;
+        case adif::RecordFilter::Missing:
+        case adif::RecordFilter::Present: bulk.filterValue.placeholderString = @""; break;
+        default: bulk.filterValue.placeholderString = @"value"; break;
+    }
     bulk.w.window.title = a == kActShift ? @"Time Shift" : @"Bulk Edit";
 }
 
@@ -1089,13 +1107,16 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
     }
     if (bulk.useFilter.state == NSControlStateValueOn) {
         adif::RecordFilter f;
-        static const adif::RecordFilter::Kind kinds[] = {adif::RecordFilter::Equals, adif::RecordFilter::Contains,
-                                                         adif::RecordFilter::Missing, adif::RecordFilter::Present};
-        f.kind = kinds[std::clamp<NSInteger>(bulk.filterKind.indexOfSelectedItem, 0, 3)];
+        f.kind = kFilterKinds[std::clamp<NSInteger>(bulk.filterKind.indexOfSelectedItem, 0, kFilterKindCount - 1)];
         f.field = ADIFStd(bulk.filterField.stringValue);
         f.value = ADIFStd(bulk.filterValue.stringValue);
+        f.invert = bulk.filterNot.state == NSControlStateValueOn;
         if (f.field.empty()) {
             *error = "Choose the field for \"Only where\".";
+            return false;
+        }
+        if (std::string why = adif::filterProblem(f); !why.empty()) {
+            *error = why;
             return false;
         }
         std::vector<adif::Record> recs = adif::records(text, r.model);
@@ -1344,10 +1365,18 @@ void openBulkEdit(bool shift, bool fromTable) {
             bulk.scope = ADIFPopup(@[ @"All records", @"Records in the editor selection", @"Records selected in the Log Table" ]);
             [w addOptionRow:@[ ADIFLabel(@"Records:"), bulk.scope ]];
             bulk.useFilter = ADIFCheckbox(@"Only where", NO);
-            bulk.filterField = ADIFComboBox(@[], 150);
-            bulk.filterKind = ADIFPopup(@[ @"is", @"contains", @"is missing", @"is present" ]);
-            bulk.filterValue = ADIFTextField(@"value", 140);
-            [w addOptionRow:@[ bulk.useFilter, bulk.filterField, bulk.filterKind, bulk.filterValue ]];
+            bulk.filterField = ADIFComboBox(@[], 140);
+            bulk.filterField.placeholderString = @"field";
+            bulk.filterNot = ADIFCheckbox(@"not", NO);
+            bulk.filterNot.toolTip = @"The records that don't match: not is, not contains, not between...";
+            bulk.filterKind = ADIFPopup(@[ @"is", @"contains", @"starts with", @"ends with", @"is one of", @"matches pattern",
+                                           @"matches regular expression", @"is less than", @"is greater than", @"is between",
+                                           @"is missing", @"is present" ]);
+            bulk.filterKind.toolTip = @"Text ignores case. Less, greater and between compare numbers and dates by value. "
+                                      @"A pattern matches the whole value (* any run, ? one character); a regular expression "
+                                      @"is found anywhere (use ^ and $ to anchor it).";
+            bulk.filterValue = ADIFTextField(@"value", 150);
+            [w addOptionRow:@[ bulk.useFilter, bulk.filterField, bulk.filterNot, bulk.filterKind, bulk.filterValue ]];
             [w setColumns:std::vector<ADIFToolColumn>{{"record", "Record", 56}, {"call", "Call", 90}, {"field", "Field", 130}, {"now", "Now", 150},
                            {"new", "New", 200}}
                 checkboxes:YES
@@ -1357,7 +1386,7 @@ void openBulkEdit(bool shift, bool fromTable) {
             [w addButton:@"Untick All" trailing:NO action:^{ [bulk.w setAllTicked:NO]; }];
             bulk.apply = [w addButton:@"Apply Changes" trailing:YES action:^{ bulkApply(); }];
             for (NSControl *c in @[ bulk.action, bulk.scope, bulk.filterKind, bulk.onlyMissing, bulk.useFilter, bulk.shiftMode, bulk.zone,
-                                    bulk.textCase ])
+                                    bulk.textCase, bulk.filterNot ])
                 ADIFOnAction(c, ^{
                     bulkLayout();
                     bulkClear(@"Settings changed. Preview again.");

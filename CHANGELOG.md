@@ -14,6 +14,9 @@ Versions before 0.8.0 were development builds and were not published.
 - **Bulk Edit → Change case**: UPPER CASE, lower case or Title Case for names and places
   (`O'Brien-Smith`, `McDonald`, `III` kept; words with digits left alone). **Field** takes
   several fields separated by commas (`NAME, QTH`) for every action but Rename.
+- **Bulk Edit → Only where** has more ways to match: starts with, ends with, is one of,
+  matches pattern (`*/P`), matches regular expression, is less than, is greater than and is
+  between (numbers and dates by value), and a **not** box that turns any of them around.
 
 ### Changed
 
