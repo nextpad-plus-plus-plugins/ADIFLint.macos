@@ -243,17 +243,6 @@ bool isZlotaRef(std::string_view ref) {
     return true;
 }
 
-std::vector<std::pair<std::string, std::string>> zlotaSpotFields(std::string_view activator, std::string_view kHz,
-                                                                 std::string_view mode, std::string_view reference) {
-    auto out = spotFields(activator, kHz, mode, "");
-    std::string ref = up(reference);
-    if (isZlotaRef(ref)) {
-        out.emplace_back("SIG", "ZLOTA");
-        out.emplace_back("SIG_INFO", ref);
-    }
-    return out;
-}
-
 ReferenceHistory referenceHistory(std::string_view ref, const std::vector<WorkedHit> &hits) {
     ReferenceHistory h;
     std::string want = up(ref.substr(0, ref.find('@')));

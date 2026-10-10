@@ -2313,10 +2313,6 @@ static void testContestAndZlota() {
     CHECK(isZlotaRef("ZLH/HB-072") && isZlotaRef("zlp/wk-0123") && !isZlotaRef("ZLX/HB-072") && !isZlotaRef("ZL1/HB-072") &&
               !isZlotaRef("ZLH/HB072"),
           "ZLOTA references");
-    FieldList z = zlotaSpotFields("zl2abc", "7090.0", "SSB", "ZLH/HB-072");
-    bool sig = false, info = false;
-    for (const auto &kv : z) sig |= kv == std::pair<std::string, std::string>("SIG", "ZLOTA"), info |= kv.first == "SIG_INFO" && kv.second == "ZLH/HB-072";
-    CHECK(sig && info, "ZLOTA spot fields");
     std::string zlog = std::string(kHeader) + "<CALL:6>ZL2ABC <QSO_DATE:8>20261009 <TIME_ON:4>0100 <BAND:3>40m <MODE:3>SSB "
                                               "<SIG:5>ZLOTA <SIG_INFO:10>zlh/hb-072 <EOR>\n";
     std::vector<Contact> cs = contacts(zlog, lintModel(zlog).model);

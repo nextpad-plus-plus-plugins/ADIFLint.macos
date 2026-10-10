@@ -92,9 +92,6 @@ void ADIFDownloadSiteQsos(adif::ImportSite site, NSString *from, NSString *to, v
 // WWFF spots from https://spots.wwff.co/static/spots.json (WWFF asks for no more than
 // one fetch every 30 seconds). Test mode: <fake dir>/wwff/spots.json.
 void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
-// ZLOTA spots from https://ontheair.nz/api/spots?zlota_only=true (its API page asks for
-// polling at intervals of 60 seconds or more). Test mode: <fake dir>/zlota/spots.json.
-void ADIFFetchZlotaSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
 // ARRL's LoTW user activity list, https://lotw.arrl.org/lotw-user-activity.csv (about 6 MB).
 // Test mode: <fake dir>/lotw/lotw-user-activity.csv.
 void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error));
