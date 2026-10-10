@@ -41,6 +41,7 @@
 #import "Contest.h"
 #import "Labels.h"
 #import "LotwUsers.h"
+#import "Map.h"
 #import "Lookup.h"
 #import "NewQsoPanel.h"
 #import "PluginHost.h"
@@ -99,6 +100,7 @@ enum {
     kCmdSummary,
     kCmdTracker,
     kCmdWorkedBefore,
+    kCmdMap,
     kSepServices,
     kCmdImport,
     kCmdExport,
@@ -682,6 +684,7 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics = t
     checklog::documentChanged();
     contest::documentChanged();
     labels::documentChanged();
+    worldmap::documentChanged();
     return r;
 }
 
@@ -2633,6 +2636,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdSummary, "Log Summary...", logtools::cmdSummary);
     setItem(kCmdTracker, "Activation Tracker (POTA, WWFF, SOTA)...", logtools::cmdActivationTracker);
     setItem(kCmdWorkedBefore, "Worked Before...", logtools::cmdWorkedBefore);
+    setItem(kCmdMap, "Map (Grids, Entities, Parks)...", worldmap::cmdMap);
     setItem(kSepServices, "", nullptr);
     setItem(kCmdImport, "Import...", families::cmdImport);
     setItem(kCmdExport, "Export...", families::cmdExport);

@@ -614,7 +614,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 33, "33 menu entries (27 commands, 6 separators), got %d", n);
+        CHECK(n == 34, "34 menu entries (28 commands, 6 separators), got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -726,7 +726,7 @@ int main(int argc, char **argv) {
         };
         for (const char *name : {"New QSO...", "Spots (POTA, WWFF)...", "Start Activation...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
                                  "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
-                                 "Compare and Merge Logs...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...",
+                                 "Compare and Merge Logs...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...", "Map (Grids, Entities, Parks)...",
                                  "Import...", "Export...", "QSL Sync (Upload, Confirmations)...", "Enrich...", "Monitor (WSJT-X, N1MM, Loggers)...", "Record Panel", "Reformat: One Record per Line",
                                  "Reformat: One Field per Line", "Check .adi Files While Typing", "Settings...", "About ADIF Lint..."})
             CHECK(byName.count(name), "menu item %s", name);
@@ -3387,6 +3387,49 @@ int main(int argc, char **argv) {
                       old.find("LoTW: last upload 2019-01-02") != std::string::npos && none.find("LoTW") == std::string::npos,
                   "LoTW in the lookup line: %s | %s | %s", recent.c_str(), old.c_str(), none.c_str());
             [qwl orderOut:nil];
+        }
+
+
+        // ── Map ──
+        {
+            H.doc = "map\n<ADIF_VER:5>3.1.7\n<EOH>\n"
+                    "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:6>FN31pr <MY_GRIDSQUARE:6>EN52wa "
+                    "<LOTW_QSL_RCVD:1>Y <EOR>\n"
+                    "<CALL:5>G4ABC <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>IO91 <EOR>\n"
+                    "<CALL:5>JA1XY <QSO_DATE:8>20261009 <TIME_ON:4>1220 <BAND:3>15m <MODE:3>FT8 <GRIDSQUARE:4>PM95 <EOR>\n"
+                    "<CALL:4>W2CD <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>FN20 <POTA_REF:7>US-1234 <EOR>\n"
+                    "<CALL:4>1A0C <QSO_DATE:8>20261009 <TIME_ON:4>1240 <BAND:3>20m <MODE:2>CW <QSL_RCVD:1>Y <EOR>\n";  // in the test country file
+            H.path = std::string(tmp.UTF8String) + "/map.adi";
+            notify(NPPN_BUFFERACTIVATED);
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.3);
+            run("Map (Grids, Entities, Parks)...");
+            NSWindow *mapw = windowTitled(@"Map");
+            NSString *mapStatus = mapw ? labelContaining(mapw.contentView, @"grid square") : nil;
+            CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 park"] &&
+                      [mapStatus containsString:@"1 entity (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"],
+                  "the map's summary: %s", mapStatus.UTF8String);
+            NSString *mapDir = [tmp stringByAppendingPathComponent:@"mapout"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:mapDir withIntermediateDirectories:YES attributes:nil error:nil];
+            setenv("ADIFLINT_TEST_SAVE_DIR", mapDir.UTF8String, 1);
+            [findButton(mapw.contentView, @"Export PNG...") performClick:nil];
+            unsetenv("ADIFLINT_TEST_SAVE_DIR");
+            NSData *png = [NSData dataWithContentsOfFile:[mapDir stringByAppendingPathComponent:@"map map.png"]];
+            CHECK(png.length > 1000 && ((const unsigned char *)png.bytes)[1] == 'P', "the map exported as PNG (%lu bytes)", (unsigned long)png.length);
+            if (const char *snap = getenv("ADIFLINT_SNAPSHOT_DIR"))
+                [png writeToFile:[@(snap) stringByAppendingPathComponent:@"map-export.png"] atomically:YES];
+            NSPopUpButton *bandPopup = findPopupWith(mapw.contentView, @"All bands");
+            [bandPopup selectItemWithTitle:@"15m"];
+            [bandPopup sendAction:bandPopup.action to:bandPopup.target];
+            CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"1 grid square"], "the band filter");
+            [bandPopup selectItemAtIndex:0];
+            [bandPopup sendAction:bandPopup.action to:bandPopup.target];
+            if (mapw) {
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(mapw.contentView) == 0, "Map does not overlap");
+                snapshot(mapw, "map");
+            }
+            [mapw orderOut:nil];
         }
 
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");

@@ -13,6 +13,7 @@
 #include "adif_qsl.h"
 #include "adif_contest.h"
 #include "adif_labels.h"
+#include "adif_world.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -2363,6 +2364,36 @@ static void testLabels() {
           "marked sent:\n%s", marked.c_str());
 }
 
+static void testWorld() {
+    size_t rings = landRingCount(), points = 0;
+    double minLat = 90, maxLat = -90;
+    for (size_t i = 0; i < rings; ++i)
+        for (const auto &p : landRing(i)) {
+            ++points;
+            minLat = std::min(minLat, p.second), maxLat = std::max(maxLat, p.second);
+            if (p.first < -180.01 || p.first > 180.01) CHECK(false, "longitude out of range: %f", p.first);
+        }
+    CHECK(rings > 100 && points > 4000 && minLat < -80 && maxLat > 80, "the land outline: %zu rings, %zu points", rings, points);
+    double w, s, e, n;
+    CHECK(squareBounds("fn31pr", &w, &s, &e, &n) && w == -74 && s == 41 && e == -72 && n == 42 && !squareBounds("ZZ99", &w, &s, &e, &n),
+          "FN31 spans 74-72 W, 41-42 N");
+    CHECK(squareAt(-72.5, 41.5) == "FN31" && squareAt(-87.9, 42.9) == "EN52" && squareAt(200, 0).empty(), "the square at a point");
+    std::string log = std::string(kHeader) +
+                      "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:6>FN31pr <MY_GRIDSQUARE:6>EN52wa "
+                      "<LOTW_QSL_RCVD:1>Y <EOR>\n"
+                      "<CALL:4>W2CD <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>FN31 <POTA_REF:7>US-1234 "
+                      "<MY_GRIDSQUARE:4>EN52 <EOR>\n"
+                      "<CALL:4>W3EF <QSO_DATE:8>20261009 <TIME_ON:4>1220 <BAND:2>6m <MODE:3>FT8 <VUCC_GRIDS:9>FN20,FN21 <EOR>\n"
+                      "<CALL:4>W4GH <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:2>CW <EOR>\n";
+    LintResult r = lintModel(log);
+    MapData all = mapData(log, r.model, "", ""), twenty = mapData(log, r.model, "20m", "CW");
+    CHECK(all.squares.size() == 3 && all.squares[2].grid == "FN31" && all.squares[2].qsos == 2 && all.squares[2].confirmed &&
+              all.parks.size() == 1 && all.parks[0].reference == "US-1234" && all.mine.size() == 2 && all.withoutGrid == 1 &&
+              all.calls.size() == 4,
+          "map data: %zu squares, %zu parks", all.squares.size(), all.parks.size());
+    CHECK(twenty.records == 2 && twenty.squares.size() == 1 && twenty.squares[0].qsos == 1, "band and mode filters");
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -2406,6 +2437,7 @@ int main(int argc, char **argv) {
     testCompareAndQsl();
     testContestAndZlota();
     testLabels();
+    testWorld();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);
