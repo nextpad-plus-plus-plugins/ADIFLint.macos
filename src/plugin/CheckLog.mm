@@ -79,7 +79,7 @@ void plan(bool keepTicks) {
                             d.field, d.message, d.fixes.empty() ? std::string() : d.fixLabel});
             severities.push_back(d.severity == adif::Severity::Error ? 2 : d.severity == adif::Severity::Warning ? 1 : 0);
             keys.push_back(key(d));
-            ticks.push_back(!d.fixes.empty());
+            ticks.push_back(!d.fixes.empty() && !d.dropsData);  // a removal waits for your tick
             chk.diags.push_back(d);
         }
         [chk.w setRows:rows severities:severities keys:keys ticks:ticks keepTicks:keepTicks];

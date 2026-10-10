@@ -55,11 +55,13 @@ struct Diagnostic {
     std::string field;             // the field it is about (upper case), when known
     std::vector<FieldFix> fixes;   // the repair, applied together; empty when there is none
     std::string fixLabel;          // what the repair does, e.g. "MODE SSB, SUBMODE USB"
+    bool dropsData = false;        // the repair removes a value: offered, never applied unasked
 };
 // The kinds that have codes: length (Fix Lengths repairs them), mode-is-submode,
 // submode-mode, mode-missing, date-format, time-format, freq-band, band-missing,
 // case, future-date, sat-name, sat-prop, pota-station, dup-field, no-eor, bom,
-// minimum-fields.
+// minimum-fields, subdivision (a STATE or CNTY not on the entity's list),
+// power-unit (TX_PWR 30W).
 
 // One data specifier, <NAME:LENGTH[:T]>DATA, as byte offsets.
 struct ModelField {

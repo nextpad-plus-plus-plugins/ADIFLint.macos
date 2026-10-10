@@ -91,6 +91,21 @@ std::string fmtNumber(double v) {
     return b;
 }
 
+// "HUNGARY" -> "Hungary", "UNITED STATES OF AMERICA" -> "United States Of America".
+std::string titleCase(std::string_view s) {
+    std::string out(s);
+    bool start = true;
+    for (char &c : out) {
+        unsigned char u = (unsigned char)c;
+        if (u >= 'A' && u <= 'Z' && !start) c = (char)(u + 32);
+        start = !((u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || (u >= '0' && u <= '9') || u == '\'');
+    }
+    for (const char *small : {" Of ", " And ", " The ", " De "}) {  // "United States of America"
+        for (size_t at; (at = out.find(small)) != std::string::npos;) out[at + 1] = (char)(out[at + 1] + 32);
+    }
+    return out;
+}
+
 // MHz for a fix: up to 6 decimals, trailing zeros dropped (14.074, not 14.074000).
 std::string fmtMHz(double v) {
     char b[48];
@@ -1239,10 +1254,34 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
                           "'" + std::string(v) + "' is not a registered ADIF submode of MODE " + scope + ".");
             return;
         }
-        if (enumHasScope(*e, scope))
-            diagValue(Severity::Error, sp, vEnd,
-                      "'" + std::string(v) + "' is not a " + sp.name + " code for DXCC entity " + scope + " (ADIF " +
-                          e->name + ").");
+        if (enumHasScope(*e, scope)) {
+            // A code ADIF doesn't list for this entity: often a callbook's free text (QRZ.com
+            // fills STATE from the other station's profile). Uploads still work, so a warning.
+            bool keep = r_.diagnostics.size() < opt_.maxDiagnostics;
+            std::string msg = "'" + std::string(v) + "' is not one of ADIF's " + sp.name + " codes for ";
+            const char *country = dxccEntityName(scope);
+            msg += (country ? titleCase(country) + " (DXCC " + scope + ")" : "DXCC entity " + scope);
+            if (keep) {
+                std::string codes;
+                size_t n = 0;
+                const char *previous = "";
+                for (size_t i = 0; i < e->count; ++i) {  // sorted, so a repeated code is adjacent
+                    const EnumValue &x = e->values[i];
+                    if (!x.scope || scope != x.scope || x.importOnly || std::strcmp(x.value, previous) == 0) continue;
+                    previous = x.value;
+                    if (n++ < 10) codes += (codes.empty() ? "" : ", ") + std::string(x.value);
+                }
+                if (n) msg += ", which are " + codes + (n > 10 ? " and " + std::to_string(n - 10) + " more" : std::string()) +
+                              " (ADIF " + e->name + ")";
+            }
+            msg += ".";
+            diagValue(Severity::Warning, sp, vEnd, std::move(msg));
+            if (stored()) {
+                annotate("subdivision", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}},
+                         "remove " + sp.name + " " + std::string(v));
+                r_.diagnostics[lastDiag_].dropsData = true;
+            }
+        }
         return;
     }
 
@@ -1319,8 +1358,27 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
         }
         case DataType::Number: {
             double x = 0;
-            if (!parseNumber(v, &x)) bad(Severity::Error, "expected digits with an optional '-' and at most one '.' (no '+' or ',')");
-            else range(x);
+            if (!parseNumber(v, &x)) {
+                bad(Severity::Error, "expected digits with an optional '-' and at most one '.' (no '+' or ',')");
+                // Power with its unit (WSJT-X writes what you type: 30W, 5 w, 1.5kW): ADIF wants watts.
+                if ((sp.name == "TX_PWR" || sp.name == "RX_PWR") && stored()) {
+                    std::string_view num = v, unit;
+                    size_t at = 0;
+                    while (at < num.size() && (isDigit((unsigned char)num[at]) || num[at] == '.')) ++at;
+                    unit = num.substr(at);
+                    num = num.substr(0, at);
+                    while (!unit.empty() && unit.front() == ' ') unit.remove_prefix(1);
+                    double w = 0;
+                    bool kilo = equalsNoCase(unit, "kW");
+                    bool watts = kilo || equalsNoCase(unit, "W") || equalsNoCase(unit, "watt") || equalsNoCase(unit, "watts");
+                    if (watts && parseNumber(num, &w)) {
+                        std::string value = kilo ? fmtMHz(w * 1000) : std::string(num);
+                        annotate("power-unit", sp.name, {setTo(sp.name, value)}, sp.name + " " + value);
+                    }
+                }
+            } else {
+                range(x);
+            }
             break;
         }
         case DataType::Date:

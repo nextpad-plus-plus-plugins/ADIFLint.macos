@@ -262,7 +262,13 @@ static void testEnumerations() {
     // Primary_Administrative_Subdivision[DXCC]
     expectClean("state ok", lintRecord("<DXCC:3>291 <STATE:2>MA "));
     expectClean("dxcc leading zero", lintRecord("<DXCC:4>0291 <STATE:2>ma "));
-    expect("state wrong", lintRecord("<DXCC:3>291 <STATE:2>XX "), Severity::Error, "not a STATE code for DXCC entity 291");
+    expect("state wrong", lintRecord("<DXCC:3>291 <STATE:2>XX "), Severity::Warning,
+           "not one of ADIF's STATE codes for United States of America (DXCC 291), which are");
+    // Another entity's own list (Hungary: counties), not US states; a callbook's 'H' isn't on it.
+    expectClean("hungary county", lintRecord("<DXCC:3>239 <STATE:2>BP "));
+    expect("hungary callbook state", lintRecord("<DXCC:3>239 <STATE:1>H "), Severity::Warning,
+           "'H' is not one of ADIF's STATE codes for Hungary (DXCC 239), which are BA, BE, BN, BO, BP, CS, FE, GY, HB, HE and 10 more");
+    expectClean("an entity without a list", lintRecord("<DXCC:3>202 <STATE:2>PR "));
     expectClean("state without dxcc", lintRecord("<STATE:2>XX "));
     expect("dxcc unknown", lintRecord("<DXCC:3>999 "), Severity::Error, "not a valid DXCC");
     expect("contest id", lintRecord("<CONTEST_ID:9>MY-SPRINT "), Severity::Info, "not in ADIF's Contest_ID list");
@@ -1824,6 +1830,30 @@ static void testQuickFixes() {
         for (const Diagnostic &d : after.diagnostics) left += d.code == c.code;
         CHECK(applied == mine.size() && left == 0 && after.errors == 0 && fixed.find(c.after) != std::string::npos,
               "%s: repaired to '%s':\n%s%s", c.code, c.after, fixed.c_str(), dump(after).c_str());
+    }
+
+    // A subdivision not on the entity's list: removal is offered but marked as dropping data.
+    {
+        std::string hu = std::string(kHeader) + "<CALL:5>HA5XX <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW "
+                                               "<DXCC:3>239 <STATE:1>H <EOR>\n";
+        LintResult hr = lintModel(hu);
+        std::vector<Diagnostic> sub;
+        for (const Diagnostic &d : hr.diagnostics)
+            if (d.code == "subdivision") sub.push_back(d);
+        CHECK(sub.size() == 1 && sub[0].dropsData && sub[0].fixLabel == "remove STATE H", "subdivision: removal offered, flagged");
+        std::string removed = applyTextEdits(hu, quickFixEdits(hu, hr.model, sub, LengthUnit::Bytes, true));
+        CHECK(removed.find("<STATE") == std::string::npos && removed.find("<DXCC:3>239 <EOR>") != std::string::npos,
+              "STATE removed:\n%s", removed.c_str());
+    }
+    // TX_PWR with its unit (WSJT-X writes what you type).
+    for (const auto &[typed, want] : std::vector<std::pair<std::string, std::string>>{
+             {"30W", "<TX_PWR:2>30 "}, {"5 w", "<TX_PWR:1>5 "}, {"1.5kW", "<TX_PWR:4>1500 "}, {"100 Watts", "<TX_PWR:3>100 "}}) {
+        std::string pw = std::string(kHeader) + "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <TX_PWR:" +
+                         std::to_string(typed.size()) + ">" + typed + " <EOR>\n";
+        LintResult pr = lintModel(pw);
+        std::string fixedPw = applyTextEdits(pw, quickFixEdits(pw, pr.model, pr.diagnostics, LengthUnit::Bytes, true));
+        CHECK(fixedPw.find(want) != std::string::npos && lintModel(fixedPw).errors == 0, "TX_PWR %s repaired:\n%s", typed.c_str(),
+              fixedPw.c_str());
     }
 
     // No repair where the right value is unknown; the BOM; a future date (with today given).

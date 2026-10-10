@@ -33,9 +33,9 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - **Check Log** lists every problem with its repair, and repairs the ones you tick in one
   undo step: MODE `USB` or `FT4` written as the mode (becomes MODE SSB, SUBMODE USB),
   dates and times typed as `2026-10-06` and `22:30`, a FREQ written in kHz, BAND missing
-  or not matching FREQ, lowercase calls and states, a satellite QSO without `PROP_MODE
-  SAT`, a POTA record without STATION_CALLSIGN, a repeated field, a missing final
-  `<EOR>`. It also flags QSO dates in the future, which POTA refuses. The Record Panel
+  or not matching FREQ, TX_PWR written as `30W`, lowercase calls and states, a satellite QSO
+  without `PROP_MODE SAT`, a POTA record without STATION_CALLSIGN, a repeated field, a
+  missing final `<EOR>`. It also flags QSO dates in the future, which POTA refuses. The Record Panel
   offers the same repairs on a right-click.
 - **Fix Lengths** corrects every wrong `<FIELD:LENGTH>` in one undo step.
 - The **Record Panel** shows the whole log in a line under its title: problems, QSOs waiting

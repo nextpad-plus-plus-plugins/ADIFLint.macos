@@ -202,7 +202,10 @@ int main(int argc, char **argv) {
                     o.buildModel = true;
                     adif::LintResult rr = adif::lint(cur, o);
                     size_t n = 0;
-                    std::vector<adif::TextEdit> edits = adif::quickFixEdits(cur, rr.model, rr.diagnostics, opt.lengthUnit, opt.utf8, &n);
+                    std::vector<adif::Diagnostic> keep;  // never a repair that removes a value
+                    for (const adif::Diagnostic &d : rr.diagnostics)
+                        if (!d.dropsData) keep.push_back(d);
+                    std::vector<adif::TextEdit> edits = adif::quickFixEdits(cur, rr.model, keep, opt.lengthUnit, opt.utf8, &n);
                     if (edits.empty()) break;
                     cur = adif::applyTextEdits(cur, edits);
                     repaired += n;

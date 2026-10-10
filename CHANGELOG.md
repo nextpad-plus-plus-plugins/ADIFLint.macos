@@ -45,6 +45,12 @@ Versions before 0.8.0 were development builds and were not published.
   keeps plugin shortcuts by menu position, so check any you assigned (Edit → Shortcut
   Mapper…).
 - Sort and Organize remembers a field order only when you apply one.
+- A STATE or CNTY that isn't on its country's ADIF list is a warning, not an error, and says
+  which country and lists its codes (Hungary's are counties such as `BP` and `PE`). These
+  usually come from callbooks: QRZ.com Logbook copies the other station's profile, such as
+  `H` for Hungary. Check Log offers to remove one, unticked.
+- Check Log repairs TX_PWR and RX_PWR written with a unit (`30W` becomes `30`, `1.5kW`
+  `1500`), as WSJT-X writes whatever you type in its power box.
 
 ### Fixed
 

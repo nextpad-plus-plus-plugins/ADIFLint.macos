@@ -50,6 +50,8 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
   | A POTA record without STATION_CALLSIGN or OPERATOR | The log's usual STATION_CALLSIGN |
   | The same field twice with the same value | The second copy removed |
   | The last record has no `<EOR>` | `<EOR>` added |
+  | TX_PWR or RX_PWR with a unit (`30W`, `5 w`, `1.5kW`, as WSJT-X writes what you type) | The number of watts (`30`, `5`, `1500`) |
+  | STATE or CNTY not on the country's ADIF list | Removed, only if you tick it: it starts unticked, and `--fix-all` leaves it |
   | A byte-order mark at the start | Removed |
 
   Problems without a repair need your judgement: a QSO date after today (POTA refuses
@@ -106,8 +108,12 @@ typed by hand.
   mode and the rest, plus deprecated values with the specification's advice (for example
   `MODE C4FM` → `DIGITALVOICE` with `SUBMODE C4FM`).
 - **Between fields:** SUBMODE must belong to MODE; FREQ must lie in BAND, and FREQ_RX in
-  BAND_RX (band edges included); STATE and CNTY must belong to the DXCC entity where ADIF
-  lists that entity's subdivisions.
+  BAND_RX (band edges included). STATE and CNTY are checked against the record's own DXCC
+  entity, for the 66 entities ADIF lists subdivisions for: Hungary's are counties (`BP`
+  Budapest, `PE` Pest…), Italy's provinces, Brazil's states. A value not on that list is a
+  warning that names the country and its codes; callbooks often put something else there
+  (QRZ.com Logbook copies the other station's profile, such as `H` for Hungary). Other
+  entities' values, and STATE without a DXCC, are not checked.
 - **User fields:** `USERDEFn` definitions in the header, with their enumerations
   `{S,M,L}` or ranges `{5:20}`, and `APP_PROGRAMID_FIELDNAME` fields, whose type the first
   occurrence fixes.
