@@ -7,6 +7,7 @@
 #include "adif_enrich.h"
 #include "adif_lint.h"
 #include "adif_spec.h"
+#include "adif_profiles.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -1921,6 +1922,63 @@ static void testQuickFixes() {
           "five repairs at once (%zu):\n%s%s", applied, all.c_str(), dump(after).c_str());
 }
 
+// Station profiles and activations.
+static void testProfiles() {
+    StationProfile home, portable;
+    home.name = "Home";
+    home.set("station_callsign", "KW9D");
+    home.set("MY_GRIDSQUARE", "EN52");
+    portable.name = "Portable, T1";
+    portable.set("STATION_CALLSIGN", "KW9D/P");
+    portable.set("MY_RIG", "Elecraft T1");
+    portable.set("TX_PWR", "5");
+    portable.tqslLocation = "KW9D portable";
+    std::string text = profilesText({home, portable}, "0.10", "20261009 120000");
+    std::vector<StationProfile> back = parseProfiles(text);
+    CHECK(lint(text).errors == 0 && back.size() == 2 && back[0].name == "Home" && back[0].get("STATION_CALLSIGN") == "KW9D" &&
+              back[1].name == "Portable, T1" && back[1].get("MY_RIG") == "Elecraft T1" && back[1].tqslLocation == "KW9D portable",
+          "profiles round trip:\n%s", text.c_str());
+    home.set("MY_GRIDSQUARE", "");
+    CHECK(home.get("MY_GRIDSQUARE").empty() && home.fields.size() == 1, "an empty value removes the field");
+
+    std::vector<std::string> bad;
+    std::string why;
+    std::vector<std::string> refs = parseReferences(Program::POTA, "us-7929, US-1234 us-7929", &bad, &why);
+    CHECK(refs == std::vector<std::string>({"US-7929", "US-1234"}) && bad.empty() && why.empty(), "POTA two-fer parsed");
+    refs = parseReferences(Program::POTA, "US-7929, 7929", &bad, &why);
+    CHECK(refs.size() == 1 && bad == std::vector<std::string>({"7929"}) && why.find("Not a POTA reference: 7929") == 0, "bad ref: %s",
+          why.c_str());
+    bad.clear();
+    refs = parseReferences(Program::WWFF, "KFF-1234, KFF-5678", &bad, &why);
+    CHECK(refs.size() == 2 && why.find("one reference per log") != std::string::npos, "WWFF takes one: %s", why.c_str());
+    refs = parseReferences(Program::SOTA, "w7a/ae-001", &bad, &why);
+    CHECK(refs == std::vector<std::string>({"W7A/AE-001"}) && why.empty(), "SOTA summit");
+
+    FieldList pota = activationFields(Program::POTA, {"US-7929", "US-1234"});
+    CHECK(pota == FieldList({{"MY_SIG", "POTA"}, {"MY_SIG_INFO", "US-7929,US-1234"}, {"MY_POTA_REF", "US-7929,US-1234"}}),
+          "POTA activation fields");
+    CHECK(activationFields(Program::WWFF, {"KFF-1234"}) ==
+              FieldList({{"MY_SIG", "WWFF"}, {"MY_SIG_INFO", "KFF-1234"}, {"MY_WWFF_REF", "KFF-1234"}}),
+          "WWFF activation fields");
+    CHECK(activationFields(Program::SOTA, {"W7A/AE-001"}) == FieldList({{"MY_SOTA_REF", "W7A/AE-001"}}), "SOTA activation fields");
+    // A record written with them is counted as that activation.
+    std::string rec = std::string(kHeader) + "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW "
+                                            "<STATION_CALLSIGN:4>KW9D <MY_SIG:4>POTA <MY_SIG_INFO:15>US-7929,US-1234 "
+                                            "<MY_POTA_REF:15>US-7929,US-1234 <EOR>\n";
+    LintResult r = lintModel(rec);
+    std::vector<Activation> acts = programActivations(rec, r.model, Program::POTA);
+    CHECK(r.errors == 0 && acts.size() == 2 && acts[0].qsos == 1 && acts[1].qsos == 1, "a two-fer QSO counts for both parks (%zu)",
+          acts.size());
+
+    CHECK(activationFileName(Program::POTA, "kw9d", {"US-7929", "US-1234"}, "20261009") == "KW9D@US-7929+US-1234-20261009.adi",
+          "POTA log name");
+    CHECK(activationFileName(Program::WWFF, "KW9D/P", {"KFF-1234"}, "20261009") == "KW9D-P @ KFF-1234 20261009.adi", "WWFF log name");
+    CHECK(activationFileName(Program::SOTA, "KW9D", {"W7A/AE-001"}, "20261009") == "KW9D_W7A-AE-001_20261009.adi", "SOTA log name");
+    CHECK(overlay({{"STATION_CALLSIGN", "KW9D"}, {"MY_GRIDSQUARE", "EN52"}}, {{"my_gridsquare", "EN52wa"}, {"MY_SIG", "POTA"}}) ==
+              FieldList({{"STATION_CALLSIGN", "KW9D"}, {"MY_GRIDSQUARE", "EN52wa"}, {"MY_SIG", "POTA"}}),
+          "overlay: the profile wins, new fields follow");
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -1959,6 +2017,7 @@ int main(int argc, char **argv) {
     testOrganize();
     testGridEdits();
     testQuickFixes();
+    testProfiles();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

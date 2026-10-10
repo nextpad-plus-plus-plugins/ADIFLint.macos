@@ -43,6 +43,7 @@
 #import "QsoFieldsPanel.h"
 #import "RecordPanel.h"
 #import "SettingsPanel.h"
+#import "Station.h"
 #import "ToolWindow.h"
 #import "Imports.h"
 #import "Uploads.h"
@@ -77,6 +78,7 @@ NppData nppData;
 enum {
     kCmdNewQso,
     kCmdSpots,
+    kCmdStartActivation,
     kSepLog,
     kCmdLogTable,
     kCmdCheckLog,
@@ -127,6 +129,7 @@ static struct {
     bool countCharacters = false;
     bool panelWanted = false;
     bool firstRun = false;  // no ADIFLint.ini yet: show the welcome
+    std::string pendingOpen;  // a file asked to open; New QSO opens on it when it becomes active
     std::vector<std::string> qsoFieldList;  // New QSO fields; empty: the log's own fields
     bool qsoCarryHidden = true;             // copy station fields that are not listed
     std::map<std::string, std::string> extra;  // other key=value settings (PluginHost setting())
@@ -433,6 +436,12 @@ static void openSettings(NSInteger source);
 // ── PluginHost: what the other plugin files use ─────────────────────────────
 
 static void cmdFixLengths();
+static void cmdNewQso();
+static bool qsoVisible();
+// keepStation false: the station changed, so station fields come from it, not the window.
+static void loadQsoRows(NppHandle h, const adif::LintResult &r, bool keepValues, bool keepStation = true);
+static void refreshQsoTarget();
+static void scheduleQsoCheck();
 
 namespace adifhost {
 NppHandle scintilla() { return currentScintilla(); }
@@ -482,6 +491,42 @@ void setSetting(const std::string &key, const std::string &value) {
     saveSettings();
 }
 void openSettings(long source) { ::openSettings((NSInteger)source); }
+
+bool openFile(const std::string &file, bool newQso) {
+    if (newQso) g.pendingOpen = file;
+    if (app(NPPM_DOOPEN, 0, (intptr_t)file.c_str())) return true;
+    g.pendingOpen.clear();
+    return false;
+}
+
+std::vector<std::string> openFiles(bool *known) {
+    std::vector<std::string> out;
+    intptr_t n = app(NPPM_GETNBOPENFILES, 0, 0);
+    if (n > 0 && n < 4096) {
+        std::vector<std::vector<char>> slots((size_t)n, std::vector<char>(1024, 0));
+        std::vector<char *> ptrs;
+        for (auto &slot : slots) ptrs.push_back(slot.data());
+        intptr_t got = app(NPPM_GETOPENFILENAMES, (uintptr_t)ptrs.data(), n);
+        for (intptr_t i = 0; i < got && i < n; ++i) out.emplace_back(ptrs[(size_t)i]);
+    }
+    // An older Nextpad++ answers 0 even with this document open: then it can't say.
+    std::string active = currentPath();
+    if (known) *known = n > 0 && (active.empty() || std::find(out.begin(), out.end(), active) != out.end());
+    return out;
+}
+
+void openNewQso() { cmdNewQso(); }
+
+void stationChanged() {
+    if (!qsoVisible()) return;
+    try {
+        NppHandle h = currentScintilla();
+        loadQsoRows(h, freshLint(h), true, false);
+        refreshQsoTarget();
+        scheduleQsoCheck();
+    } catch (...) {
+    }
+}
 }  // namespace adifhost
 
 // ── Indicators ──────────────────────────────────────────────────────────────
@@ -1605,8 +1650,12 @@ static void logQso() {
         // Station details the window does not show, copied from the log's last record.
         std::vector<std::string> shown;
         for (const auto &f : c.fields) shown.push_back(f.first);
-        if (g.qsoCarryHidden)
-            for (auto &f : adif::hiddenStationFields(text, r.model, shown)) c.fields.push_back(std::move(f));
+        adif::FieldList hidden;
+        if (g.qsoCarryHidden) hidden = adif::hiddenStationFields(text, r.model, shown);
+        // The station profile and activation win over the last record, for the fields not shown.
+        for (const auto &f : station::stationFields())
+            if (std::find(shown.begin(), shown.end(), f.first) == shown.end()) hidden = adif::overlay(hidden, {f});
+        for (auto &f : hidden) c.fields.push_back(std::move(f));
         std::string eol = eolString(h);
         adif::BuiltRecord br = adif::buildRecord(c.fields, adif::recordLayout(text, r.model), eol, lengthUnit(), docUtf8(h));
         adif::TextEdit edit;
@@ -1640,6 +1689,7 @@ static void logQso() {
         if (g.qso.useCurrentTime) [g.qso refreshTime];
         [g.qso setRowStatus:std::vector<std::pair<int, std::string>>(g.qsoFields.size(), {-1, std::string()})];
         [g.qso setSummary:done severity:c.severity == 1 ? 1 : -1];
+        refreshQsoTarget();
         [g.qso focusField:"CALL"];
     } catch (...) {
     }
@@ -1652,12 +1702,12 @@ static void scheduleLookup();
 
 // (Re)build the New QSO rows from the field list (or the log's own fields).
 // With keepValues, what the user has typed into fields that remain is kept.
-static void loadQsoRows(NppHandle h, const adif::LintResult &r, bool keepValues) {
+static void loadQsoRows(NppHandle h, const adif::LintResult &r, bool keepValues, bool keepStation) {
     std::string_view text = docText(h);
     std::map<std::string, std::string> typed;
     if (keepValues && g.qso)
         for (const auto &v : [g.qso values])
-            if (!v.second.empty()) typed[v.first] = v.second;
+            if (!v.second.empty() && (keepStation || !adif::isStationField(v.first))) typed[v.first] = v.second;
     g.qsoFields = g.qsoFieldList.empty()
                       ? adif::newQsoTemplate(text, r.model, utcNow("%Y%m%d"), utcNow("%H%M%S"))
                       : adif::newQsoTemplateFor(text, r.model, utcNow("%Y%m%d"), utcNow("%H%M%S"), g.qsoFieldList);
@@ -1678,6 +1728,11 @@ static void loadQsoRows(NppHandle h, const adif::LintResult &r, bool keepValues)
             g.qsoFields.push_back(adif::QsoField{name, value, true});
         }
     }
+    // The chosen station profile and the running activation fill their rows (the others are
+    // written at logging, see logQso).
+    for (const auto &f : station::stationFields())
+        for (adif::QsoField &q : g.qsoFields)
+            if (q.name == f.first) q.value = f.second;
     showQsoRows(h, r);
 }
 
@@ -1719,18 +1774,39 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
             g.qso.lookupSource = s == "off" ? 0 : s == "qrz" ? 2 : s == "hamqth" ? 3 : 1;  // country data by default
         }
         g.qso.onLog = ^{ logQso(); };
+        g.qso.onStationChosen = ^(NSInteger index) {
+            if (index >= 0) {
+                station::chooseProfile(index);
+                return;
+            }
+            station::cmdStationProfiles();  // "Edit Profiles...": the popup goes back to the profile in use
+            NSMutableArray *names = [NSMutableArray array];
+            for (const adif::StationProfile &p : station::profiles()) [names addObject:@(p.name.c_str())];
+            [g.qso setStations:names selected:station::chosenProfile()];
+        };
         g.qso.onCustomize = ^{ openQsoFields(); };
         g.qso.onSpots = ^{ logtools::cmdPotaSpots(); };
     }
     g.qso.timeDigits = timeDigits;
     g.qsoMode = mode;
     [g.qso setRows:rows];
-    // Say which station details will be copied without being shown.
-    std::string note;
+    // Say which station details will be written without being shown.
+    std::string note, fromStation;
+    adif::FieldList mine = station::stationFields();
+    for (const auto &f : mine)
+        if (std::find(shown.begin(), shown.end(), f.first) == shown.end())
+            fromStation += (fromStation.empty() ? "" : ", ") + f.first + " " + f.second;
     if (g.qsoCarryHidden)
         for (const auto &f : adif::hiddenStationFields(text, r.model, shown))
-            note += (note.empty() ? "Also written, from the last record: " : ", ") + f.first + " " + f.second;
+            if (std::none_of(mine.begin(), mine.end(), [&](const auto &m) { return m.first == f.first; }))
+                note += (note.empty() ? "Also written, from the last record: " : ", ") + f.first + " " + f.second;
+    if (!fromStation.empty())
+        note = "Also written, from the " + station::stationLabel() + ": " + fromStation + (note.empty() ? "" : ". " + note);
     [g.qso setNote:@(note.c_str())];
+    std::vector<adif::StationProfile> profiles = station::profiles();
+    NSMutableArray *names = [NSMutableArray array];
+    for (const adif::StationProfile &p : profiles) [names addObject:@(p.name.c_str())];
+    [g.qso setStations:names selected:station::chosenProfile()];
 }
 
 static void openQsoFields() {
@@ -1942,6 +2018,19 @@ static void useSpot(const std::vector<std::pair<std::string, std::string>> &fiel
     }
 }
 
+// "Logging to: log.adi  ·  US-7929 today: 8 of 10".
+static void refreshQsoTarget() {
+    if (!g.qso) return;
+    std::string line = documentName();
+    try {
+        NppHandle h = currentScintilla();
+        std::string progress = station::activationProgress(docText(h), freshLint(h).model);
+        if (!progress.empty()) line += "  ·  " + progress;
+    } catch (...) {
+    }
+    [g.qso setTarget:line];
+}
+
 static void cmdNewQso() {
     try {
         NppHandle h = currentScintilla();
@@ -1954,7 +2043,7 @@ static void cmdNewQso() {
         }
         g.manualBuffers.insert(currentBuffer());
         loadQsoRows(h, r, false);
-        [g.qso setTarget:documentName()];
+        refreshQsoTarget();
         [g.qso setSummary:"" severity:-1];
         [g.qso show];
         [g.qso focusField:"CALL"];
@@ -2029,6 +2118,7 @@ static void openSettings(NSInteger source) {
             [g.settings setStationCall:ADIFString(adifhost::setting("stationCall")) grid:ADIFString(adifhost::setting("stationGrid"))
                             logsFolder:ADIFString(dir)];
         };
+        g.settings.onStationProfiles = ^{ station::cmdStationProfiles(); };
         g.settings.onEditorOption = ^(NSInteger option, BOOL on) {
             switch (option) {
                 case 0: setAutoValidate(on); break;
@@ -2440,6 +2530,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     loadSettings();
     setItem(kCmdNewQso, "New QSO...", cmdNewQso);
     setItem(kCmdSpots, "Spots (POTA, WWFF)...", logtools::cmdPotaSpots);
+    setItem(kCmdStartActivation, "Start Activation...", station::cmdStartActivation);
     setItem(kSepLog, "", nullptr);
     setItem(kCmdLogTable, "Log Table...", logtools::cmdLogTable);
     setItem(kCmdCheckLog, "Check Log...", checklog::cmdCheckLog);
@@ -2529,8 +2620,13 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 g.pending.active = false;
                 schedule(0.05);
                 if (qsoVisible()) {
-                    [g.qso setTarget:documentName()];
+                    refreshQsoTarget();
                     scheduleQsoCheck();
+                }
+                // A file opened for an activation: New QSO opens on it.
+                if (!g.pendingOpen.empty() && currentPath() == g.pendingOpen) {
+                    g.pendingOpen.clear();
+                    cmdNewQso();
                 }
                 if (enrichVisible() && !g.enrich.running) [g.enrich.panel setTarget:documentName()];
                 logtools::bufferActivated();

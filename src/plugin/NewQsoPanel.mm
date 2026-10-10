@@ -35,7 +35,7 @@ static NSColor *severityColor(int severity) {
     NSButton *_currentTime, *_log, *_close, *_fields, *_spots;
     NSTextField *_lookupInfo;
     NSStackView *_lookupRow;
-    NSPopUpButton *_lookup;
+    NSPopUpButton *_lookup, *_station;
     NSTimer *_timer;
     std::vector<ADIFQsoRow> _rows;
     NSMutableArray<NSTextField *> *_controls;  // NSTextField or NSComboBox, per row
@@ -125,7 +125,13 @@ static NSColor *severityColor(int severity) {
     _lookupInfo.cell.truncatesLastVisibleLine = YES;
     _lookupInfo.identifier = @"qso.lookupInfo";
     _lookupInfo.translatesAutoresizingMaskIntoConstraints = NO;
-    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Look up:"], _lookup ]];
+    _station = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _station.target = self;
+    _station.action = @selector(stationChanged:);
+    _station.toolTip = @"Your station's fields for the QSOs you log: from the log's last record, or a station profile";
+    [self setStations:@[] selected:0];
+    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Look up:"], _lookup,
+                                                    [NSTextField labelWithString:@"Station:"], _station ]];
     _lookupRow.spacing = 8;
     _lookupRow.alignment = NSLayoutAttributeCenterY;
     _lookupRow.translatesAutoresizingMaskIntoConstraints = NO;
@@ -330,6 +336,21 @@ static NSColor *severityColor(int severity) {
 
 - (BOOL)hasField:(const std::string &)name {
     return [self indexOf:name] >= 0;
+}
+
+- (void)setStations:(NSArray<NSString *> *)names selected:(NSInteger)index {
+    [_station removeAllItems];
+    [_station addItemWithTitle:@"From the log"];
+    for (NSString *n in names) [_station addItemWithTitle:n];
+    [_station.menu addItem:[NSMenuItem separatorItem]];
+    [_station addItemWithTitle:@"Edit Profiles..."];
+    [_station selectItemAtIndex:index >= 0 && index <= (NSInteger)names.count ? index : 0];
+}
+
+- (void)stationChanged:(NSPopUpButton *)sender {
+    NSInteger i = sender.indexOfSelectedItem;
+    BOOL edit = i == sender.numberOfItems - 1;
+    if (self.onStationChosen) self.onStationChosen(edit ? -1 : i);
 }
 
 - (void)setTarget:(const std::string &)documentName {

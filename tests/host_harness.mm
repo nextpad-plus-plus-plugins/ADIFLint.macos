@@ -61,6 +61,8 @@ static struct Host {
     NSView *panelView = nil;
     NSWindow *panelWindow = nil;
     std::vector<std::pair<uintptr_t, std::string>> toolbar;  // NPPM_ADDTOOLBARICON_FORDARKMODE: command, icon hint
+    std::vector<std::string> opened;     // NPPM_DOOPEN requests
+    std::vector<std::string> openFiles;  // what NPPM_GETOPENFILENAMES lists besides the active document
     std::vector<uint32_t> unknown;
 } H;
 
@@ -89,6 +91,8 @@ static void clearFills(int indicator, intptr_t from, intptr_t to) {
     H.fills[indicator] = kept;
 }
 
+static void notify(unsigned code, int ch = 0, intptr_t position = 0, int modType = 0, int updated = 0, const char *text = nullptr);
+
 static intptr_t sendMessage(uintptr_t handle, uint32_t msg, uintptr_t w, intptr_t l) {
     if (handle == kNpp) {
         switch (msg) {
@@ -113,6 +117,28 @@ static intptr_t sendMessage(uintptr_t handle, uint32_t msg, uintptr_t w, intptr_
             case NPPM_DMM_HIDEPANEL: H.panelWindow.contentView = [[NSView alloc] init]; return 1;
             case NPPM_DMM_UNREGISTERPANEL: return 1;
             case NPPM_ADDTOOLBARICON_FORDARKMODE: H.toolbar.push_back({w, l ? (const char *)l : ""}); return 1;
+            case NPPM_DOOPEN: {  // as the host: the file becomes the active document a moment later
+                std::string file = l ? (const char *)l : "";
+                H.opened.push_back(file);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    NSData *data = [NSData dataWithContentsOfFile:@(file.c_str())];
+                    H.doc = data ? std::string((const char *)data.bytes, data.length) : std::string();
+                    H.path = file;
+                    H.pos = 0;
+                    notify(NPPN_BUFFERACTIVATED);
+                    notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                });
+                return 1;
+            }
+            case NPPM_GETNBOPENFILES: return (intptr_t)H.openFiles.size() + (H.path.empty() ? 0 : 1);
+            case NPPM_GETOPENFILENAMES: {
+                char **files = (char **)w;
+                std::vector<std::string> all = H.openFiles;
+                if (!H.path.empty()) all.insert(all.begin(), H.path);
+                intptr_t n = 0;
+                for (; n < l && n < (intptr_t)all.size(); ++n) std::strncpy(files[n], all[(size_t)n].c_str(), 1023);
+                return n;
+            }
         }
     } else if (handle == kSciMain || handle == kSciSecond) {
         switch (msg) {
@@ -177,7 +203,7 @@ static void pump(double seconds) {
 
 static PBENOTIFIED gNotify;
 
-static void notify(unsigned code, int ch = 0, intptr_t position = 0, int modType = 0, int updated = 0, const char *text = nullptr) {
+static void notify(unsigned code, int ch, intptr_t position, int modType, int updated, const char *text) {
     SCNotification n{};
     n.nmhdr.code = code;
     n.ch = ch;
@@ -284,7 +310,7 @@ static NSStackView *lookupRow(NSWindow *w) {
     collect(w.contentView, NSStackView.class, stacks);
     for (NSStackView *s in stacks) {
         NSArray *v = s.arrangedSubviews;
-        if (v.count == 2 && [v[0] isKindOfClass:NSTextField.class] && [((NSTextField *)v[0]).stringValue isEqualToString:@"Look up:"])
+        if (v.count >= 2 && [v[0] isKindOfClass:NSTextField.class] && [((NSTextField *)v[0]).stringValue isEqualToString:@"Look up:"])
             return s;
     }
     return nil;
@@ -524,7 +550,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 31, "31 menu entries (25 commands, 6 separators), got %d", n);
+        CHECK(n == 32, "32 menu entries (26 commands, 6 separators), got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -613,7 +639,7 @@ int main(int argc, char **argv) {
             *h = checkLogHeadline();
             return *h == "No problems found." || h->rfind("0 errors, 0 warnings", 0) == 0;
         };
-        for (const char *name : {"New QSO...", "Spots (POTA, WWFF)...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
+        for (const char *name : {"New QSO...", "Spots (POTA, WWFF)...", "Start Activation...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
                                  "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
                                  "Merge Another Log...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...",
                                  "Import...", "Export...", "Upload...", "Enrich...", "Record Panel", "Reformat: One Record per Line",
@@ -2718,6 +2744,104 @@ int main(int argc, char **argv) {
             }
             [NSPasteboard.generalPasteboard clearContents];
             if (savedClipboard) [NSPasteboard.generalPasteboard setString:savedClipboard forType:NSPasteboardTypeString];
+        }
+
+        // ── Station profiles and activations ──
+        {
+            NSString *work = [tmp stringByAppendingPathComponent:@"activations"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:work withIntermediateDirectories:YES attributes:nil error:nil];
+            run("Settings...");
+            NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+            [findButton(sw.contentView, @"Station Profiles...") performClick:nil];
+            [sw orderOut:nil];
+            NSWindow *pw = windowTitled(@"Station Profiles");
+            NSTableView *pt = pw ? findTable(pw.contentView) : nil;
+            [findButton(pw.contentView, @"Add") performClick:nil];
+            pump(0.1);
+            [pw makeFirstResponder:nil];  // Add starts editing the name; the test types through onEditCell
+            id ptw = pt.delegate;
+            void (^editCell)(NSInteger, size_t, NSString *) = [ptw valueForKey:@"onEditCell"];
+            CHECK(pw && editCell && [pt.dataSource numberOfRowsInTableView:pt] == 1, "Station Profiles: a profile added");
+            if (editCell) {
+                editCell(0, 0, @"Portable");
+                editCell(0, 1, @"kw9d");
+                editCell(0, 3, @"en52WA");
+                editCell(0, 8, @"5W");
+                CHECK([labelWithLines(pw.contentView, 4) containsString:@"number of watts"], "a power with its unit is refused");
+                editCell(0, 8, @"5");
+                editCell(0, 6, @"Elecraft T1");
+            }
+            NSString *saved = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint-profiles.adi"]
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:nil];
+            CHECK([saved containsString:@"<APP_ADIFLINT_PROFILE:8>Portable <STATION_CALLSIGN:4>KW9D <MY_GRIDSQUARE:6>EN52wa"] &&
+                      [saved containsString:@"<TX_PWR:1>5"] && [saved containsString:@"<MY_RIG:11>Elecraft T1"],
+                  "the profile saved: %s", saved.UTF8String);
+            if (pw) {
+                [pw.contentView layoutSubtreeIfNeeded];
+                snapshot(pw, "station-profiles");
+                CHECK(overlaps(pw.contentView) == 0, "Station Profiles does not overlap");
+            }
+            [pw orderOut:nil];
+
+            // Start Activation: a two-fer into a new log, New QSO opening on it.
+            H.doc = "old\n<ADIF_VER:5>3.1.7\n<EOH>\n";
+            H.path = "/tmp/old.adi";
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.3);
+            run("Start Activation...");
+            NSWindow *aw = windowTitled(@"Start Activation");
+            NSMutableArray *fields = [NSMutableArray array];
+            collect(aw.contentView, NSTextField.class, fields);
+            NSTextField *refs = nil;
+            for (NSTextField *f in fields)
+                if ([f.placeholderString hasPrefix:@"e.g. US-7929"]) refs = f;
+            refs.stringValue = @"us-7929, US-1234";
+            [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:refs];
+            NSPopUpButton *profile = findPopupWith(aw.contentView, @"Portable");
+            [profile selectItemWithTitle:@"Portable"];
+            [profile sendAction:profile.action to:profile.target];
+            setenv("ADIFLINT_TEST_FOLDER", work.UTF8String, 1);
+            [findButton(aw.contentView, @"Choose...") performClick:nil];
+            unsetenv("ADIFLINT_TEST_FOLDER");
+            std::string name = "KW9D@US-7929+US-1234-" + utcDate() + ".adi";
+            CHECK(labelContaining(aw.contentView, @(name.c_str())) != nil, "the new log's name: %s", name.c_str());
+            if (aw) {
+                [aw.contentView layoutSubtreeIfNeeded];
+                snapshot(aw, "start-activation");
+                CHECK(overlaps(aw.contentView) == 0, "Start Activation does not overlap");
+            }
+            [findButton(aw.contentView, @"Start") performClick:nil];
+            pump(0.5);
+            std::string file = std::string(work.UTF8String) + "/" + name;
+            CHECK(!H.opened.empty() && H.opened.back() == file && H.path == file && H.doc.find("<EOH>") != std::string::npos,
+                  "the new log created and opened: %s", H.path.c_str());
+            NSWindow *qw5 = windowTitled(@"New QSO");
+            CHECK(qw5.visible, "New QSO opened on the new log");
+            NSString *note = qw5 ? labelContaining(qw5.contentView, @"activating") : nil;
+            CHECK([note containsString:@"profile Portable, activating US-7929, US-1234"] &&
+                      [note containsString:@"MY_POTA_REF US-7929,US-1234"],
+                  "New QSO names what it will write: %s", note.UTF8String);
+            qsoControl(qw5, @"CALL").stringValue = @"K1PRK";
+            qsoControl(qw5, @"BAND").stringValue = @"20m";
+            qsoControl(qw5, @"MODE").stringValue = @"CW";
+            [findButton(qw5.contentView, @"Log QSO") performClick:nil];
+            pump(0.3);
+            CHECK(H.doc.find("<CALL:5>K1PRK") != std::string::npos && H.doc.find("<MY_POTA_REF:15>US-7929,US-1234") != std::string::npos &&
+                      H.doc.find("<MY_SIG:4>POTA") != std::string::npos && H.doc.find("<STATION_CALLSIGN:4>KW9D") != std::string::npos &&
+                      H.doc.find("<MY_GRIDSQUARE:6>EN52wa") != std::string::npos && H.doc.find("<TX_PWR:1>5") != std::string::npos,
+                  "the QSO carries the profile and the activation:\n%s", H.doc.c_str());
+            CHECK(labelContaining(qw5.contentView, @"US-7929 today: 1 of 10") != nil, "New QSO shows the activation's progress");
+
+            // Finish: Check Log and the export open; New QSO stops writing the activation.
+            [findButton(aw.contentView, @"Finish...") performClick:nil];
+            pump(0.3);
+            CHECK(windowTitled(@"Check Log").visible && windowTitled(@"Export Activation Logs").visible, "Finish opens Check Log and Export");
+            NSString *settingsText = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                               encoding:NSUTF8StringEncoding
+                                                                  error:nil];
+            CHECK([settingsText containsString:@"activationActive=0\n"], "the activation is over");
+            for (NSString *t in @[ @"Check Log", @"Export Activation Logs", @"Start Activation", @"New QSO" ]) [windowTitled(t) orderOut:nil];
         }
 
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");

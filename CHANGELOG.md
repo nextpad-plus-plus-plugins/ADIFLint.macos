@@ -11,6 +11,15 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **Station profiles**: named sets of your station's fields (callsign, operator, grid,
+  state, county, rig, antenna, power, TQSL location), edited in their own window and chosen
+  in New QSO's new **Station** popup.
+- **Start Activation…**: a POTA (two-fers too), WWFF or SOTA activation in a new log named
+  as the program asks, or the open log. New QSO opens on it, writes the activation's fields
+  and your profile in every QSO, and shows the progress ("US-7929 today: 8 of 10").
+  **Finish** opens Check Log and the export, and for POTA a button opens pota.app's upload
+  page.
+
 - **Check Log…**: every problem in one list, with its record, line, field and repair; the
   ticked repairs are applied together as one undo step. Repairs: a MODE that is really a
   submode (`USB`, `FT4`, `JS8`, `PSK31`… become MODE SSB, MFSK or PSK with that SUBMODE),

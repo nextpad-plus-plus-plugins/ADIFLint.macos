@@ -20,6 +20,7 @@
 // and the folder of logs Worked Before searches.
 @property(nonatomic, copy) void (^onStationSave)(NSString *call, NSString *grid);
 @property(nonatomic, copy) void (^onChooseLogsFolder)(void);
+@property(nonatomic, copy) void (^onStationProfiles)(void);  // Station Profiles... pressed
 - (void)setStationCall:(NSString *)call grid:(NSString *)grid logsFolder:(NSString *)folder;
 - (void)setStationStatus:(NSString *)text ok:(BOOL)ok;
 

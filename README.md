@@ -54,6 +54,11 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   from QRZ.com or HamQTH, with distance and bearing and what your logs say about the park.
 - POTA and WWFF spots, marked NEW when the park or reference isn't in your logs; pick one
   to fill New QSO.
+- **Station profiles** (home, portable, a club station) and **Start Activation**: choose
+  the program, the park or parks (a two-fer too), WWFF reference or summit and a profile,
+  and ADIF Lint starts a log named as the program asks and opens New QSO on it, writing
+  MY_SIG, MY_POTA_REF and your station's fields in every QSO and showing the progress
+  ("US-7929 today: 8 of 10"). **Finish** opens Check Log and the export.
 
 **Log tools**
 - A sortable, filterable **Log Table** that edits like a spreadsheet: type into cells,
@@ -148,6 +153,7 @@ tab); Settings suggests some.
 |---|---|
 | New QSO… | Log contacts one after another |
 | Spots (POTA, WWFF)… | Activators spotted now; pick one to fill New QSO |
+| Start Activation… | A POTA, WWFF or SOTA activation: a new log, your station profile and the activation's fields in every QSO; Finish checks and exports |
 | Log Table… | The log as a spreadsheet: sort, filter, edit, copy and paste, add and delete rows and columns |
 | Check Log… | Every problem in one list, with its repair; repair the ticked ones in one step |
 | Fix Lengths | Correct every data length |

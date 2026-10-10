@@ -4,6 +4,8 @@
 // builds the windows (ToolWindow) and edits the document through PluginHost.
 #pragma once
 
+#include "adif_tools.h"
+
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,6 +26,7 @@ void cmdExportPota();
 void cmdPotaSpots();
 void cmdImportCsv();
 void cmdExportCabrillo();
+void openActivationExport(adif::Program p);  // Export Activation Logs for a program
 
 // Called with a spot's New QSO fields (CALL, FREQ, BAND, MODE, SUBMODE, SIG, SIG_INFO, POTA_REF).
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields));

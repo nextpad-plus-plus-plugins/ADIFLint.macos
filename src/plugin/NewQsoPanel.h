@@ -28,6 +28,10 @@ struct ADIFQsoRow {
 // Look up the call as you type: 0 off, 1 country data (offline), 2 QRZ.com, 3 HamQTH.
 @property(nonatomic) NSInteger lookupSource;
 @property(nonatomic, copy) void (^onLookupChanged)(NSInteger source);
+// The Station popup: index 0 is the log's own station fields, then the profiles,
+// then "Edit Profiles..." (onStationChosen gets -1 for that).
+@property(nonatomic, copy) void (^onStationChosen)(NSInteger index);
+- (void)setStations:(NSArray<NSString *> *)names selected:(NSInteger)index;
 @property(nonatomic, readonly) BOOL useCurrentTime; // fill QSO_DATE/TIME_ON at the moment of logging
 @property(nonatomic) NSInteger timeDigits;          // 4 (HHMM) or 6 (HHMMSS)
 

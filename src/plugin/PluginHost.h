@@ -43,4 +43,13 @@ void setSetting(const std::string &key, const std::string &value);
 
 void openSettings(long source);  // the Settings window, at a source's section (-1: top)
 
+// Open a file in Nextpad++ (it opens asynchronously); with newQso, New QSO opens on it
+// once it is the active document. False when the host refused.
+bool openFile(const std::string &path, bool newQso);
+// The paths of the files open in Nextpad++ (untitled tabs aren't listed). *known is
+// false when the host doesn't say (an older Nextpad++): then nothing can be ruled out.
+std::vector<std::string> openFiles(bool *known);
+void openNewQso();      // New QSO on the active document
+void stationChanged();  // the station profile or activation changed: New QSO follows
+
 }  // namespace adifhost

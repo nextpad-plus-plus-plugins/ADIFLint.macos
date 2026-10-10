@@ -8,6 +8,7 @@ saved to disk until you save the file.
 
 - [Checking and repairing a log](#checking-and-repairing-a-log)
 - [Logging with New QSO](#logging-with-new-qso)
+- [Station profiles and activations](#station-profiles-and-activations)
 - [Spots](#spots)
 - [Log Table, Summary and Worked Before](#log-table-summary-and-worked-before)
 - [Activations: POTA, WWFF and SOTA](#activations-pota-wwff-and-sota)
@@ -199,6 +200,39 @@ field), and, for a park, reference or summit in SIG_INFO, POTA_REF, WWFF_REF or 
 what your logs say about it ("US-1234: a new park!", "KFF-5255: worked 2 times before,
 last 2026-10-03 (a.adi)"). Changing the call takes back what the last lookup filled,
 unless you edited it.
+
+## Station profiles and activations
+
+**Station profiles** are named sets of your station's own fields: callsign, operator,
+grid, state, county, rig, antenna, power and the TQSL Station Location its LoTW uploads
+use. Open them from Settings (Your Station → **Station Profiles…**), New QSO's
+**Station** popup, or Start Activation. Double-click a cell to edit it; the grid must be
+a Maidenhead locator and the power a number of watts. They are kept in
+`ADIFLint-profiles.adi` in the plugin config folder.
+
+New QSO's **Station** popup chooses what it writes for your station: **From the log** (the
+log's last record, as before) or a profile, whose fields fill their rows and are written
+in every QSO even when not shown.
+
+**Start Activation…**:
+
+- **Program** POTA, WWFF or SOTA, and the **References**: one or more parks for POTA (a
+  two-fer: `US-7929, US-1234`), one WWFF reference, one summit. The table shows what your
+  logs say about each.
+- **Station**: Your Station (Settings) or a profile.
+- **Log to** a new log file in the folder you choose, named as the program names logs
+  (`KW9D@US-7929+US-1234-20261009.adi`, `KW9D @ KFF-1234 20261009.adi`,
+  `KW9D_W7A-AE-001_20261009.adi`), or the log that's open. A file that already exists is
+  opened, not replaced.
+- **Start** opens New QSO on that log. Every QSO gets the activation's fields (POTA:
+  MY_SIG POTA, MY_SIG_INFO and MY_POTA_REF with the parks; WWFF: MY_SIG WWFF, MY_SIG_INFO
+  and MY_WWFF_REF; SOTA: MY_SOTA_REF) and your station's, and New QSO's top line shows the
+  progress: "US-7929 today: 8 of 10", "KFF-1234: 30 of 44", "W7A/AE-001: 3 of 4 stations".
+- **Finish…** (with the activation's log in front) ends the activation, opens Check Log
+  and Export Activation Logs for the program, and says what's next. For POTA, **Open
+  pota.app Uploads** opens the page where each park's file is uploaded
+  ([POTA: submitting logs](https://docs.pota.app/docs/activator_reference/submitting_logs.html),
+  checked 2026-10-09).
 
 ## Spots
 

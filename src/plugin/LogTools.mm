@@ -2846,6 +2846,7 @@ void cmdExportCabrillo() {
 }
 
 void cmdExportPota() { openPotaExport(tracker.program ? trackerProgram() : adif::Program::POTA); }
+void openActivationExport(adif::Program p) { openPotaExport(p); }
 
 void documentChanged() {
     static int64_t token = 0;

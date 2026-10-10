@@ -12,6 +12,7 @@
 #include "adif_import.h"
 #include "adif_lint.h"
 #include "adif_programs.h"
+#include "adif_profiles.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 
@@ -285,6 +286,10 @@ int main(int argc, char **argv) {
         gridDistanceText(t.substr(0, 6), t.substr(t.size() / 3, 8));
         for (Program p : {Program::WWFF, Program::SOTA}) programSpotFields(p, t.substr(0, 10), t.substr(0, 8), "CW", t.substr(0, 12));
         referenceSummary(t.substr(0, 14), ReferenceHistory());
+        parseProfiles(t);
+        std::vector<std::string> bad;
+        std::string why;
+        for (Program p : {Program::POTA, Program::WWFF, Program::SOTA}) parseReferences(p, t.substr(0, 40), &bad, &why);
     }
 
     // Hostile shapes, ~2 MB each: these must stay well under a second in a release build.

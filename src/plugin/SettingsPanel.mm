@@ -155,11 +155,18 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
     [grid columnAtIndex:0].width = 80;
     NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(saveStation:)];
+    NSButton *profiles = [NSButton buttonWithTitle:@"Station Profiles..." target:self action:@selector(stationProfiles:)];
+    profiles.toolTip = @"Named sets of your station's fields (home, portable, a club station) for New QSO and activations";
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[ save, profiles ]];
     _stationStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     NSTextField *help = wrapping(@"Used when a log doesn't say: New QSO fills STATION_CALLSIGN and MY_GRIDSQUARE from them "
                                  @"in a new log, and the exports use the callsign. Worked Before searches the logs folder.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    return sectionStack(@[ sectionTitle(@"Your Station"), help, grid, save, _stationStatus ], @"settings.station");
+    return sectionStack(@[ sectionTitle(@"Your Station"), help, grid, buttons, _stationStatus ], @"settings.station");
+}
+
+- (void)stationProfiles:(id)sender {
+    if (self.onStationProfiles) self.onStationProfiles();
 }
 
 - (void)chooseFolder:(id)sender {
