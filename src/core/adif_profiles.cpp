@@ -64,13 +64,6 @@ void StationProfile::set(std::string_view field, std::string value) {
     }
 }
 
-const std::vector<std::string> &profileFieldNames() {
-    static const std::vector<std::string> kNames = {"STATION_CALLSIGN", "OPERATOR",   "MY_GRIDSQUARE", "MY_STATE",
-                                                    "MY_CNTY",          "MY_COUNTRY", "MY_DXCC",       "MY_CQ_ZONE",
-                                                    "MY_ITU_ZONE",      "MY_RIG",     "MY_ANTENNA",    "TX_PWR"};
-    return kNames;
-}
-
 std::vector<StationProfile> parseProfiles(std::string_view text) {
     LintOptions opt;
     opt.buildModel = true;

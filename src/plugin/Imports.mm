@@ -17,27 +17,8 @@ namespace {
 
 enum { kColAction, kColCall, kColDate, kColTime, kColBand, kColMode, kColConfirmed, kColRecord, kColChanges };
 
-std::string plural(size_t n, const char *word) { return std::to_string(n) + " " + word + (n == 1 ? "" : "s"); }
-
 ADIFSource accountSource(adif::ImportSite s) {
     return s == adif::ImportSite::LoTW ? ADIFSourceLoTW : s == adif::ImportSite::QRZLogbook ? ADIFSourceQRZLogbook : ADIFSourceEQSL;
-}
-
-adif::LintResult lintText(std::string_view text) {
-    adif::LintOptions opt;
-    opt.lengthUnit = lengthUnit();
-    opt.buildModel = true;
-    return adif::lint(text, opt);
-}
-
-// Why the log's structure rules out rebuilding it, or "".
-std::string structureProblem(const adif::LintResult &r) {
-    if (!adif::canReformat(r))
-        return "The log has structural problems (wrong lengths or broken tags). Run Fix Lengths, then fix the errors "
-               "marked in red.";
-    for (const adif::ModelGroup &g : r.model.groups)
-        if (!g.header && g.markerB == adif::kNoPos) return "A record has no <EOR>. Add it, then try again.";
-    return "";
 }
 
 // "2026-10-06" from YYYYMMDD.

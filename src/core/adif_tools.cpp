@@ -1213,46 +1213,6 @@ std::vector<TextEdit> quickFixEdits(std::string_view text, const DocModel &m, co
 
 // ── Merging ─────────────────────────────────────────────────────────────────
 
-MergePlan planMerge(std::string_view target, const DocModel &targetModel, std::string_view source,
-                    const DocModel &sourceModel, const DupeOptions &opt, bool skipDuplicates) {
-    MergePlan plan;
-    std::vector<Record> have = records(target, targetModel), add = records(source, sourceModel);
-    std::unordered_map<std::string, std::vector<size_t>> byCall;  // into `have`, then appended source records
-    for (size_t i = 0; i < have.size(); ++i)
-        if (!have[i].get("CALL").empty()) byCall[upperAscii(trim(have[i].get("CALL")))].push_back(i);
-    std::vector<Record> added;
-    for (const Record &r : add) {
-        if (r.fields.empty()) {
-            ++plan.emptyRecords;
-            continue;
-        }
-        if (skipDuplicates && !r.get("CALL").empty()) {
-            std::string key = upperAscii(trim(r.get("CALL")));
-            int dupOf = -2;
-            for (size_t i : byCall[key]) {
-                const Record &other = i < have.size() ? have[i] : added[i - have.size()];
-                if (sameQso(other, r, opt)) {
-                    dupOf = i < have.size() ? other.group : -1;
-                    break;
-                }
-            }
-            if (dupOf != -2) {
-                plan.duplicates.emplace_back(r.group, dupOf);
-                continue;
-            }
-            byCall[key].push_back(have.size() + added.size());
-        }
-        added.push_back(r);
-        plan.add.push_back(r.group);
-    }
-    for (const UserFieldInfo &u : sourceModel.userFields) {
-        bool known = false;
-        for (const UserFieldInfo &t : targetModel.userFields) known |= equalsNoCase(t.name, u.name);
-        if (!known) plan.undefinedFields.push_back(upperAscii(u.name));
-    }
-    return plan;
-}
-
 std::string mergedRecords(std::string_view source, const DocModel &sourceModel, const std::vector<int> &groups,
                           Layout layout, std::string_view eol, LengthUnit unit, bool utf8) {
     std::string out;

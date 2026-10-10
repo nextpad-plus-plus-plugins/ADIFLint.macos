@@ -39,8 +39,6 @@ adif::ContestSetup chosen() {
     return s;
 }
 
-std::string plural(size_t n, const char *w) { return std::to_string(n) + " " + w + (n == 1 ? "" : "s"); }
-
 void refresh() {
     if (!cw.w) return;
     adif::ContestSetup s = chosen();

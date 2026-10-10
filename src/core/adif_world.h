@@ -22,12 +22,6 @@ size_t layerShapeCount(MapLayer l);
 std::vector<std::pair<double, double>> layerShape(MapLayer l, size_t i);
 int layerShapeRank(MapLayer l, size_t i);  // rivers: Natural Earth's scalerank, 1 (major) to 6; else 0
 
-enum class MapDetail { Coarse, Fine };  // 1:110m for the whole world, 1:50m zoomed in
-size_t landRingCount(MapDetail d = MapDetail::Coarse);
-std::vector<std::pair<double, double>> landRing(size_t i, MapDetail d = MapDetail::Coarse);  // (longitude, latitude) in degrees
-size_t borderLineCount();                                   // country borders on land, 1:50m
-std::vector<std::pair<double, double>> borderLine(size_t i);
-
 // A QSO confirmed by card, LoTW or eQSL: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V.
 bool isConfirmed(const Record &r);
 

@@ -16,7 +16,7 @@ std::string listDate;  // the file's date, YYYY-MM-DD
 
 std::string cachePath() {
     std::string dir = adifhost::configDir();
-    return dir.empty() ? std::string() : dir + "/lotw-user-activity.csv";
+    return dir.empty() ? std::string() : dir + "/ADIFLint-lotw-users.csv";
 }
 
 std::string fileDate(const std::string &path, double *ageDays) {

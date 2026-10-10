@@ -19,7 +19,8 @@ supported.
   shown again. Settings → Remove deletes them.
 - **Network requests** use HTTPS and go only to the service you chose, when you ask:
   Enrich, Import, Upload, Test Sign-In, a callbook lookup you turned on in New QSO, an open
-  Spots window, or Settings → Country Data → Update. The README lists every address. The
+  Spots window, Settings → Country Data → Update, or the LoTW user list once you turn it on
+  (Update, then weekly). The README lists every address. The
   QRZ.com sign-in is sent as a POST; HamQTH's sign-in, LoTW's report API and eQSL's
   DownloadInBox take the login in the HTTPS address, as those services document it.
 - **Programs run**: TQSL, which you choose, for LoTW uploads (with the certificate
@@ -32,4 +33,5 @@ supported.
   never sends anything. Messages are limited to 64 KB, TCP to 4 connections closed after
   30 idle seconds, and QSOs to 20 a second per source; a message with a QSO can only add,
   change (N1MM's edits, matched by its own ID) or delete records in the log you chose, or
-  wait in its queue file in the plugin config folder, never touch another file. Everything it reads is parsed by code covered by the fuzz tests.
+  wait in its queue file in the plugin config folder, never touch another file. Everything
+  it reads is parsed by code covered by the fuzz tests.

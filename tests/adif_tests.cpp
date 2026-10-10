@@ -572,11 +572,6 @@ static void testNewQso() {
     CHECK(rf.errors == 0 && rf.warnings == 0 && rf.hasHeader && rf.records == 1, "new log header lints clean\n%s",
           dump(rf).c_str());
 
-    // Duplicates: same call, band, mode and UTC date.
-    CHECK(sameContact(appended, ra.model, "k1abc", "20M", "ssb", "20261007") == std::vector<int>({2}), "same contact found");
-    CHECK(sameContact(appended, ra.model, "K1ABC", "40m", "SSB", "20261007").empty(), "other band is not a duplicate");
-    CHECK(timesWorked(appended, ra.model, "WA8IHW") == 1 && timesWorked(appended, ra.model, "N0NE") == 0, "times worked");
-
     // A chosen field list: its order, required fields added, carried values kept.
     auto custom = newQsoTemplateFor(t, r.model, "20261007", "013005", {"call", "freq", "rst_sent", "SIG_INFO", "STATE"});
     std::vector<std::string> cn;
@@ -989,7 +984,7 @@ static void testSortDupesMerge() {
               lintModel(ff).records == 1 && errorsIn(ff) == 0,
           "fill missing fields:\n%s", ff.c_str());
 
-    // Merge: add the other log's new QSOs in this log's layout.
+    // Merged records: the other log's QSOs in this log's layout.
     std::string target = std::string(kHeader) +
                          "<CALL:4>K1AB\n<QSO_DATE:8>20240115\n<TIME_ON:4>1830\n<BAND:3>20m\n<MODE:2>CW\n<EOR>\n";
     std::string source = "other log\n<ADIF_VER:5>3.1.7 <USERDEF1:8:N>EPC_RANK <EOH>\n"
@@ -998,22 +993,16 @@ static void testSortDupesMerge() {
                          "<CALL:4>N0CX <QSO_DATE:8>20240116 <TIME_ON:4>0100 <BAND:3>40m <MODE:3>SSB <EOR>\n"
                          "<EOR>\n";
     LintResult rt = lintModel(target), rsrc = lintModel(source);
-    MergePlan mp = planMerge(target, rt.model, source, rsrc.model, DupeOptions(), true);
-    CHECK(mp.add.size() == 1 && mp.duplicates.size() == 2 && mp.emptyRecords == 1, "merge: 1 new, 2 duplicates, 1 empty");
-    CHECK(mp.duplicates.size() == 2 && mp.duplicates[0].second == (int)rt.model.groups.size() - 1 && mp.duplicates[1].second == -1,
-          "duplicate of a target record, then of an added one");
-    CHECK(mp.undefinedFields.size() == 1 && mp.undefinedFields[0] == "EPC_RANK", "USERDEF the target lacks");
-    std::string add = mergedRecords(source, rsrc.model, mp.add, recordLayout(target, rt.model), "\n", LengthUnit::Bytes, true);
+    const std::vector<int> newGroups = {2};  // the first N0CX
+    std::string add = mergedRecords(source, rsrc.model, newGroups, recordLayout(target, rt.model), "\n", LengthUnit::Bytes, true);
     size_t at = 0;
     std::string merged = applyTextEdits(target, {appendRecord(target, rt.model, add, "\n", &at)});
     LintResult rm = lintModel(merged);
     CHECK(rm.records == 2 && rm.fixes.empty() && add.find("<CALL:4>N0CX\n") == 0, "merged in field-per-line layout:\n%s",
           merged.c_str());
     CHECK(add.find("<NAME:5>José") != std::string::npos, "lengths in bytes");
-    std::string addChars = mergedRecords(source, rsrc.model, mp.add, Layout::RecordPerLine, "\n", LengthUnit::Characters, true);
+    std::string addChars = mergedRecords(source, rsrc.model, newGroups, Layout::RecordPerLine, "\n", LengthUnit::Characters, true);
     CHECK(addChars.find("<NAME:4>José <EOR>\n") != std::string::npos, "lengths recounted in characters:\n%s", addChars.c_str());
-    MergePlan all = planMerge(target, rt.model, source, rsrc.model, DupeOptions(), false);
-    CHECK(all.add.size() == 3, "merge everything when not skipping duplicates");
 }
 
 static void testCsv() {
@@ -2260,7 +2249,7 @@ static void testCompareAndQsl() {
           qrz.modified);
 }
 
-static void testContestAndZlota() {
+static void testContestAndSpothole() {
     ContestSetup fd;
     fd.preset = ContestPreset::FieldDay;
     fd.sent = "1d il";
@@ -2332,9 +2321,6 @@ static void testContestAndZlota() {
         CHECK(cr.text.find("QSO: 14250 PH 2026-06-27 1800 W1AW 2A CT K1ABC 3A EMA\n") != std::string::npos && cr.incomplete == 0,
               "Field Day Cabrillo line:\n%s", cr.text.c_str());
     }
-    CHECK(isZlotaRef("ZLH/HB-072") && isZlotaRef("zlp/wk-0123") && !isZlotaRef("ZLX/HB-072") && !isZlotaRef("ZL1/HB-072") &&
-              !isZlotaRef("ZLH/HB072"),
-          "ZLOTA references");
     CHECK(spotholeProgramWanted("GMA", "ADVENTURE", true) && spotholeProgramWanted("ZLOTA", "REGIONAL", true) &&
               spotholeProgramWanted("MOTA", "EVENT", true) && !spotholeProgramWanted("SOTA", "ADVENTURE", true) &&
               !spotholeProgramWanted("POTA", "ADVENTURE", true) && !spotholeProgramWanted("WWFF", "ADVENTURE", true) &&
@@ -2409,18 +2395,19 @@ static void testLabels() {
 }
 
 static void testWorld() {
-    size_t rings = landRingCount(), points = 0;
+    size_t rings = layerShapeCount(MapLayer::Land110), points = 0;
     double minLat = 90, maxLat = -90;
     for (size_t i = 0; i < rings; ++i)
-        for (const auto &p : landRing(i)) {
+        for (const auto &p : layerShape(MapLayer::Land110, i)) {
             ++points;
             minLat = std::min(minLat, p.second), maxLat = std::max(maxLat, p.second);
             if (p.first < -180.01 || p.first > 180.01) CHECK(false, "longitude out of range: %f", p.first);
         }
     CHECK(rings > 100 && points > 4000 && minLat < -80 && maxLat > 80, "the land outline: %zu rings, %zu points", rings, points);
     size_t fine = 0;
-    for (size_t i = 0; i < landRingCount(MapDetail::Fine); ++i) fine += landRing(i, MapDetail::Fine).size();
-    CHECK(fine > 50000 && borderLineCount() > 300 && borderLine(0).size() >= 2, "1:50m land (%zu points) and borders", fine);
+    for (size_t i = 0; i < layerShapeCount(MapLayer::Land50); ++i) fine += layerShape(MapLayer::Land50, i).size();
+    CHECK(fine > 50000 && layerShapeCount(MapLayer::Borders50) > 300 && layerShape(MapLayer::Borders50, 0).size() >= 2,
+          "1:50m land (%zu points) and borders", fine);
     // The Great Lakes are there: Lake Superior's shape holds a point near 48 N, 88 W.
     bool superior = false;
     for (size_t i = 0; i < layerShapeCount(MapLayer::Lakes110); ++i) {
@@ -2507,7 +2494,7 @@ int main(int argc, char **argv) {
     testProfiles();
     testCapture();
     testCompareAndQsl();
-    testContestAndZlota();
+    testContestAndSpothole();
     testLabels();
     testWorld();
     if (argc > 1) testOfficialFile(argv[1]);

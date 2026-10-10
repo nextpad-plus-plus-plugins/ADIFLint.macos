@@ -231,18 +231,6 @@ std::vector<std::pair<std::string, std::string>> programSpotFields(Program p, st
     return out;
 }
 
-bool isZlotaRef(std::string_view ref) {
-    std::string r = up(ref);
-    if (r.size() < 10 || r.size() > 11 || r.compare(0, 2, "ZL") != 0 || std::string("PHILVB").find(r[2]) == std::string::npos ||
-        r[3] != '/' || r[6] != '-')
-        return false;
-    for (size_t i = 4; i < 6; ++i)
-        if (r[i] < 'A' || r[i] > 'Z') return false;
-    for (size_t i = 7; i < r.size(); ++i)
-        if (r[i] < '0' || r[i] > '9') return false;
-    return true;
-}
-
 bool spotholeProgramWanted(std::string_view name, std::string_view type, bool hasRefs) {
     std::string n = up(name), t = up(type);
     if (!hasRefs || n.empty() || n == "POTA" || n == "WWFF" || n == "SOTA") return false;

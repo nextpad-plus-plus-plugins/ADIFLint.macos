@@ -1,4 +1,5 @@
 #import "RecordPanel.h"
+#import "ToolWindow.h"
 
 #include "adif_tools.h"
 
@@ -10,19 +11,8 @@ static NSString *const kValueColumn = @"value";
 static NSString *const kNoteColumn = @"note";
 static NSString *const kLineBreakGlyph = @"⏎";  // ⏎
 
-static NSString *ns(const std::string &s) {
-    NSString *r = [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSUTF8StringEncoding];
-    return r ?: [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSISOLatin1StringEncoding];
-}
-
-static NSColor *severityColor(int severity) {
-    switch (severity) {
-        case 2: return NSColor.systemRedColor;
-        case 1: return NSColor.systemOrangeColor;
-        case 0: return NSColor.systemBlueColor;
-        default: return NSColor.secondaryLabelColor;
-    }
-}
+// Problems in their colour; plain text dimmed.
+static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity); }
 
 static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *tip, id target, SEL action) {
     NSImage *image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:tip];
@@ -149,7 +139,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 }
 
 + (NSString *)displayString:(const std::string &)value {
-    NSString *s = ns(value);
+    NSString *s = ADIFString(value);
     s = [s stringByReplacingOccurrencesOfString:@"\r\n" withString:kLineBreakGlyph];
     s = [s stringByReplacingOccurrencesOfString:@"\n" withString:kLineBreakGlyph];
     return [s stringByReplacingOccurrencesOfString:@"\r" withString:kLineBreakGlyph];
@@ -163,11 +153,11 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 
 - (void)update:(const ADIFPanelSnapshot &)snapshot {
     _snapshot = snapshot;
-    _title.stringValue = ns(snapshot.title);
-    _health.stringValue = ns(snapshot.health);
+    _title.stringValue = ADIFString(snapshot.title);
+    _health.stringValue = ADIFString(snapshot.health);
     _health.textColor = snapshot.healthSeverity >= 0 ? severityColor(snapshot.healthSeverity) : NSColor.secondaryLabelColor;
-    _health.toolTip = ns(snapshot.health);
-    _footer.stringValue = ns(snapshot.footer);
+    _health.toolTip = ADIFString(snapshot.health);
+    _footer.stringValue = ADIFString(snapshot.footer);
     _footer.textColor = severityColor(snapshot.footerSeverity);
     _footer.hidden = snapshot.footer.empty();
     _previous.enabled = snapshot.canPrevious;
@@ -274,8 +264,8 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
             f.lineBreakMode = NSLineBreakByTruncatingTail;
             f.font = [NSFont monospacedSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
         }
-        f.stringValue = ns(r.name);
-        f.toolTip = ns(r.tooltip);
+        f.stringValue = ADIFString(r.name);
+        f.toolTip = ADIFString(r.tooltip);
         return f;
     }
     if ([ident isEqualToString:kNoteColumn]) {
@@ -286,9 +276,9 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
             f.lineBreakMode = NSLineBreakByTruncatingTail;
             f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         }
-        f.stringValue = ns(r.note);
+        f.stringValue = ADIFString(r.note);
         f.textColor = severityColor(r.severity);
-        f.toolTip = ns(r.tooltip);
+        f.toolTip = ADIFString(r.tooltip);
         return f;
     }
     // Value: a combo box when there are values to offer, else a text field.
@@ -305,9 +295,9 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
             c.delegate = self;
         }
         [c removeAllItems];
-        for (const std::string &v : r.choices) [c addItemWithObjectValue:ns(v)];
+        for (const std::string &v : r.choices) [c addItemWithObjectValue:ADIFString(v)];
         c.stringValue = display;
-        c.toolTip = ns(r.tooltip);
+        c.toolTip = ADIFString(r.tooltip);
         return c;
     }
     NSTextField *t = [tableView makeViewWithIdentifier:@"value.text" owner:self];
@@ -321,7 +311,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
         t.delegate = self;
     }
     t.stringValue = display;
-    t.toolTip = ns(r.tooltip);
+    t.toolTip = ADIFString(r.tooltip);
     return t;
 }
 
@@ -377,14 +367,14 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     [menu removeAllItems];
     NSInteger row = [self snapshotRowFor:_table.clickedRow];
     if (row >= 0 && !_snapshot.rows[(size_t)row].repair.empty()) {
-        NSMenuItem *item = [menu addItemWithTitle:[@"Repair: " stringByAppendingString:ns(_snapshot.rows[(size_t)row].repair)]
+        NSMenuItem *item = [menu addItemWithTitle:[@"Repair: " stringByAppendingString:ADIFString(_snapshot.rows[(size_t)row].repair)]
                                            action:@selector(repairRow:)
                                     keyEquivalent:@""];
         item.target = self;
         item.tag = row;
     }
     if (!_snapshot.footerRepair.empty()) {
-        NSMenuItem *item = [menu addItemWithTitle:[@"Repair Record: " stringByAppendingString:ns(_snapshot.footerRepair)]
+        NSMenuItem *item = [menu addItemWithTitle:[@"Repair Record: " stringByAppendingString:ADIFString(_snapshot.footerRepair)]
                                            action:@selector(repairRow:)
                                     keyEquivalent:@""];
         item.target = self;
@@ -419,7 +409,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     _addName.placeholderString = @"Field name, e.g. RST_SENT";
     _addName.completes = YES;
     _addName.numberOfVisibleItems = 14;
-    for (const std::string &n : _snapshot.addableNames) [_addName addItemWithObjectValue:ns(n)];
+    for (const std::string &n : _snapshot.addableNames) [_addName addItemWithObjectValue:ADIFString(n)];
     _addName.delegate = self;
     _addValue = [[NSComboBox alloc] initWithFrame:NSMakeRect(0, 0, 280, 26)];
     _addValue.placeholderString = @"Value";

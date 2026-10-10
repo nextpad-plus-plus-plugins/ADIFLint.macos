@@ -744,7 +744,8 @@ Rules for every source:
 - **LoTW Users:** off until you tick **Show LoTW users**. **Update** downloads ARRL's list
   of LoTW users and their last upload (`lotw.arrl.org`, about 6 MB, updated weekly); it is
   downloaded again when a week old, and used in New QSO's lookup line, the Spots window's
-  LoTW column and the Log Table's optional LoTW column. No terms of use for the list were found; it is only fetched while on.
+  LoTW column and the Log Table's optional LoTW column. No terms of use for the list were
+  found; it is only fetched while on.
 - **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
   and New QSO's lookup); LoTW (your LoTW website login, for Import); QRZ.com Logbook (API
   key); Club Log (email and Application Password) and Club
@@ -757,9 +758,11 @@ Where things are kept:
 - **Credentials** only in your macOS Keychain, as items named "ADIF Lint: QRZ.com",
   "ADIF Lint: LoTW" and so on; never in a file. A saved password is never shown again.
 - **Settings** (menu toggles, New QSO fields and lookup, folders, table columns and sort,
-  the last time zone and program) in `ADIFLint.ini`, and a downloaded country file in
-  `ADIFLint-cty.csv`, both in Nextpad++'s plugin config folder
-  (`~/Library/Application Support/Nextpad++/plugins/Config/`). They survive plugin updates.
+  the last time zone and program) in `ADIFLint.ini`, in Nextpad++'s plugin config folder
+  (`~/Library/Application Support/Nextpad++/plugins/Config/`). Beside it: station profiles
+  (`ADIFLint-profiles.adi`), the Monitor's queue (`ADIFLint-queue.adi`), a downloaded
+  country file (`ADIFLint-cty.csv`) and the LoTW user list (`ADIFLint-lotw-users.csv`).
+  They survive plugin updates.
 - **The installed country file** beside the plugin, in
   `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
 

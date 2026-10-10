@@ -207,14 +207,6 @@ std::vector<DupeSet> findDuplicates(std::string_view text, const DocModel &m, co
 std::vector<TextEdit> duplicateEdits(std::string_view text, const DocModel &m, const std::vector<DupeSet> &sets, bool fill,
                                      LengthUnit unit, bool utf8);
 
-struct MergePlan {
-    std::vector<int> add;                        // source groups to add
-    std::vector<std::pair<int, int>> duplicates; // (source group, target group) skipped
-    std::vector<std::string> undefinedFields;    // source USERDEF fields the target's header lacks
-    size_t emptyRecords = 0;                     // source records without fields
-};
-MergePlan planMerge(std::string_view target, const DocModel &targetModel, std::string_view source,
-                    const DocModel &sourceModel, const DupeOptions &opt, bool skipDuplicates);
 // The source records, rebuilt in the target's layout and length unit, joined
 // for appendRecord().
 std::string mergedRecords(std::string_view source, const DocModel &sourceModel, const std::vector<int> &groups,

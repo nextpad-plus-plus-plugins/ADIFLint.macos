@@ -100,6 +100,5 @@ NSPopUpButton *popup(Family f, NSInteger current) {
 
 void cmdImport() { openLast(kImport); }
 void cmdExport() { openLast(kExport); }
-void cmdUpload() { openLast(kUpload); }
 
 }  // namespace families

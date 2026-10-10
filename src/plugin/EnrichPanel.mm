@@ -1,20 +1,10 @@
 #import "EnrichPanel.h"
+#import "ToolWindow.h"
 
 #import "Lookup.h"
 
-static NSString *ns(const std::string &s) {
-    NSString *r = [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSUTF8StringEncoding];
-    return r ?: [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSISOLatin1StringEncoding];
-}
-
-static NSColor *severityColor(int severity) {
-    switch (severity) {
-        case 2: return NSColor.systemRedColor;
-        case 1: return NSColor.systemOrangeColor;
-        case 0: return NSColor.systemBlueColor;
-        default: return NSColor.secondaryLabelColor;
-    }
-}
+// Problems in their colour; plain text dimmed.
+static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity); }
 
 // The fields the window offers, and which sources provide them: bit (1 << ADIFSource):
 // 0 QRZ.com, 1 HamQTH, 8 Country Data.
@@ -254,7 +244,7 @@ static const std::vector<FieldOption> &fieldOptions() {
 }
 
 - (void)setTarget:(const std::string &)documentName {
-    _target.stringValue = [@"Log: " stringByAppendingString:ns(documentName)];
+    _target.stringValue = [@"Log: " stringByAppendingString:ADIFString(documentName)];
 }
 
 - (void)setBusy:(BOOL)busy {
@@ -331,15 +321,15 @@ static const std::vector<FieldOption> &fieldOptions() {
     }
     f.textColor = NSColor.labelColor;
     if ([ident isEqualToString:@"record"]) f.stringValue = [NSString stringWithFormat:@"%d", r.record];
-    else if ([ident isEqualToString:@"call"]) f.stringValue = ns(r.call);
-    else if ([ident isEqualToString:@"field"]) f.stringValue = ns(r.field);
+    else if ([ident isEqualToString:@"call"]) f.stringValue = ADIFString(r.call);
+    else if ([ident isEqualToString:@"field"]) f.stringValue = ADIFString(r.field);
     else if ([ident isEqualToString:@"current"]) {
-        f.stringValue = r.current.empty() ? @"(none)" : ns(r.current);
+        f.stringValue = r.current.empty() ? @"(none)" : ADIFString(r.current);
         f.textColor = r.current.empty() ? NSColor.tertiaryLabelColor : NSColor.systemOrangeColor;
     } else {
-        f.stringValue = ns(r.value);
+        f.stringValue = ADIFString(r.value);
     }
-    f.toolTip = ns(r.note);
+    f.toolTip = ADIFString(r.note);
     return f;
 }
 

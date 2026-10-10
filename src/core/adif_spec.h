@@ -101,8 +101,7 @@ const BandDef *findBand(std::string_view name);
 // The ADIF entity name for a DXCC code ("291" -> "UNITED STATES OF AMERICA"), or nullptr.
 const char *dxccEntityName(std::string_view code);
 
-// Data Type Indicators (section II.B): one letter, case-insensitive; 0 when the type has none.
-char typeIndicator(DataType t);
+// Data Type Indicators (section II.B): one letter, case-insensitive.
 DataType typeFromIndicator(char c);  // DataType::Unknown when not an indicator
 const char *typeName(DataType t);
 

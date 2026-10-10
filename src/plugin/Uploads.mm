@@ -33,8 +33,6 @@ double tqslSeconds() {
 }
 enum { kColRecord, kColCall, kColDate, kColTime, kColBand, kColMode, kColStatus, kColResult };
 
-std::string plural(size_t n, const char *word) { return std::to_string(n) + " " + word + (n == 1 ? "" : "s"); }
-
 NSString *agent() { return [NSString stringWithFormat:@"ADIFLint/%s", ADIFLINT_VERSION]; }
 
 struct Upload {
@@ -672,7 +670,6 @@ void openUpload(adif::UploadService s) {
     if (!u.running) plan(u);
     [u.w show];
 }
-
 
 // ── QSL Sync: every service at a glance ──
 

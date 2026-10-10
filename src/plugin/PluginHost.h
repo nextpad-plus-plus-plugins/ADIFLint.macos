@@ -22,6 +22,12 @@ bool utf8(NppHandle h);
 adif::LengthUnit lengthUnit();
 std::string eol(NppHandle h);
 std::string utcNow(const char *strftimeFormat);
+std::string plural(size_t n, const char *word);  // "1 record", "3 records"
+
+// Lint text that isn't the active document (another log, a download), with its model.
+adif::LintResult lintText(std::string_view text);
+// Why the log's structure rules out an edit that moves or rebuilds records, or "".
+std::string structureProblem(const adif::LintResult &r);
 
 // The lint result (with model) for the active document, re-linted if it changed.
 const adif::LintResult &lint(NppHandle h);

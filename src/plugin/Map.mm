@@ -536,12 +536,6 @@ struct {
     intptr_t buffer = 0;
 } mw;
 
-std::string plural(size_t n, const char *w) {
-    std::string word = w;
-    if (n != 1) word = word.back() == 'y' ? word.substr(0, word.size() - 1) + "ies" : word + "s";
-    return std::to_string(n) + " " + word;
-}
-
 void setStatus(const std::string &text) { mw.status.stringValue = ADIFString(text); }
 
 std::string callsOf(const std::vector<size_t> &qsos) {

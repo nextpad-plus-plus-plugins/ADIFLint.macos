@@ -79,23 +79,6 @@ const char *dxccEntityName(std::string_view code) {
     return (it != t + count && it->code == n) ? it->name : nullptr;
 }
 
-// Indicator letters from the "Data Type Indicator" column of the spec's data type table.
-char typeIndicator(DataType t) {
-    switch (t) {
-        case DataType::Boolean: return 'B';
-        case DataType::Number: return 'N';
-        case DataType::Date: return 'D';
-        case DataType::Time: return 'T';
-        case DataType::String: return 'S';
-        case DataType::IntlString: return 'I';
-        case DataType::MultilineString: return 'M';
-        case DataType::IntlMultilineString: return 'G';
-        case DataType::Enumeration: return 'E';
-        case DataType::Location: return 'L';
-        default: return 0;
-    }
-}
-
 DataType typeFromIndicator(char c) {
     switch (upperAscii((unsigned char)c)) {
         case 'B': return DataType::Boolean;

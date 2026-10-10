@@ -43,8 +43,6 @@ std::string workedBefore(const std::string &call);
 // Hunting: "US-1234: a new park!" or "US-1234: worked 3 times before, last ..."
 // from this log and the Worked Before folder.
 std::string referenceLine(const std::string &ref);
-// Whether a reference has been worked in this log or the folder's logs.
-bool referenceWorked(const std::string &ref);
 
 // Called on the main thread whenever the folder index is rebuilt.
 void setIndexListener(void (^listener)(void));

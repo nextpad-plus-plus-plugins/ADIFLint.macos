@@ -20,6 +20,5 @@ NSPopUpButton *popup(Family f, NSInteger current);
 
 void cmdImport();
 void cmdExport();
-void cmdUpload();
 
 }  // namespace families

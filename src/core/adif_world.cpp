@@ -36,13 +36,6 @@ std::string square4(std::string_view g) {
 
 }  // namespace
 
-size_t landRingCount(MapDetail d) { return layerShapeCount(d == MapDetail::Fine ? MapLayer::Land50 : MapLayer::Land110); }
-std::vector<std::pair<double, double>> landRing(size_t i, MapDetail d) {
-    return layerShape(d == MapDetail::Fine ? MapLayer::Land50 : MapLayer::Land110, i);
-}
-size_t borderLineCount() { return layerShapeCount(MapLayer::Borders50); }
-std::vector<std::pair<double, double>> borderLine(size_t i) { return layerShape(MapLayer::Borders50, i); }
-
 bool isConfirmed(const Record &r) { return yes(r.get("QSL_RCVD")) || yes(r.get("LOTW_QSL_RCVD")) || yes(r.get("EQSL_QSL_RCVD")); }
 
 bool squareBounds(std::string_view grid, double *west, double *south, double *east, double *north) {

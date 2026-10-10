@@ -15,8 +15,6 @@ using namespace adifhost;
 
 namespace {
 
-std::string plural(size_t n, const char *word) { return std::to_string(n) + " " + word + (n == 1 ? "" : "s"); }
-
 const char *kShow[] = {"All problems", "With a repair", "Errors", "Warnings", "Notes"};
 
 // One row: a problem, or with grouping on, every record with the same problem.

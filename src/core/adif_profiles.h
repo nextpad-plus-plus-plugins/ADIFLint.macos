@@ -26,9 +26,6 @@ struct StationProfile {
     void set(std::string_view field, std::string value);  // an empty value removes the field
 };
 
-// The fields a profile may hold, in the order the editor shows them.
-const std::vector<std::string> &profileFieldNames();
-
 // Profiles from the profiles file (ADIF records with APP_ADIFLINT_PROFILE); records
 // without a name are skipped.
 std::vector<StationProfile> parseProfiles(std::string_view text);

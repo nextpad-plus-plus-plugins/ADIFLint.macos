@@ -40,21 +40,7 @@ const std::vector<bool> kNoTicks;
 
 NSString *logLine() { return [@"Log: " stringByAppendingString:ADIFString(documentName())]; }
 
-std::string plural(size_t n, const char *word, const char *many = nullptr) {
-    return std::to_string(n) + " " + (n == 1 ? std::string(word) : many ? std::string(many) : std::string(word) + "s");
-}
-
 bool hasRecords(const adif::LintResult &r) { return adif::recordCount(r.model) > 0; }
-
-// Why the log's structure rules out an edit that moves or rebuilds records, or "".
-std::string structureProblem(const adif::LintResult &r) {
-    if (!adif::canReformat(r))
-        return "The log has structural problems (wrong lengths or broken tags). Run Fix Lengths, then fix the errors "
-               "marked in red.";
-    for (const adif::ModelGroup &g : r.model.groups)
-        if (!g.header && g.markerB == adif::kNoPos) return "A record has no <EOR>. Add it, then try again.";
-    return "";
-}
 
 std::vector<int> allRecords(const adif::DocModel &m) {
     std::vector<int> out;
@@ -116,13 +102,6 @@ bool readFile(const std::string &path, size_t limit, std::string *out, std::stri
     ss << in.rdbuf();
     *out = ss.str();
     return true;
-}
-
-adif::LintResult lintText(std::string_view text) {
-    adif::LintOptions opt;
-    opt.lengthUnit = lengthUnit();
-    opt.buildModel = true;
-    return adif::lint(text, opt);
 }
 
 // File dialogs. The test harness sets these variables to skip them.
@@ -2346,7 +2325,6 @@ void cabPlan() {
     }
 }
 
-
 // ── Sort and Organize ───────────────────────────────────────────────────────
 
 const size_t kSortKeys = 3;
@@ -2702,8 +2680,6 @@ void cmdPotaSpots() {
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields)) {
     spots.handler = handler;
 }
-
-
 
 void cmdLogTable() {
     if (!table.w) {
@@ -3164,8 +3140,6 @@ std::string referenceLine(const std::string &ref) {
     if (!logsFolder().empty() && idx.folder != logsFolder()) indexRebuild();
     return adif::referenceSummary(ref, adif::referenceHistory(ref, referenceHits(ref)));
 }
-
-bool referenceWorked(const std::string &ref) { return adif::referenceHistory(ref, referenceHits(ref)).qsos > 0; }
 
 void setIndexListener(void (^listener)(void)) {
     idx.listener = listener;

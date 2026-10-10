@@ -553,25 +553,4 @@ std::string newLogHeader(std::string_view programVersion, std::string_view utcTi
     return h;
 }
 
-std::vector<int> sameContact(std::string_view text, const DocModel &m, std::string_view call, std::string_view band,
-                             std::string_view mode, std::string_view date) {
-    std::vector<int> out;
-    int record = 0;
-    for (const ModelGroup &g : m.groups) {
-        if (g.header) continue;
-        ++record;
-        if (equalsNoCase(groupValue(text, m, g, "CALL"), call) && equalsNoCase(groupValue(text, m, g, "BAND"), band) &&
-            equalsNoCase(groupValue(text, m, g, "MODE"), mode) && groupValue(text, m, g, "QSO_DATE") == date)
-            out.push_back(record);
-    }
-    return out;
-}
-
-size_t timesWorked(std::string_view text, const DocModel &m, std::string_view call) {
-    size_t n = 0;
-    for (const ModelGroup &g : m.groups)
-        if (!g.header && equalsNoCase(groupValue(text, m, g, "CALL"), call)) ++n;
-    return n;
-}
-
 }  // namespace adif

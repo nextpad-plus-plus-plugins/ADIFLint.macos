@@ -1,9 +1,8 @@
 #import "QsoFieldsPanel.h"
+#import "ToolWindow.h"
 
 #include <algorithm>
 #include <map>
-
-static NSString *ns(const std::string &s) { return [NSString stringWithUTF8String:s.c_str()] ?: @""; }
 
 // Kept in step with adif::isRequiredQsoField (CALL, QSO_DATE, TIME_ON, MODE).
 static bool required(const std::string &n) { return n == "CALL" || n == "QSO_DATE" || n == "TIME_ON" || n == "MODE"; }
@@ -184,12 +183,12 @@ static NSScrollView *scrolling(NSTableView *t) {
         if (std::find(_fields.begin(), _fields.end(), kv.first) != _fields.end()) continue;
         int rank = 0;
         if (q.length) {
-            NSString *name = ns(kv.first);
+            NSString *name = ADIFString(kv.first);
             NSRange r = [name rangeOfString:q options:NSCaseInsensitiveSearch];
             if (r.location == 0 && r.length == name.length) rank = 0;
             else if (r.location == 0) rank = 1;
             else if (r.location != NSNotFound) rank = 2;
-            else if ([[NSString stringWithFormat:@"%@ %@", ns(kv.second.brief), ns(kv.second.details)]
+            else if ([[NSString stringWithFormat:@"%@ %@", ADIFString(kv.second.brief), ADIFString(kv.second.details)]
                          rangeOfString:q
                                options:NSCaseInsensitiveSearch]
                          .location != NSNotFound)
@@ -248,24 +247,24 @@ static NSScrollView *scrolling(NSTableView *t) {
     ADIFFieldChoice info = it == _info.end() ? ADIFFieldChoice{name, "", "", "", false} : it->second;
     NSString *ident = column.identifier;
     if ([ident isEqualToString:@"name"]) {
-        f.stringValue = ns(name);
+        f.stringValue = ADIFString(name);
         f.font = [NSFont monospacedSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
         f.textColor = NSColor.labelColor;
     } else if ([ident isEqualToString:@"type"]) {
         std::string type = info.type;
         if (info.hasValues && type != "Enumeration" && type != "Boolean") type += ", list";
-        f.stringValue = ns(type);
+        f.stringValue = ADIFString(type);
         f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         f.textColor = NSColor.secondaryLabelColor;
     } else {
         std::string text = info.brief;
         if (tableView == _table && required(name)) text = "Required. " + text;
-        f.stringValue = ns(text);
+        f.stringValue = ADIFString(text);
         f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         f.textColor = NSColor.secondaryLabelColor;
     }
-    NSString *tip = ns(info.details.empty() ? info.brief : info.details);
-    if (!info.type.empty()) tip = [NSString stringWithFormat:@"%@\n\nType: %@%@", tip, ns(info.type),
+    NSString *tip = ADIFString(info.details.empty() ? info.brief : info.details);
+    if (!info.type.empty()) tip = [NSString stringWithFormat:@"%@\n\nType: %@%@", tip, ADIFString(info.type),
                                                                info.hasValues ? @" (New QSO offers a list of values)" : @""];
     f.toolTip = tip;
     return f;

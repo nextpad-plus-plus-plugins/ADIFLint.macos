@@ -88,7 +88,6 @@ std::string join(const std::vector<std::string> &v, const char *sep) {
     return out;
 }
 std::vector<std::string> watchedFiles() { return split(setting("monitorFiles"), '|'); }
-std::string plural(size_t n, const char *what) { return std::to_string(n) + " " + what + (n == 1 ? "" : "s"); }
 
 // ── State ──
 

@@ -461,6 +461,21 @@ bool utf8(NppHandle h) { return docUtf8(h); }
 adif::LengthUnit lengthUnit() { return ::lengthUnit(); }
 std::string eol(NppHandle h) { return eolString(h); }
 std::string utcNow(const char *format) { return ::utcNow(format); }
+std::string plural(size_t n, const char *word) { return std::to_string(n) + " " + word + (n == 1 ? "" : "s"); }
+adif::LintResult lintText(std::string_view text) {
+    adif::LintOptions opt;
+    opt.lengthUnit = ::lengthUnit();
+    opt.buildModel = true;
+    return adif::lint(text, opt);
+}
+std::string structureProblem(const adif::LintResult &r) {
+    if (!adif::canReformat(r))
+        return "The log has structural problems (wrong lengths or broken tags). Run Fix Lengths, then fix the errors "
+               "marked in red.";
+    for (const adif::ModelGroup &g : r.model.groups)
+        if (!g.header && g.markerB == adif::kNoPos) return "A record has no <EOR>. Add it, then try again.";
+    return "";
+}
 const adif::LintResult &lint(NppHandle h) { return freshLint(h); }
 void validate(NppHandle h) {
     g.manualBuffers.insert(currentBuffer());
@@ -689,9 +704,7 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics = t
 }
 
 static std::string summary(const adif::LintResult &r) {
-    auto plural = [](size_t n, const char *word) {
-        return std::to_string(n) + " " + word + (n == 1 ? "" : "s");
-    };
+    using adifhost::plural;
     std::string s = "ADIF " + std::string(adif::kSpecVersion) + ": " + plural(r.records, "record") + ", " +
                     plural(r.errors, "error") + ", " + plural(r.warnings, "warning") + ", " + plural(r.infos, "note") + ".";
     if (!r.fixes.empty()) s += "\nFix Lengths can correct " + plural(r.fixes.size(), "data length") + ".";
@@ -1189,7 +1202,7 @@ static void logHealth(NppHandle h, const adif::LintResult &r, std::string *line,
         *severity = g.healthSeverity;
         return;
     }
-    auto plural = [](size_t n, const char *word) { return std::to_string(n) + " " + word + (n == 1 ? "" : "s"); };
+    using adifhost::plural;
     std::string out;
     if (r.errors || r.warnings) out = plural(r.errors, "error") + ", " + plural(r.warnings, "warning");
     else out = r.infos ? plural(r.infos, "note") : std::string("No problems");

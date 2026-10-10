@@ -129,10 +129,5 @@ TextEdit appendRecord(std::string_view text, const DocModel &m, std::string_view
                       size_t *recordStart);
 // A header for a brand-new log.
 std::string newLogHeader(std::string_view programVersion, std::string_view utcTimestamp, std::string_view eol);
-// Record numbers (1-based) already logging this CALL on this BAND and MODE on this UTC date.
-std::vector<int> sameContact(std::string_view text, const DocModel &m, std::string_view call, std::string_view band,
-                             std::string_view mode, std::string_view date);
-// How many records log this CALL at all.
-size_t timesWorked(std::string_view text, const DocModel &m, std::string_view call);
 
 }  // namespace adif

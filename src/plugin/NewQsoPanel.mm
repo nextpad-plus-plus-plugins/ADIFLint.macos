@@ -1,20 +1,10 @@
 #import "NewQsoPanel.h"
+#import "ToolWindow.h"
 
 #include <ctime>
 
-static NSString *ns(const std::string &s) {
-    NSString *r = [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSUTF8StringEncoding];
-    return r ?: [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSISOLatin1StringEncoding];
-}
-
-static NSColor *severityColor(int severity) {
-    switch (severity) {
-        case 2: return NSColor.systemRedColor;
-        case 1: return NSColor.systemOrangeColor;
-        case 0: return NSColor.systemBlueColor;
-        default: return NSColor.secondaryLabelColor;
-    }
-}
+// Problems in their colour; plain text dimmed.
+static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity); }
 
 // A scroll view's document view must be flipped for content to start at the top.
 @interface ADIFFlippedView : NSView
@@ -209,16 +199,16 @@ static NSColor *severityColor(int severity) {
         NSComboBox *c = [[NSComboBox alloc] initWithFrame:NSZeroRect];
         c.completes = YES;
         c.numberOfVisibleItems = 14;
-        for (const std::string &v : row.choices) [c addItemWithObjectValue:ns(v)];
+        for (const std::string &v : row.choices) [c addItemWithObjectValue:ADIFString(v)];
         c.delegate = self;
         control = c;
     } else {
         control = [NSTextField textFieldWithString:@""];
         control.delegate = self;
     }
-    control.stringValue = ns(row.value);
+    control.stringValue = ADIFString(row.value);
     control.placeholderString = row.required ? @"required" : @"";
-    control.toolTip = ns(row.description);
+    control.toolTip = ADIFString(row.description);
     control.font = [NSFont monospacedSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightRegular];
     control.translatesAutoresizingMaskIntoConstraints = NO;
     [control.widthAnchor constraintGreaterThanOrEqualToConstant:190].active = YES;
@@ -232,10 +222,10 @@ static NSColor *severityColor(int severity) {
     [_status removeAllObjects];
     NSMutableArray<NSArray<NSView *> *> *cells = [NSMutableArray array];
     for (const ADIFQsoRow &row : rows) {
-        NSTextField *label = [NSTextField labelWithString:ns(row.name)];
+        NSTextField *label = [NSTextField labelWithString:ADIFString(row.name)];
         label.font = [NSFont monospacedSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
         label.alignment = NSTextAlignmentRight;
-        label.toolTip = ns(row.description);
+        label.toolTip = ADIFString(row.description);
         NSTextField *control = [self makeControlForRow:row];
         NSTextField *status = [NSTextField labelWithString:@""];
         status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
@@ -285,7 +275,7 @@ static NSColor *severityColor(int severity) {
 
 - (void)setValue:(const std::string &)value forField:(const std::string &)name {
     NSInteger i = [self indexOf:name];
-    if (i >= 0) _controls[(NSUInteger)i].stringValue = ns(value);
+    if (i >= 0) _controls[(NSUInteger)i].stringValue = ADIFString(value);
 }
 
 - (void)setChoices:(const std::vector<std::string> &)choices forField:(const std::string &)name {
@@ -294,20 +284,20 @@ static NSColor *severityColor(int severity) {
     NSComboBox *c = (NSComboBox *)_controls[(NSUInteger)i];
     NSString *keep = c.stringValue;
     [c removeAllItems];
-    for (const std::string &v : choices) [c addItemWithObjectValue:ns(v)];
+    for (const std::string &v : choices) [c addItemWithObjectValue:ADIFString(v)];
     c.stringValue = keep;
 }
 
 - (void)setRowStatus:(const std::vector<std::pair<int, std::string>> &)status {
     for (size_t i = 0; i < _status.count && i < status.size(); ++i) {
-        _status[i].stringValue = ns(status[i].second);
-        _status[i].toolTip = ns(status[i].second);
+        _status[i].stringValue = ADIFString(status[i].second);
+        _status[i].toolTip = ADIFString(status[i].second);
         _status[i].textColor = severityColor(status[i].first);
     }
 }
 
 - (void)setSummary:(const std::string &)text severity:(int)severity {
-    _summary.stringValue = ns(text);
+    _summary.stringValue = ADIFString(text);
     _summary.textColor = severityColor(severity);
 }
 
@@ -365,7 +355,7 @@ static NSColor *severityColor(int severity) {
 }
 
 - (void)setTarget:(const std::string &)documentName {
-    _target.stringValue = [@"Logging to: " stringByAppendingString:ns(documentName)];
+    _target.stringValue = [@"Logging to: " stringByAppendingString:ADIFString(documentName)];
 }
 
 // ── Time ────────────────────────────────────────────────────────────────────

@@ -25,8 +25,6 @@ struct {
     intptr_t buffer = 0;
 } lw;
 
-std::string plural(size_t n, const char *w) { return std::to_string(n) + " " + w + (n == 1 ? "" : "s"); }
-
 const adif::LabelSheet &chosenSheet() {
     const std::vector<adif::LabelSheet> &all = adif::labelSheets();
     NSInteger i = lw.sheet.indexOfSelectedItem;
