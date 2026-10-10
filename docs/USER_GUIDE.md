@@ -200,8 +200,30 @@ The line under it shows what was found, the distance and bearing from MY_GRIDSQU
 the station's grid ("7,086 km at 42°", also written to DISTANCE when the window has that
 field), and, for a park, reference or summit in SIG_INFO, POTA_REF, WWFF_REF or SOTA_REF,
 what your logs say about it ("US-1234: a new park!", "KFF-5255: worked 2 times before,
-last 2026-10-03 (a.adi)"). Changing the call takes back what the last lookup filled,
-unless you edited it.
+last 2026-10-03 (a.adi)"). With **LoTW Users** on in Settings it also says whether the
+station uploads to LoTW ("LoTW user (last upload 2026-09-30)"). Changing the call takes back
+what the last lookup filled, unless you edited it.
+
+### Contests and Field Day
+
+**Contest…** (in New QSO) chooses a contest and starts it:
+
+- **ARRL Field Day:** type your exchange, class and section, such as `1D IL`. New QSO then
+  asks for the other station's **CLASS** and **ARRL_SECT** and writes, with each QSO,
+  CONTEST_ID `ARRL-FIELD-DAY`, your exchange in STX_STRING, your section in MY_ARRL_SECT
+  and theirs in SRX_STRING (`3A EMA`). A DX station sends `DX`, which goes into SRX_STRING
+  only, since it isn't an ARRL section. A station counts once per band and mode, the modes
+  being CW, Phone and Digital ([ARRL Field Day rules](https://www.arrl.org/field-day-rules),
+  revised 2026-03-01), and New QSO warns of a repeat by that rule.
+- **Winter Field Day:** the same with your category, class and section (`2O IL`); the class
+  letter is H, I, O or M, and MX or DX stand for Mexico and elsewhere. New QSO warns that FT4
+  and FT8 don't count (Winter Field Day 2025 rules).
+- **Serial numbers:** an optional CONTEST_ID (such as `CQ-WPX-SSB`); New QSO asks for the
+  received **SRX** and writes STX, counting up from the log's highest for that contest.
+
+The window lists this log's contest QSOs per band and mode. **Stop** ends it, and New QSO
+stops carrying the contest's fields. **Export… → Cabrillo** writes Field Day QSO lines
+without reports, class and section as separate words (`W1AW 2A CT K1ABC 3A EMA`).
 
 ## Station profiles and activations
 
@@ -383,6 +405,21 @@ subfolders) for a call, matching portable forms (`VE3/K1ABC/P` finds K1ABC). The
 is read in the background; files that changed are read again when you use it after a
 couple of minutes.
 
+### Map
+
+**Map (Grids, Entities, Parks)…** draws the open log on a world map, offline, over
+[Natural Earth](https://www.naturalearthdata.com)'s 1:110m land outline (public domain):
+
+- **Grid squares** worked, from GRIDSQUARE and VUCC_GRIDS, in orange, or green once a QSO in
+  the square is confirmed (QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V);
+- **Entities**, from each call's prefix in the country data, as dots (teal when confirmed);
+- **Parks** you hunted (POTA, WWFF, SOTA or ZLOTA references), placed at the QSO's
+  GRIDSQUARE, since there is no offline list of where parks are;
+- your **MY_GRIDSQUARE** as a red star.
+
+Choose a band or mode to see only those QSOs, click a square to list its QSOs, and
+**Export PNG…** saves the map. QSOs without GRIDSQUARE count as entities but not squares.
+
 ## Activations: POTA, WWFF and SOTA
 
 **Activation Tracker (POTA, WWFF, SOTA)…** counts activations with each program's rule.
@@ -504,6 +541,14 @@ choices are remembered.
   spreadsheet would run as a formula (`=…`, `@…`) gets a leading apostrophe; numbers like
   `-10` are left alone.
 - **Export… → Activation logs**: see [Activations](#activations-pota-wwff-and-sota).
+- **Export… → QSL labels (PDF)** prints a label for each station whose card is to be sent
+  (QSL_SENT R, requested, or Q, queued), or for the records in the editor selection: the
+  call (and QSL_VIA), each QSO's date, UTC time, band, mode and report, and a closing such
+  as "TNX QSO 73 de KW9D". Choose the sheet (Avery 5160, 5163 or L7163) and, for a sheet
+  already started, the first free label. **Save PDF…** saves the labels and opens them in
+  Preview: print at 100%, and try a page on plain paper held against a sheet first (the
+  5163 and L7163 margins are worked out from the sheet size). **Mark as Sent** then sets
+  QSL_SENT Y and today's QSLSDATE (one undo step).
 - **Export… → Cabrillo** writes a Cabrillo 3.0 contest log
   ([WWROF specification](https://wwrof.org/cabrillo/)): the header from the contest,
   callsign, category, grid and location you enter, and a QSO line per record with the
@@ -656,6 +701,10 @@ Rules for every source:
   commands tab) and suggested keys.
 - **Country Data:** the AD1C country file in use. **Update** downloads the newest Big CTY
   release from country-files.com into the plugin config folder.
+- **LoTW Users:** off until you tick **Show LoTW users**. **Update** downloads ARRL's list
+  of LoTW users and their last upload (`lotw.arrl.org`, about 6 MB, updated weekly); it is
+  downloaded again when a week old, and used in New QSO's lookup line and the Spots window's
+  LoTW column. No terms of use for the list were found; it is only fetched while on.
 - **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
   and New QSO's lookup); LoTW (your LoTW website login, for Import); QRZ.com Logbook (API
   key); Club Log (email and Application Password) and Club

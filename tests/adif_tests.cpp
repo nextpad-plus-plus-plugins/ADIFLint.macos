@@ -2377,7 +2377,7 @@ static void testWorld() {
     double w, s, e, n;
     CHECK(squareBounds("fn31pr", &w, &s, &e, &n) && w == -74 && s == 41 && e == -72 && n == 42 && !squareBounds("ZZ99", &w, &s, &e, &n),
           "FN31 spans 74-72 W, 41-42 N");
-    CHECK(squareAt(-72.5, 41.5) == "FN31" && squareAt(-87.9, 42.9) == "EN52" && squareAt(200, 0).empty(), "the square at a point");
+    CHECK(squareAt(-72.5, 41.5) == "FN31" && squareAt(-89.5, 42.5) == "EN52" && squareAt(-87.9, 42.9) == "EN62" && squareAt(200, 0).empty(), "the square at a point");
     std::string log = std::string(kHeader) +
                       "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:6>FN31pr <MY_GRIDSQUARE:6>EN52wa "
                       "<LOTW_QSL_RCVD:1>Y <EOR>\n"

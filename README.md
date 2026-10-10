@@ -59,6 +59,11 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   choose as you log them: into the open log, into the file when it's closed, or queued
   while it's in another tab. It can also watch WSJT-X's log file. It only listens, and only
   on this Mac unless you allow other computers.
+- **Contests and Field Day** in New QSO: ARRL Field Day, Winter Field Day or serial
+  numbers, with the exchange asked for, the contest's fields written, duplicates warned by
+  its rule, and Field Day Cabrillo lines.
+- **LoTW users** (optional): New QSO and Spots say who uploads to LoTW, from ARRL's weekly
+  list.
 - **Station profiles** (home, portable, a club station) and **Start Activation**: choose
   the program, the park or parks (a two-fer too), WWFF reference or summit and a profile,
   and ADIF Lint starts a log named as the program asks and opens New QSO on it, writing
@@ -80,6 +85,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   **Remove Duplicates** and **Compare and Merge Logs** (QSOs only one log has, and what the
   same QSO says differently in each), each previewed before it changes anything.
 - **Import CSV**, **Export CSV** and **Export Cabrillo**.
+- A **Map** of the log, offline: worked grid squares, entities, hunted parks and your grid.
+- **Print QSL Labels** for the cards to send, on Avery sheets, then mark them sent.
 
 **Online services**
 - **Import** your QSOs from LoTW, QRZ.com Logbook or eQSL: QSOs the log lacks are added,
@@ -174,8 +181,9 @@ tab); Settings suggests some.
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
+| Map (Grids, Entities, Parks)… | The log on a world map: worked squares, entities, parks; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
-| Export… | Activation logs for POTA, WWFF or SOTA, CSV, or a Cabrillo contest log |
+| Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
 | QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
 | Enrich… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
 | Monitor (WSJT-X, N1MM, Loggers)… | Add the QSOs WSJT-X, JS8Call, N1MM Logger+, GridTracker and other programs log to a log you choose, as they log them |
@@ -208,6 +216,7 @@ HTTPS.
 | POTA | `api.pota.app` | The Spots window (POTA), every minute while it is open | Nothing but the request |
 | WWFF | `spots.wwff.co` | The Spots window (WWFF), every minute while it is open | Nothing but the request |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
+| LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |
 
 - **Credentials** are stored only in your macOS Keychain ("ADIF Lint: …" items), never in
   a file, and a saved password is never shown again. HamQTH's sign-in, LoTW's report API
