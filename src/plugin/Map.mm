@@ -30,35 +30,22 @@ struct ADIFMapHit {
 
 namespace {
 
-// The land and borders as paths in degrees, built once.
-CGPathRef landPath(adif::MapDetail d) {
-    static CGPathRef paths[2] = {nullptr, nullptr};
-    CGPathRef &p = paths[d == adif::MapDetail::Fine ? 1 : 0];
+// A layer as a path in degrees, built once; rivers up to a rank (1 major ... 6).
+CGPathRef layerPath(adif::MapLayer l, int maxRank = 99) {
+    static std::map<std::pair<int, int>, CGPathRef> paths;
+    CGPathRef &p = paths[{(int)l, maxRank}];
     if (!p) {
+        bool polygons = l == adif::MapLayer::Land110 || l == adif::MapLayer::Land50 || l == adif::MapLayer::Lakes110 ||
+                        l == adif::MapLayer::Lakes50;
         CGMutablePathRef m = CGPathCreateMutable();
-        for (size_t i = 0; i < adif::landRingCount(d); ++i) {
-            std::vector<std::pair<double, double>> ring = adif::landRing(i, d);
-            for (size_t k = 0; k < ring.size(); ++k) {
-                if (k == 0) CGPathMoveToPoint(m, nullptr, ring[k].first, ring[k].second);
-                else CGPathAddLineToPoint(m, nullptr, ring[k].first, ring[k].second);
+        for (size_t i = 0; i < adif::layerShapeCount(l); ++i) {
+            if (adif::layerShapeRank(l, i) > maxRank) continue;
+            std::vector<std::pair<double, double>> pts = adif::layerShape(l, i);
+            for (size_t k = 0; k < pts.size(); ++k) {
+                if (k == 0) CGPathMoveToPoint(m, nullptr, pts[k].first, pts[k].second);
+                else CGPathAddLineToPoint(m, nullptr, pts[k].first, pts[k].second);
             }
-            CGPathCloseSubpath(m);
-        }
-        p = m;
-    }
-    return p;
-}
-
-CGPathRef bordersPath() {
-    static CGPathRef p = nullptr;
-    if (!p) {
-        CGMutablePathRef m = CGPathCreateMutable();
-        for (size_t i = 0; i < adif::borderLineCount(); ++i) {
-            std::vector<std::pair<double, double>> line = adif::borderLine(i);
-            for (size_t k = 0; k < line.size(); ++k) {
-                if (k == 0) CGPathMoveToPoint(m, nullptr, line[k].first, line[k].second);
-                else CGPathAddLineToPoint(m, nullptr, line[k].first, line[k].second);
-            }
+            if (polygons) CGPathCloseSubpath(m);
         }
         p = m;
     }
@@ -241,16 +228,34 @@ constexpr double kMaxZoom = 64;
     CGContextRef ctx = NSGraphicsContext.currentContext.CGContext;
     CGContextSaveGState(ctx);
     CGContextClipToRect(ctx, NSRectToCGRect(NSIntersectionRect(world, b)));
-    // Land and borders, drawn in degrees.
+    // Land, lakes, rivers and borders, drawn in degrees; finer and fuller as you zoom in.
     CGContextSaveGState(ctx);
     CGContextTranslateCTM(ctx, NSMidX(b) - _centerLon * ppd, NSMidY(b) - _centerLat * ppd);
     CGContextScaleCTM(ctx, ppd, ppd);
+    bool fine = _zoom >= 3;
     CGContextSetRGBFillColor(ctx, 0.33, 0.38, 0.33, 1);
-    CGContextAddPath(ctx, landPath(_zoom >= 3 ? adif::MapDetail::Fine : adif::MapDetail::Coarse));
-    CGContextFillPath(ctx);
-    CGContextSetRGBStrokeColor(ctx, 0.75, 0.78, 0.72, _zoom >= 2 ? 0.55 : 0.3);
-    CGContextSetLineWidth(ctx, 0.6 / ppd);
-    CGContextAddPath(ctx, bordersPath());
+    CGContextAddPath(ctx, layerPath(fine ? adif::MapLayer::Land50 : adif::MapLayer::Land110));
+    CGContextEOFillPath(ctx);
+    CGContextSetRGBFillColor(ctx, 0.13, 0.20, 0.29, 1);  // lakes: the ocean's colour; their islands stay land
+    CGContextAddPath(ctx, layerPath(fine ? adif::MapLayer::Lakes50 : adif::MapLayer::Lakes110));
+    CGContextEOFillPath(ctx);
+    CGContextSetRGBStrokeColor(ctx, 0.36, 0.52, 0.70, 0.85);
+    CGContextSetLineWidth(ctx, (_zoom >= 8 ? 1.0 : 0.7) / ppd);
+    CGContextSetLineJoin(ctx, kCGLineJoinRound);
+    CGContextAddPath(ctx, layerPath(adif::MapLayer::Rivers50, _zoom < 2 ? 2 : _zoom < 4 ? 4 : 6));
+    CGContextStrokePath(ctx);
+    if (_zoom >= 2.5) {  // states and provinces: US, Canada, Australia, Russia...
+        CGFloat dash[] = {(CGFloat)(3 / ppd), (CGFloat)(2 / ppd)};
+        CGContextSetLineDash(ctx, 0, dash, 2);
+        CGContextSetRGBStrokeColor(ctx, 0.80, 0.82, 0.76, 0.4);
+        CGContextSetLineWidth(ctx, 0.5 / ppd);
+        CGContextAddPath(ctx, layerPath(adif::MapLayer::States50));
+        CGContextStrokePath(ctx);
+        CGContextSetLineDash(ctx, 0, nullptr, 0);
+    }
+    CGContextSetRGBStrokeColor(ctx, 0.80, 0.82, 0.76, _zoom >= 2 ? 0.6 : 0.35);
+    CGContextSetLineWidth(ctx, (_zoom >= 4 ? 0.9 : 0.6) / ppd);
+    CGContextAddPath(ctx, layerPath(adif::MapLayer::Borders50));
     CGContextStrokePath(ctx);
     CGContextRestoreGState(ctx);
     // Maidenhead fields (20 x 10 degrees), and squares (2 x 1) when they are big enough to see.
@@ -305,7 +310,7 @@ constexpr double kMaxZoom = 64;
         for (double lon = std::floor(std::max(-180.0, west) / 2) * 2; lon < std::min(180.0, east); lon += 2)
             for (double lat = std::floor(std::max(-90.0, south)); lat < std::min(90.0, north); lat += 1) {
                 std::string sq = adif::squareAt(lon + 1, lat + 0.5);
-                if (!sq.empty()) [self drawLabel:@(sq.c_str()) at:[self viewPointForLon:lon + 1 lat:lat + 0.5] size:std::min(13.0, squareW / 6) alpha:0.45];
+                if (!sq.empty()) [self drawLabel:@(sq.c_str()) at:[self viewPointForLon:lon + 1 lat:lat + 0.5] size:std::min(13.0, squareW / 6) alpha:0.32];
             }
     if (_showEntities)
         for (size_t i = 0; i < _entities.size(); ++i) {

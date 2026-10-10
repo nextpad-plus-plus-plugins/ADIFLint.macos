@@ -408,8 +408,10 @@ couple of minutes.
 ### Map
 
 **Map (Grids, DXCC, Parks)…** draws the open log on a world map, offline, over
-[Natural Earth](https://www.naturalearthdata.com)'s land outline and country borders
-(public domain; 1:110m for the whole world, 1:50m zoomed in):
+[Natural Earth](https://www.naturalearthdata.com)'s maps (public domain; 1:110m for the whole
+world, 1:50m zoomed in): land, lakes, rivers (the largest at first, smaller ones as you zoom
+in), country borders, and state and province lines from 2.5× (US states, Canadian
+provinces, Australian states...). On it:
 
 - **Grid squares** worked, from GRIDSQUARE and VUCC_GRIDS, in orange, or green once a QSO in
   the square is confirmed (QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V);

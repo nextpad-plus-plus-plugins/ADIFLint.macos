@@ -2377,6 +2377,18 @@ static void testWorld() {
     size_t fine = 0;
     for (size_t i = 0; i < landRingCount(MapDetail::Fine); ++i) fine += landRing(i, MapDetail::Fine).size();
     CHECK(fine > 50000 && borderLineCount() > 300 && borderLine(0).size() >= 2, "1:50m land (%zu points) and borders", fine);
+    // The Great Lakes are there: Lake Superior's shape holds a point near 48 N, 88 W.
+    bool superior = false;
+    for (size_t i = 0; i < layerShapeCount(MapLayer::Lakes110); ++i) {
+        double w = 999, e = -999, so = 999, n = -999;
+        for (const auto &p : layerShape(MapLayer::Lakes110, i))
+            w = std::min(w, p.first), e = std::max(e, p.first), so = std::min(so, p.second), n = std::max(n, p.second);
+        superior |= w < -88 && e > -88 && so < 48 && n > 48;
+    }
+    size_t majorRivers = 0;
+    for (size_t i = 0; i < layerShapeCount(MapLayer::Rivers50); ++i) majorRivers += layerShapeRank(MapLayer::Rivers50, i) <= 2;
+    CHECK(superior && layerShapeCount(MapLayer::Lakes50) > 400 && majorRivers > 20 && layerShapeCount(MapLayer::States50) > 500,
+          "lakes, rivers (%zu major) and state lines", majorRivers);
     double w, s, e, n;
     CHECK(squareBounds("fn31pr", &w, &s, &e, &n) && w == -74 && s == 41 && e == -72 && n == 42 && !squareBounds("ZZ99", &w, &s, &e, &n),
           "FN31 spans 74-72 W, 41-42 N");

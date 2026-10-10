@@ -3487,6 +3487,13 @@ int main(int argc, char **argv) {
             }
             CHECK(zoomShown() == "16×", "four double-clicks: %s", zoomShown().c_str());
             if (mapw) snapshot(mapw, "map-zoomed");
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            for (int i = 0; i < 3; ++i) {  // the Great Lakes at 8x: lakes, rivers, state lines
+                NSPoint at = pointFor(-84, 44);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 2)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 2)];
+            }
+            if (mapw) snapshot(mapw, "map-great-lakes");
             [mapw orderOut:nil];
         }
 

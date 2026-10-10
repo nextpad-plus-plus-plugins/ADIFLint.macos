@@ -33,7 +33,7 @@ Versions before 0.8.0 were development builds and were not published.
   by the Field Day rule (once per band and mode: CW, Phone, Digital). Export Cabrillo writes
   Field Day lines without reports.
 - **Map (Grids, DXCC, Parks)…**: the log on a world map, offline (Natural Earth's land
-  outline and borders, public domain): worked and confirmed grid squares, DXCC, hunted
+  land, lakes, rivers, borders and state lines, public domain): worked and confirmed grid squares, DXCC, hunted
   parks and your grid. Zoom (pinch, wheel, double-click, buttons) and drag around, with
   field and square names as you zoom in; point at anything to read it, click it to list
   its QSOs, double-click one to go to its record. Band and mode filters, PNG export.

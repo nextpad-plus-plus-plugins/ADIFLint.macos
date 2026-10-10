@@ -1,8 +1,7 @@
-// What the Map draws: the world's land and land borders (Natural Earth 1:110m
-// and 1:50m, public domain; naturalearthdata.com terms read 2026-10-10;
-// ne_110m_land, ne_50m_land and ne_50m_admin_0_boundary_lines_land from
-// github.com/nvkelso/natural-earth-vector ca96624, converted by
-// tools/gen_world_outline.py) and a log's grids, parks and your locations.
+// What the Map draws: the world (Natural Earth 1:110m and 1:50m, public domain;
+// naturalearthdata.com terms read 2026-10-10; land, lakes, rivers, country borders
+// and state/province lines from github.com/nvkelso/natural-earth-vector ca96624,
+// converted by tools/gen_world_outline.py) and a log's grids, parks and your locations.
 #pragma once
 
 #include "adif_lint.h"
@@ -15,6 +14,13 @@
 #include <vector>
 
 namespace adif {
+
+// The layers, as shapes of (longitude, latitude) in degrees. Polygons (land, lakes) come
+// ring by ring, holes as rings of their own (fill them even-odd); the rest are lines.
+enum class MapLayer { Land110, Land50, Lakes110, Lakes50, Rivers50, Borders50, States50 };
+size_t layerShapeCount(MapLayer l);
+std::vector<std::pair<double, double>> layerShape(MapLayer l, size_t i);
+int layerShapeRank(MapLayer l, size_t i);  // rivers: Natural Earth's scalerank, 1 (major) to 6; else 0
 
 enum class MapDetail { Coarse, Fine };  // 1:110m for the whole world, 1:50m zoomed in
 size_t landRingCount(MapDetail d = MapDetail::Coarse);
