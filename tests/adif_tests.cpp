@@ -2001,6 +2001,9 @@ static void testQuickFixes() {
          "<CALL:4>K1AB <QSO_DATE:8>"},
         {"import-only", "<CALL:5>XE1AA <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <DXCC:2>50 <STATE:2>DF <EOR>\n",
          "<STATE:3>CMX <EOR>"},
+        {"subdivision", "<CALL:4>KL7A <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <DXCC:1>6 <STATE:2>AK "
+                        "<CNTY:20>AK,Matanuska Susitna <EOR>\n",
+         "<CNTY:20>AK,Matanuska-Susitna <EOR>"},
         {"dup-field", "<CALL:5>XE2NK <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <STATE:0> <DXCC:2>50 <STATE:3>NLE <EOR>\n",
          "<STATE:3>NLE <DXCC:2>50 <EOR>"},
         {"deleted-code", "<CALL:4>VE3A <QSO_DATE:8>20261006 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <ARRL_SECT:3>GTA <EOR>\n",

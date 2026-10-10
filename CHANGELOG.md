@@ -23,7 +23,8 @@ Versions before 0.8.0 were development builds and were not published.
 - **QSL Sync → QRZ.com Logbook** sends three QSOs at a time instead of one after another
   with a pause (the QRZ Logbook API takes one QSO per INSERT and has no batch upload).
 - Check Log repairs a field repeated with one copy empty (`<STATE:0>` plus `<STATE:3>NLE`),
-  keeping the value once.
+  keeping the value once, and a STATE or CNTY that is ADIF's code spelled another way
+  (`AK,Matanuska Susitna` becomes `AK,Matanuska-Susitna`) instead of only offering to remove it.
 - Retired subdivision codes whose subdivision ADIF lists again under a new code (Mexico's
   `NL` is `NLE`, the Netherlands' `ZL` is `ZE`, 41 in all) get that code as their repair.
 

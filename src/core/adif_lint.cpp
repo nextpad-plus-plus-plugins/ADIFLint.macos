@@ -1394,9 +1394,27 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
             msg += ".";
             diagValue(Severity::Warning, sp, vEnd, std::move(msg));
             if (stored()) {
-                annotate("subdivision", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}},
-                         "remove " + sp.name + " " + std::string(v));
-                r_.diagnostics[lastDiag_].dropsData = true;
+                // ADIF's code spelled another way ("AK,Matanuska Susitna" for "AK,Matanuska-Susitna"):
+                // the same letters and digits, so ADIF's spelling is the repair.
+                auto letters = [](std::string_view s) {
+                    std::string o;
+                    for (unsigned char c : s)
+                        if (isAlnum(c)) o.push_back((char)up(c));
+                    return o;
+                };
+                std::string want = letters(v);
+                const char *same = nullptr;
+                for (size_t i = 0; i < e->count && !same; ++i) {
+                    const EnumValue &x = e->values[i];
+                    if (x.scope && scope == x.scope && !x.importOnly && !x.before && letters(x.value) == want) same = x.value;
+                }
+                if (same) {
+                    annotate("subdivision", sp.name, {setTo(sp.name, same)}, sp.name + " " + same);
+                } else {
+                    annotate("subdivision", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}},
+                             "remove " + sp.name + " " + std::string(v));
+                    r_.diagnostics[lastDiag_].dropsData = true;
+                }
             }
         }
         return;
