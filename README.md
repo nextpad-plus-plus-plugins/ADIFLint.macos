@@ -50,13 +50,13 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 
 ## Screenshots
 
-| Check Log: every problem with its repair | New QSO: lookup, distance and bearing |
+| Check Log: every problem with its repair | Log Table: a spreadsheet over the log |
 |---|---|
-| ![Check Log listing errors, warnings and notes, each with a repair, ticked to repair together](docs/images/check-log.png) | ![New QSO with the call looked up in the country data: DXCC, zones, continent, and 7,086 km at 42 degrees](docs/images/new-qso-lookup.png) |
-| **Spots: parks not in your logs in green** | **Log Table: a spreadsheet over the log** |
-| ![POTA spots with the park names, and NEW for parks not yet worked](docs/images/spots.png) | ![Log Table with 257 sample QSOs, sortable and editable](docs/images/log-table.png) |
-| **Monitor: QSOs from WSJT-X, N1MM and loggers** | **QSL Sync: every service at a glance** |
-| ![Monitor listening on its ports, listing the QSOs that arrived and where each went](docs/images/monitor.png) | ![QSL Sync listing QRZ.com Logbook, LoTW, Club Log and eQSL with QSOs to upload, uploaded and confirmed](docs/images/qsl-sync.png) |
+| ![Check Log listing errors, warnings and notes, each with a repair, ticked to repair together](docs/images/check-log.png) | ![Log Table with 257 sample QSOs, sortable and editable](docs/images/log-table.png) |
+| **Spots: parks not in your logs in green** | **Monitor: QSOs from WSJT-X, N1MM and loggers** |
+| ![POTA spots with the park names, and NEW for parks not yet worked](docs/images/spots.png) | ![Monitor listening on its ports, listing the QSOs that arrived and where each went](docs/images/monitor.png) |
+| **New QSO: lookup, distance and bearing** | **QSL Sync, and the Activation Tracker** |
+| ![New QSO with the call looked up in the country data: DXCC, zones, continent, and 7,086 km at 42 degrees](docs/images/new-qso-lookup.png) | ![QSL Sync listing QRZ.com Logbook, LoTW, Club Log and eQSL with QSOs to upload, uploaded and confirmed](docs/images/qsl-sync.png)<br><br>![Activation Tracker: a POTA park-day with 10 QSOs, activated](docs/images/activation-tracker.png) |
 | **Map: worked squares and CQ zones** | **Map: countries and contacts** |
 | ![Equal Earth world map with worked squares coloured by band and CQ zones numbered](docs/images/map-zones.png) | ![Europe with country outlines and names, and a pin at each contact](docs/images/map-europe.png) |
 
