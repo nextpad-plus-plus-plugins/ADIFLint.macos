@@ -6,6 +6,7 @@
 #include "adif_spec.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 namespace adif {
@@ -36,7 +37,26 @@ std::string square4(std::string_view g) {
     return s.substr(0, 4);
 }
 
+// A grid's square to draw: none for a placeholder.
+std::string usableSquare(std::string_view g) { return isPlaceholderGrid(g) ? "" : square4(g); }
+
 }  // namespace
+
+bool isPlaceholderGrid(std::string_view grid) {
+    std::string g = upper(trimmed(grid));
+    if (g.size() < 4 || (g.compare(0, 4, "AA00") != 0 && g.compare(0, 4, "JJ00") != 0)) return false;
+    return g.size() == 4 || g.substr(4) == "AA" || g.substr(4) == "AA00";
+}
+
+bool isPlaceholderPlace(double lat, double lon) {
+    if (lat == 0 && lon == 0) return true;
+    for (const char *g : {"AA00aa", "JJ00aa"}) {
+        double clat = 0, clon = 0;
+        gridToLatLon(g, &clat, &clon);
+        if (std::fabs(lat - clat) < 1e-6 && std::fabs(lon - clon) < 1e-6) return true;
+    }
+    return false;
+}
 
 bool isConfirmed(const Record &r) { return yes(r.get("QSL_RCVD")) || yes(r.get("LOTW_QSL_RCVD")) || yes(r.get("EQSL_QSL_RCVD")); }
 
@@ -96,23 +116,24 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
             q.myGrid = upper(trimmed(r.get("MY_GRIDSQUARE")));
             q.modeGroup = modeGroup(trimmed(r.get("MODE")));
             q.confirmed = confirmed;
-            if (locationToDegrees(trimmed(r.get("LAT")), true, &q.lat) && locationToDegrees(trimmed(r.get("LON")), false, &q.lon)) {
-                q.located = true, q.locatedBy = "LAT/LON";
-            } else if (q.grid.size() >= 6 && gridToLatLon(q.grid, &q.lat, &q.lon)) {
-                q.located = true, q.locatedBy = q.grid;
-            } else {
-                q.lat = q.lon = 0;
+            bool grid = !usableSquare(q.grid).empty() && gridToLatLon(q.grid, nullptr, nullptr);
+            double lat = 0, lon = 0, w, s, e, n;
+            if (locationToDegrees(trimmed(r.get("LAT")), true, &lat) && locationToDegrees(trimmed(r.get("LON")), false, &lon)) {
+                bool nearGrid = !grid || (squareBounds(q.grid, &w, &s, &e, &n) && lon >= w - 1 && lon <= e + 1 && lat >= s - 0.5 && lat <= n + 0.5);
+                if (!isPlaceholderPlace(lat, lon) && nearGrid) q.located = true, q.lat = lat, q.lon = lon, q.locatedBy = "LAT/LON";
+                else ++out.unusedLatLon;
             }
+            if (!q.located && grid && q.grid.size() >= 6 && gridToLatLon(q.grid, &q.lat, &q.lon)) q.located = true, q.locatedBy = q.grid;
             out.qsos.push_back(std::move(q));
             out.calls.emplace_back(call, confirmed);
         }
         std::vector<std::string> grids;
-        if (std::string g = square4(r.get("GRIDSQUARE")); !g.empty()) grids.push_back(g);
+        if (std::string g = usableSquare(r.get("GRIDSQUARE")); !g.empty()) grids.push_back(g);
         std::string vucc = r.get("VUCC_GRIDS");  // a QSO on a grid line or corner: two or four squares
         for (size_t b = 0; b < vucc.size();) {
             size_t e = vucc.find(',', b);
             if (e == std::string::npos) e = vucc.size();
-            if (std::string g = square4(vucc.substr(b, e - b)); !g.empty() && std::find(grids.begin(), grids.end(), g) == grids.end())
+            if (std::string g = usableSquare(vucc.substr(b, e - b)); !g.empty() && std::find(grids.begin(), grids.end(), g) == grids.end())
                 grids.push_back(g);
             b = e + 1;
         }
@@ -132,7 +153,7 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
             if (sq.calls.size() < 6 && std::find(sq.calls.begin(), sq.calls.end(), call) == sq.calls.end()) sq.calls.push_back(call);
         }
         std::string theirGrid = trimmed(r.get("GRIDSQUARE"));
-        if (!square4(theirGrid).empty()) {
+        if (!usableSquare(theirGrid).empty()) {
             std::vector<std::pair<std::string, std::string>> refs;  // (program, reference)
             for (Program p : {Program::POTA, Program::WWFF, Program::SOTA})
                 for (const std::string &ref : programRefs(r, p, false)) refs.emplace_back(programName(p), ref);
@@ -155,7 +176,7 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
             }
         }
         std::string my = upper(trimmed(r.get("MY_GRIDSQUARE")));
-        if (!square4(my).empty() && std::find(out.mine.begin(), out.mine.end(), my) == out.mine.end()) out.mine.push_back(my);
+        if (!usableSquare(my).empty() && std::find(out.mine.begin(), out.mine.end(), my) == out.mine.end()) out.mine.push_back(my);
     }
     std::sort(out.squares.begin(), out.squares.end(), [](const MapSquare &a, const MapSquare &b) { return a.grid < b.grid; });
     return out;

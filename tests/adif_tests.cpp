@@ -2843,6 +2843,77 @@ static void testWorld() {
                   !locationToDegrees("W072 60.000", false, &d) && !locationToDegrees("N41 42.840", true, &d) && !locationToDegrees("W072 43.620", true, &d),
               "ADIF Locations: hemispheres, limits and form");
     }
+    // Placeholders and disagreements, as a QRZ.com Logbook export has them: LAT/LON at 0, 0
+    // or at JJ00aa's centre place nothing; a placeholder grid draws no square but its real
+    // LAT/LON counts; LAT/LON far from the grid gives way to a 6-character grid, or to nothing
+    // beside a 4-character one; just over a square's edge still counts.
+    {
+        std::string qrz = std::string(kHeader) +
+                          "<CALL:4>K1AA <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>40m <MODE:3>FT8 <GRIDSQUARE:4>EL82 "
+                          "<LAT:11>S000 00.000 <LON:11>W000 00.000 <EOR>\n"
+                          "<CALL:4>K1BB <QSO_DATE:8>20261009 <TIME_ON:4>1201 <BAND:3>40m <MODE:3>FT8 <GRIDSQUARE:6>EM74ms "
+                          "<LAT:11>N000 01.250 <LON:11>E000 02.500 <EOR>\n"
+                          "<CALL:4>K1CC <QSO_DATE:8>20261009 <TIME_ON:4>1202 <BAND:3>40m <MODE:3>FT8 <GRIDSQUARE:6>AA00AA "
+                          "<LAT:11>N050 53.700 <LON:11>W001 22.600 <EOR>\n"
+                          "<CALL:4>K1DD <QSO_DATE:8>20261009 <TIME_ON:4>1203 <BAND:3>40m <MODE:3>FT8 <GRIDSQUARE:4>EM99 "
+                          "<LAT:11>N039 00.000 <LON:11>E080 00.000 <EOR>\n"
+                          "<CALL:4>K1EE <QSO_DATE:8>20261009 <TIME_ON:4>1204 <BAND:3>40m <MODE:3>FT8 <GRIDSQUARE:4>FN31 "
+                          "<LAT:11>N042 20.000 <LON:11>W071 40.000 <EOR>\n"
+                          "<CALL:4>K1FF <QSO_DATE:8>20261009 <TIME_ON:4>1205 <BAND:3>40m <MODE:3>FT8 <GRIDSQUARE:4>JJ00 <EOR>\n"
+                          "<CALL:4>K1GG <QSO_DATE:8>20261009 <TIME_ON:4>1206 <BAND:3>40m <MODE:3>FT8 "
+                          "<LAT:11>S089 58.750 <LON:11>W179 57.500 <EOR>\n";
+        MapData md = mapData(qrz, lintModel(qrz).model, "", "");
+        double glat = 0, glon = 0;
+        gridToLatLon("EM74ms", &glat, &glon);
+        bool noPlaceholderSquare = true;
+        for (const MapSquare &sq : md.squares) noPlaceholderSquare &= sq.grid != "AA00" && sq.grid != "JJ00";
+        CHECK(md.qsos.size() == 7 && !md.qsos[0].located && md.qsos[1].located && md.qsos[1].locatedBy == "EM74ms" && md.qsos[1].lat == glat &&
+                  md.qsos[2].located && md.qsos[2].locatedBy == "LAT/LON" && std::fabs(md.qsos[2].lat - 50.895) < 1e-9 && !md.qsos[3].located &&
+                  md.qsos[4].located && md.qsos[4].locatedBy == "LAT/LON" && !md.qsos[5].located && !md.qsos[6].located,
+              "placeholders and disagreeing LAT/LON: %d %d %d %d %d %d %d", md.qsos[0].located, md.qsos[1].located, md.qsos[2].located,
+              md.qsos[3].located, md.qsos[4].located, md.qsos[5].located, md.qsos[6].located);
+        CHECK(md.unusedLatLon == 4 && noPlaceholderSquare && md.squares.size() == 4 && md.withoutGrid == 3,
+              "no square for AA00 or JJ00; %zu LAT/LON not used, %zu squares, %zu without a grid", md.unusedLatLon, md.squares.size(), md.withoutGrid);
+    // Overlays: every zone and state, inside the map; a city falls in exactly one zone, the one
+    // AD1C's country file (data/cty.csv, an independent source) gives its country.
+    {
+        auto zoneAt = [](Overlay o, double lon, double lat) {
+            std::string out;
+            for (size_t i = 0; i < overlayCount(o); ++i) {
+                OverlayArea a = overlayArea(o, i);
+                for (const auto &r : a.rings) {
+                    bool in = false;
+                    for (size_t k = 0, j = r.size() - 1; k < r.size(); j = k++)
+                        if ((r[k].second > lat) != (r[j].second > lat) &&
+                            lon < (r[j].first - r[k].first) * (lat - r[k].second) / (r[j].second - r[k].second) + r[k].first)
+                            in = !in;
+                    if (in) out += (out.empty() ? "" : "+") + a.name;
+                }
+            }
+            return out;
+        };
+        bool inWorld = true;
+        for (Overlay o : {Overlay::UsStates, Overlay::CqZones, Overlay::ItuZones})
+            for (size_t i = 0; i < overlayCount(o); ++i)
+                for (const auto &r : overlayArea(o, i).rings)
+                    for (const auto &q : r) inWorld &= q.first >= -180 && q.first <= 180 && q.second >= -90 && q.second <= 90;
+        CHECK(overlayCount(Overlay::UsStates) == 51 && overlayCount(Overlay::CqZones) == 40 && overlayCount(Overlay::ItuZones) == 90 &&
+                  overlayArea(Overlay::CqZones, 0).name == "1" && overlayArea(Overlay::ItuZones, 89).name == "90" && inWorld,
+              "overlays: 51 states, 40 CQ and 90 ITU zones, all within -180..180");
+        struct { const char *city; double lat, lon; const char *cq, *itu; } cities[] = {
+            {"London", 51.5, -0.13, "14", "27"},  {"Tokyo", 35.7, 139.7, "25", "45"},      {"Sydney", -33.87, 151.2, "30", "59"},
+            {"Buenos Aires", -34.6, -58.4, "13", "14"}, {"Moscow", 55.75, 37.6, "16", "29"}, {"Sao Paulo", -23.5, -46.6, "11", "15"},
+            {"Auckland", -36.85, 174.76, "32", "60"}, {"Johannesburg", -26.2, 28.0, "38", "57"}};
+        for (const auto &c : cities)
+            CHECK(zoneAt(Overlay::CqZones, c.lon, c.lat) == c.cq && zoneAt(Overlay::ItuZones, c.lon, c.lat) == c.itu, "%s: CQ %s, ITU %s", c.city,
+                  zoneAt(Overlay::CqZones, c.lon, c.lat).c_str(), zoneAt(Overlay::ItuZones, c.lon, c.lat).c_str());
+        CHECK(zoneAt(Overlay::UsStates, -87.6, 41.9) == "IL" && zoneAt(Overlay::UsStates, -149.9, 61.2) == "AK" && zoneAt(Overlay::UsStates, -0.13, 51.5).empty(),
+              "US states: Chicago is in IL, Anchorage in AK, London in none");
+    }
+        CHECK(isPlaceholderGrid("jj00aa") && isPlaceholderGrid("AA00") && !isPlaceholderGrid("JJ00ab") && !isPlaceholderGrid("AA01") &&
+                  isPlaceholderPlace(0, 0) && !isPlaceholderPlace(0, 0.001),
+              "placeholder grids and places");
+    }
 }
 
 int main(int argc, char **argv) {

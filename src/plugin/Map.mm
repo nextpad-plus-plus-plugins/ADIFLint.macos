@@ -32,15 +32,18 @@ struct ADIFMapHit {
     size_t index = 0;    // into squares, entities, parks or contacts
 };
 
-// How the map looks: the Style menu, the colour popup and the overlay checkboxes.
+// How the map looks: the Options menu, the colour popup and the overlay checkboxes.
 struct ADIFMapStyle {
     int colorBy = 0;    // 0 confirmation, 1 band, 2 mode, 3 QSO count, 4 year first worked
     int palette = 0;    // 0 standard, 1 colour-blind safe, 2 high contrast, 3 light (print)
     int shape = 0;      // markers: 0 by layer (DXCC dots, park triangles, program diamonds), 1 circles, 2 squares
     int fill = 0;       // worked squares: 0 solid, 1 translucent, 2 outline
     int contact = 0;    // contacts: 0 pins, 1 dots, 2 crosshairs
+    int lineStyle = 0;  // lines to contacts: 0 solid, 1 dashed, 2 dotted
+    int lineWidth = 1;  // 0 thin, 1 medium, 2 thick
     double marker = 1;  // marker size factor
     bool grid = true, labels = true, legend = true, rings = false, paths = false, mine = true;
+    bool cqZones = false, ituZones = false, states = false;  // overlays
 };
 
 // QSOs at one exact place (MapQso::located), for the Contacts layer.
@@ -118,22 +121,44 @@ void setStroke(CGContextRef ctx, unsigned hex, CGFloat a = 1) {
     CGContextSetRGBStrokeColor(ctx, ((hex >> 16) & 0xFF) / 255.0, ((hex >> 8) & 0xFF) / 255.0, (hex & 0xFF) / 255.0, a);
 }
 
-// The usual HF to UHF bands, in frequency order, for colouring by band.
-const char *const kBands[] = {"160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"};
+// The bands in frequency order (ADIF's names), each with the colour PSKReporter's map gives
+// it by default (https://pskreporter.info/mc_ol.js, its colormapper, read 2026-10-10), so
+// the map reads like the one hams know. PSKReporter's "2200m", "600m", "2.4Ghz", "5.8Ghz",
+// "10Ghz", "24Ghz", "47Ghz" and "76Ghz" are ADIF's 2190m, 630m, 13cm, 6cm, 3cm, 1.25cm, 6mm
+// and 4mm; a band it has no colour for gets its "unknown" grey.
+struct BandColour {
+    const char *band;
+    unsigned rgb;
+};
+constexpr unsigned kUnknownBand = 0x808080;
+const BandColour kBands[] = {
+    {"2190m", 0xFF4500}, {"630m", 0x1E90FF},  {"560m", kUnknownBand}, {"160m", 0x7CFC00},  {"80m", 0xE550E5},    {"60m", 0x00008B},
+    {"40m", 0x5959FF},   {"30m", 0x62D962},   {"20m", 0xF2C40C},      {"17m", 0xF2F261},   {"15m", 0xCCA166},    {"12m", 0xB22222},
+    {"10m", 0xFF69B4},   {"8m", 0x7F00F1},    {"6m", 0xFF0000},       {"5m", 0xE0E0E0},    {"4m", 0xCC0044},     {"2m", 0xFF1493},
+    {"1.25m", 0xCCFF00}, {"70cm", 0x999900},  {"33cm", kUnknownBand}, {"23cm", 0x5AB8C7},  {"13cm", 0xFF7F50},   {"9cm", kUnknownBand},
+    {"6cm", 0xCC0099},   {"3cm", 0x696969},   {"1.25cm", 0xF3EDC6},   {"6mm", 0xFFE786},   {"4mm", 0xBAF9D8},    {"2.5mm", kUnknownBand},
+    {"2mm", kUnknownBand}, {"1mm", kUnknownBand}, {"submm", kUnknownBand}};
 constexpr size_t kBandCount = sizeof(kBands) / sizeof(kBands[0]);
 
 int bandIndex(const std::string &band) {
     for (size_t i = 0; i < kBandCount; ++i)
-        if (adif::equalsNoCase(band, kBands[i])) return (int)i;
+        if (adif::equalsNoCase(band, kBands[i].band)) return (int)i;
     return -1;
 }
 
+// By band: PSKReporter's colours; on the colour-blind safe palette, viridis from 160m to 70cm.
 NSColor *bandColor(const std::string &band, const MapPalette &p) {
     int i = bandIndex(band);
+    if (!p.viridisBands) return rgb(i < 0 ? kUnknownBand : kBands[i].rgb);
     if (i < 0) return [NSColor colorWithCalibratedWhite:0.6 alpha:1];
-    double t = (double)i / (kBandCount - 1);
-    if (p.viridisBands) return viridis(t);
-    return [NSColor colorWithCalibratedHue:t * 0.83 saturation:0.75 brightness:p.dark ? 0.95 : 0.72 alpha:1];
+    double from = bandIndex("160m"), to = bandIndex("70cm");
+    return viridis((i - from) / (to - from));
+}
+
+// Whether a marker in this colour needs a light edge to show on a dark map (60m's navy).
+bool darkColour(NSColor *c) {
+    NSColor *s = [c colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    return s && 0.2126 * s.redComponent + 0.7152 * s.greenComponent + 0.0722 * s.blueComponent < 0.22;
 }
 
 NSColor *ramp(double t, const MapPalette &p) { return viridis(p.rampFrom + std::clamp(t, 0.0, 1.0) * (1 - p.rampFrom) * (p.dark ? 1 : 0.9)); }
@@ -154,6 +179,25 @@ const ProgramInfo kPrograms[] = {{"SOTA", "SOTA (summits)"},       {"IOTA", "IOT
                                  {"WCA", "WCA (castles)"},         {"ILLW", "ILLW (lighthouses)"},    {"ARLHS", "ARLHS (lighthouses)"},
                                  {"MOTA", "MOTA (mills)"},         {"ZLOTA", "ZLOTA (New Zealand)"}, {"WOTA", "WOTA (Lake District)"}};
 constexpr size_t kProgramCount = sizeof(kPrograms) / sizeof(kPrograms[0]);
+
+// The overlays' areas, read once, with each area's extent for deciding when its name fits.
+struct OverlayCache {
+    std::vector<adif::OverlayArea> areas;
+    std::vector<std::pair<double, double>> span;  // longitude and latitude extent
+};
+const OverlayCache &overlay(adif::Overlay o) {
+    static std::map<int, OverlayCache> all;
+    OverlayCache &c = all[(int)o];
+    if (c.areas.empty())
+        for (size_t i = 0; i < adif::overlayCount(o); ++i) {
+            c.areas.push_back(adif::overlayArea(o, i));
+            double w = 999, e = -999, so = 999, n = -999;
+            for (const auto &ring : c.areas.back().rings)
+                for (const auto &p : ring) w = std::min(w, p.first), e = std::max(e, p.first), so = std::min(so, p.second), n = std::max(n, p.second);
+            c.span.emplace_back(e - w, n - so);
+        }
+    return c;
+}
 
 // A layer projected onto the plane, kept for the projection in use (and the globe's turn).
 // On the globe, shapes are cut where they go behind (adif::projectShape).
@@ -201,6 +245,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)zoomBy:(double)factor;  // about the middle
 - (void)showWorld;
 - (void)fitLog;                 // zoom to what the log shows
+- (void)showWest:(double)w south:(double)s east:(double)e north:(double)n;  // a region
 - (NSPoint)viewPointForLon:(double)lon lat:(double)lat;
 - (const std::vector<ADIFMapContact> &)contacts;
 @end
@@ -519,6 +564,26 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self viewChanged];
 }
 
+// Zoom to a box of longitudes and latitudes (a continent): the flat maps fit it, the globe
+// turns to face its middle (a pole, for a box that reaches one) and fits it.
+- (void)showWest:(double)w south:(double)s east:(double)e north:(double)n {
+    if ([self globe]) {
+        double clat = s <= -89.9 ? -90 : n >= 89.9 ? 90 : (s + n) / 2;
+        _pr = adif::Projector(adif::Projection::Globe, clat, (w + e) / 2);
+    } else {
+        _pr = _base;
+    }
+    double west = 1e9, east = -1e9, south = 1e9, north = -1e9;
+    for (int i = 0; i <= 24; ++i)
+        for (int j = 0; j <= 12; ++j) {
+            double x, y;
+            if (!_pr.forward(w + (e - w) * i / 24, s + (n - s) * j / 12, &x, &y)) continue;
+            west = std::min(west, x), east = std::max(east, x), south = std::min(south, y), north = std::max(north, y);
+        }
+    if (west > east) return [self showWorld];
+    [self fitPlaneWest:west south:south east:east north:north];
+}
+
 - (void)fitLog {
     _pr = _base;
     double west = 1e9, east = -1e9, south = 1e9, north = -1e9;
@@ -541,7 +606,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         if (adif::gridToLatLon(g, &lat, &lon)) add(lon, lat);
     }
     if (west > east) return [self showWorld];
-    if ([self globe]) {  // centred on home: the span is twice the farthest point in front
+    [self fitPlaneWest:west south:south east:east north:north];
+}
+
+// Fit the view to a part of the plane; on the globe, centred where it is turned to.
+- (void)fitPlaneWest:(double)west south:(double)south east:(double)east north:(double)north {
+    if ([self globe]) {  // the span is twice the farthest point in front
         double r = std::max({std::fabs(west), std::fabs(east), std::fabs(south), std::fabs(north)});
         west = -r, east = r, south = -r, north = r;
     }
@@ -634,7 +704,56 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return std::min(8.0, 3.0 + std::log2((double)qsos + 1)) * _style.marker;
 }
 
-// The contact marker's shape and size, by Style.
+// An overlay area's outline as lines: each ring closed, its edges followed in steps of a
+// degree or so (zone lines run along parallels and meridians), but not along the 180th
+// meridian, where a shape is cut that goes on beyond, nor along 85 degrees north or south,
+// the edge of the web map the zone files were drawn for (no zone line runs there).
+- (NSBezierPath *)outlineOf:(const adif::OverlayArea &)a {
+    NSBezierPath *path = [NSBezierPath bezierPath];
+    for (const auto &ring : a.rings) {
+        std::vector<std::pair<double, double>> run;
+        auto flush = [&]() {
+            if (run.size() > 1) [path appendBezierPath:[self viewPath:run close:NO wraps:YES]];
+            run.clear();
+        };
+        size_t n = ring.size();
+        for (size_t k = 0; k <= n; ++k) {
+            std::pair<double, double> p = ring[k % n];
+            if (!run.empty()) {
+                std::pair<double, double> q = run.back();
+                bool cut = (std::fabs(q.first) > 179.99 && std::fabs(p.first) > 179.99 && q.first * p.first > 0) ||
+                           (std::fabs(q.second) > 84.99 && std::fabs(p.second) > 84.99 && q.second * p.second > 0);
+                if (cut) {
+                    flush();
+                } else if (std::fabs(p.first - q.first) <= 180) {
+                    int steps = (int)std::ceil(std::max(std::fabs(p.first - q.first), std::fabs(p.second - q.second)));
+                    for (int j = 1; j < steps; ++j)
+                        run.emplace_back(q.first + (p.first - q.first) * j / steps, q.second + (p.second - q.second) * j / steps);
+                }
+            }
+            run.push_back(p);
+        }
+        flush();
+    }
+    return path;
+}
+
+// A line to a contact as Options sets it: solid, dashed or dotted; thin, medium or thick.
+- (void)styleLine:(NSBezierPath *)path {
+    static const double kWidths[] = {0.6, 1.0, 1.8};
+    double w = kWidths[std::clamp(_style.lineWidth, 0, 2)];
+    path.lineWidth = w;
+    if (_style.lineStyle == 1) {
+        CGFloat dash[] = {(CGFloat)(5 + 2 * w), (CGFloat)(3 + w)};
+        [path setLineDash:dash count:2 phase:0];
+    } else if (_style.lineStyle == 2) {
+        CGFloat dot[] = {0, (CGFloat)(2 + 1.5 * w)};
+        [path setLineDash:dot count:2 phase:0];
+        path.lineCapStyle = NSLineCapStyleRound;
+    }
+}
+
+// The contact marker's shape and size, by Options.
 - (NSBezierPath *)contactMarkerAt:(NSPoint)p {
     switch (_style.contact) {
         case 1: return [self marker:0 at:p size:3 * _style.marker];
@@ -772,6 +891,41 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     }
 
+    // Overlays: US states, CQ zones and ITU zones, outlined, each named where it has room.
+    struct OverlayStyle {
+        bool on;
+        adif::Overlay which;
+        NSColor *color;
+        CGFloat width, labelSize, minPixels;
+    };
+    const OverlayStyle overlayStyles[] = {
+        {_style.states, adif::Overlay::UsStates, [NSColor colorWithCalibratedWhite:ink alpha:0.5], 0.7, 10, 26},
+        {_style.ituZones, adif::Overlay::ItuZones, pal.dark ? rgb(0x4FC3F7, 0.75) : rgb(0x0277BD, 0.8), 1.0, 12, 30},
+        {_style.cqZones, adif::Overlay::CqZones, pal.dark ? rgb(0xFFB74D, 0.8) : rgb(0xE65100, 0.8), 1.4, 14, 30},
+    };
+    for (const OverlayStyle &os : overlayStyles) {
+        if (!os.on) continue;
+        const OverlayCache &oc = overlay(os.which);
+        NSBezierPath *lines = [NSBezierPath bezierPath];
+        for (const adif::OverlayArea &a : oc.areas) [lines appendBezierPath:[self outlineOf:a]];
+        lines.lineWidth = os.width;
+        lines.lineJoinStyle = NSLineJoinStyleRound;
+        [os.color setStroke];
+        [lines stroke];
+        NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:os.labelSize weight:NSFontWeightSemibold],
+                                NSForegroundColorAttributeName : [os.color colorWithAlphaComponent:0.95]};
+        for (size_t i = 0; i < oc.areas.size(); ++i) {
+            const adif::OverlayArea &a = oc.areas[i];
+            NSPoint p = [self viewPointForLon:a.labelLon lat:a.labelLat];
+            if (!NSPointInRect(p, NSInsetRect(b, -20, -10))) continue;
+            double wide = [self pixelsForLon:a.labelLon lat:a.labelLat span:std::min(oc.span[i].first, 60.0)];
+            if (wide < os.minPixels) continue;  // too small on screen for its name
+            NSString *name = ADIFString(a.name);
+            NSSize sz = [name sizeWithAttributes:attrs];
+            [name drawAtPoint:NSMakePoint(p.x - sz.width / 2, p.y - sz.height / 2) withAttributes:attrs];
+        }
+    }
+
     // Lines to contacts: from your station (the QSO's MY_GRIDSQUARE, else home) to the contact
     // (its LAT and LON, else its GRIDSQUARE, else its DXCC entity's centre), along great
     // circles; each pair once, coloured as the map colours.
@@ -785,14 +939,14 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         for (size_t qi = 0; qi < _data.qsos.size(); ++qi) {
             const adif::MapQso &q = _data.qsos[qi];
             double flat = _homeLat, flon = _homeLon, tlat = 0, tlon = 0;
-            if (q.myGrid.size() >= 4) {
+            if (q.myGrid.size() >= 4 && !adif::isPlaceholderGrid(q.myGrid)) {
                 if (!adif::gridToLatLon(q.myGrid, &flat, &flon)) continue;
             } else if (!_hasHome) {
                 continue;
             }
             if (q.located) {
                 tlat = q.lat, tlon = q.lon;
-            } else if (!adif::gridToLatLon(q.grid, &tlat, &tlon)) {
+            } else if (adif::isPlaceholderGrid(q.grid) || !adif::gridToLatLon(q.grid, &tlat, &tlon)) {
                 auto e = entityOf.find(qi);
                 if (e == entityOf.end()) continue;
                 tlat = _entities[e->second].lat, tlon = _entities[e->second].lon;
@@ -804,8 +958,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             auto sq = squareOf.find(qi);
             a.count = sq != squareOf.end() ? _squareAgg[sq->second].count : 1;
             NSBezierPath *path = [self viewPath:adif::greatCirclePath(flat, flon, tlat, tlon, 3) close:NO wraps:YES];
-            path.lineWidth = 0.8;
-            [[[self colorFor:a entity:NO] colorWithAlphaComponent:0.45] setStroke];
+            [self styleLine:path];
+            [[[self colorFor:a entity:NO] colorWithAlphaComponent:0.5] setStroke];
             [path stroke];
         }
     }
@@ -829,6 +983,11 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             } else {
                 [[c colorWithAlphaComponent:alpha] setFill];
                 [cell fill];
+                if (pal.dark && darkColour(c)) {  // a dark square (60m's navy) needs an edge on a dark map
+                    cell.lineWidth = 1;
+                    [[NSColor colorWithCalibratedWhite:1 alpha:0.5] setStroke];
+                    [cell stroke];
+                }
             }
         }
     }
@@ -923,7 +1082,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             NSBezierPath *m = [self contactMarkerAt:p];
             NSColor *c = [self colorFor:_contactAgg[i] entity:NO];
             bool lit = (_hover.kind == ADIFMapHit::Contact && _hover.index == i) || (_selected.kind == ADIFMapHit::Contact && _selected.index == i);
-            NSColor *edge = lit ? [NSColor colorWithCalibratedWhite:ink alpha:1] : [NSColor colorWithCalibratedWhite:0 alpha:0.85];
+            NSColor *edge = lit ? [NSColor colorWithCalibratedWhite:ink alpha:1]
+                                : [NSColor colorWithCalibratedWhite:pal.dark && darkColour(c) ? 1 : 0 alpha:0.85];
             if (_style.contact == 2) {  // crosshairs: a dark halo under the coloured lines
                 m.lineWidth = 3.2;
                 [edge setStroke];
@@ -1064,6 +1224,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 case 3: m = [self marker:2 at:c size:5]; break;
                 case 4: m = [self marker:3 at:c size:6]; break;
                 case 6: m = [self contactMarkerAt:NSMakePoint(c.x, _style.contact == 0 ? c.y - 5 : c.y)]; break;
+                case 5:
+                    m = [NSBezierPath bezierPath];
+                    [m moveToPoint:NSMakePoint(c.x - 6, c.y)];
+                    [m lineToPoint:NSMakePoint(c.x + 6, c.y)];
+                    [self styleLine:m];
+                    break;
                 default:
                     m = [NSBezierPath bezierPath];
                     [m moveToPoint:NSMakePoint(c.x - 6, c.y)];
@@ -1071,7 +1237,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     break;
             }
             if (e.kind == 5 || (e.kind == 6 && _style.contact == 2)) {
-                m.lineWidth = 1.5;
+                if (e.kind == 6) m.lineWidth = 1.5;
                 [e.color setStroke];
                 [m stroke];
             } else {
@@ -1240,8 +1406,9 @@ struct {
     ADIFMapView *view = nil;
     ADIFMapList *list = nil;
     NSTableView *table = nil;
-    NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *contacts = nil, *parks = nil, *mine = nil, *paths = nil;
-    NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil;
+    NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *contacts = nil, *parks = nil, *mine = nil;
+    NSButton *cqZones = nil, *ituZones = nil, *states = nil;
+    NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil, *region = nil;
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
     adif::MapData data;
@@ -1294,10 +1461,15 @@ ADIFMapStyle savedStyle() {
     s.marker = kSizes[number("mapMarkerSize", 1, 3)];
     s.contact = number("mapContactMarker", 0, 2);
     s.grid = flag("mapGrid", true);
+    s.cqZones = flag("mapCqZones", false);
+    s.ituZones = flag("mapItuZones", false);
+    s.states = flag("mapUsStates", false);
     s.labels = flag("mapLabels", true);
     s.legend = flag("mapLegend", true);
     s.rings = flag("mapRings", false);
     s.paths = flag("mapPaths", false);
+    s.lineStyle = number("mapLineStyle", 0, 2);
+    s.lineWidth = number("mapLineWidth", 1, 2);
     s.mine = flag("mapMine", true);
     return s;
 }
@@ -1498,12 +1670,13 @@ void fillPrograms() {
     }
 }
 
-// Style: palette, marker size and shape, contact markers, square fill, legend, distance rings.
+// Options: palette, marker size and shape, contact markers, square fill, lines to contacts,
+// legend, distance rings.
 void fillStyle() {
     NSMenu *menu = mw.style.menu;
     menu.autoenablesItems = NO;
     [menu removeAllItems];
-    [menu addItemWithTitle:@"Style" action:nil keyEquivalent:@""];
+    [menu addItemWithTitle:@"Options" action:nil keyEquivalent:@""];
     ADIFMapStyle s = savedStyle();
     auto choose = [](const char *key, int value) {
         return ^{
@@ -1542,6 +1715,22 @@ void fillStyle() {
     NSArray *fills = @[ @"Solid", @"See-through", @"Outline" ];
     for (NSInteger i = 0; i < 3; ++i) menuItem(menu, fills[(NSUInteger)i], s.fill == i, choose("mapSquareFill", (int)i)).indentationLevel = 1;
     [menu addItem:[NSMenuItem separatorItem]];
+    menuItem(menu, @"Lines to contacts", s.paths, toggle("mapPaths", s.paths)).toolTip =
+        @"Great-circle lines from your station (each QSO's MY_GRIDSQUARE, else home) to each contact (its LAT and LON, else its grid, else "
+        @"its DXCC entity), coloured as the map colours";
+    NSArray *lineStyles = @[ @"Solid line", @"Dashed line", @"Dotted line" ];
+    for (NSInteger i = 0; i < 3; ++i) {
+        NSMenuItem *item = menuItem(menu, lineStyles[(NSUInteger)i], s.lineStyle == i, choose("mapLineStyle", (int)i));
+        item.indentationLevel = 1;
+        item.enabled = s.paths;
+    }
+    NSArray *lineWidths = @[ @"Thin line", @"Medium line", @"Thick line" ];
+    for (NSInteger i = 0; i < 3; ++i) {
+        NSMenuItem *item = menuItem(menu, lineWidths[(NSUInteger)i], s.lineWidth == i, choose("mapLineWidth", (int)i));
+        item.indentationLevel = 1;
+        item.enabled = s.paths;
+    }
+    [menu addItem:[NSMenuItem separatorItem]];
     menuItem(menu, @"Legend", s.legend, toggle("mapLegend", s.legend));
     menuItem(menu, @"Distance rings from my grid", s.rings, toggle("mapRings", s.rings)).enabled = !mw.home.empty();
 }
@@ -1553,7 +1742,7 @@ std::string homeGrid() {
     if (!g.empty() && adif::gridToLatLon(g, &lat, &lon)) return g;
     std::map<std::string, size_t> n;
     for (const adif::MapQso &q : mw.data.qsos)
-        if (q.myGrid.size() >= 4) ++n[q.myGrid];
+        if (q.myGrid.size() >= 4 && !adif::isPlaceholderGrid(q.myGrid)) ++n[q.myGrid];
     size_t most = 0;
     for (const auto &kv : n)
         if (kv.second > most) most = kv.second, g = kv.first;
@@ -1649,7 +1838,9 @@ void refresh() {
                      (mw.data.withoutGrid ? plural(mw.data.withoutGrid, "QSO") + " without GRIDSQUARE " + (mw.data.withoutGrid == 1 ? "isn't" : "aren't") +
                                                 " on the squares. "
                                           : "") +
-                     plural(located, "QSO") + " with an exact place (Contacts). "
+                     plural(located, "QSO") + " with an exact place (Contacts" +
+                     (mw.data.unusedLatLon ? "; " + std::to_string(mw.data.unusedLatLon) + " LAT/LON not used: a placeholder, or far from the QSO's grid" : "") +
+                     "). "
                      "The legend shows the colours. Scroll or pinch to zoom, drag to move (on the globe, to turn it), "
                      "click a square, dot, pin or park for its QSOs.";
         mw.chosen.clear();
@@ -1743,6 +1934,10 @@ void cmdMap() {
         mw.grid.toolTip = @"The grid's fields (20 x 10 degrees), and its squares (2 x 1) when zoomed in";
         mw.labels = ADIFCheckbox(@"Labels", flag("mapLabels", true));
         mw.labels.toolTip = @"Field names (FN, EM...), and square names (FN31) when zoomed in";
+        mw.cqZones = ADIFCheckbox(@"CQ zones", flag("mapCqZones", false));
+        mw.ituZones = ADIFCheckbox(@"ITU zones", flag("mapItuZones", false));
+        mw.states = ADIFCheckbox(@"US states", flag("mapUsStates", false));
+        mw.states.toolTip = @"State lines and postal codes (Natural Earth, public domain)";
         mw.entities = ADIFCheckbox(@"DXCC", flag("mapDxcc", true));
         mw.contacts = ADIFCheckbox(@"Contacts", flag("mapContacts", false));
         mw.contacts.toolTip = @"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
@@ -1753,9 +1948,6 @@ void cmdMap() {
                                                   @"castles... (IOTA starts hidden: callbooks fill it in for every island station)");
         mw.mine = ADIFCheckbox(@"My station", flag("mapMine", true));
         mw.mine.toolTip = @"A star at each MY_GRIDSQUARE in the log";
-        mw.paths = ADIFCheckbox(@"Lines to contacts", flag("mapPaths", false));
-        mw.paths.toolTip = @"Great-circle lines from your station (each QSO's MY_GRIDSQUARE, else home) to each contact (its grid, else "
-                           @"its DXCC entity), coloured as the map colours";
         // Row 2: which QSOs, and how to colour them.
         mw.band = ADIFPopup(@[ @"All bands" ]);
         mw.mode = ADIFPopup(@[ @"All modes" ]);
@@ -1770,7 +1962,25 @@ void cmdMap() {
         mw.projection.toolTip = @"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Globe: the Earth "
                                 @"as seen from space, centred on your grid; drag (or the arrow keys) to turn it any way, zoom in for detail, "
                                 @"World to come home. Bearings from the centre are true (beam headings)";
-        mw.style = pullDown(@"Style", @"Colours, marker size and shape, how worked squares are filled, the legend, distance rings");
+        mw.style = pullDown(@"Options", @"Colours, marker size and shape, contact markers, how worked squares are filled, lines to contacts "
+                                        @"and their style, the legend, distance rings");
+        mw.region = pullDown(@"Region", @"Zoom to a continent (on the globe, turn to face it)");
+        {
+            // Continents as ADIF's CONT names them, each a box of longitude and latitude to show.
+            struct Box {
+                NSString *name;
+                double w, s, e, n;
+            };
+            static const Box kRegions[] = {{@"Africa", -20, -36, 53, 38},           {@"Antarctica", -180, -90, 180, -60},
+                                           {@"Asia", 25, -11, 180, 78},             {@"Europe", -25, 34, 45, 72},
+                                           {@"North America", -170, 5, -50, 75},    {@"Oceania", 110, -48, 180, 0},
+                                           {@"South America", -82, -56, -34, 13}};
+            for (const Box &b : kRegions) {
+                NSMenuItem *item = [mw.region.menu addItemWithTitle:b.name action:nil keyEquivalent:@""];
+                Box box = b;
+                ADIFBlockMenuItem(item, ^{ [mw.view showWest:box.w south:box.s east:box.e north:box.n]; });
+            }
+        }
         for (NSControl *c in @[ mw.squares, mw.entities, mw.contacts, mw.parks, mw.band, mw.mode, mw.dates, mw.confirmed ]) ADIFOnAction(c, ^{
             saveFlag("mapSquares", mw.squares.state == NSControlStateValueOn);
             saveFlag("mapDxcc", mw.entities.state == NSControlStateValueOn);
@@ -1778,11 +1988,13 @@ void cmdMap() {
             saveFlag("mapParks", mw.parks.state == NSControlStateValueOn);
             refresh();
         });
-        for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.paths ]) ADIFOnAction(b, ^{
+        for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.cqZones, mw.ituZones, mw.states ]) ADIFOnAction(b, ^{
             saveFlag("mapGrid", mw.grid.state == NSControlStateValueOn);
             saveFlag("mapLabels", mw.labels.state == NSControlStateValueOn);
+            saveFlag("mapCqZones", mw.cqZones.state == NSControlStateValueOn);
+            saveFlag("mapItuZones", mw.ituZones.state == NSControlStateValueOn);
+            saveFlag("mapUsStates", mw.states.state == NSControlStateValueOn);
             saveFlag("mapMine", mw.mine.state == NSControlStateValueOn);
-            saveFlag("mapPaths", mw.paths.state == NSControlStateValueOn);
             applyStyle();
             fillStyle();
         });
@@ -1801,13 +2013,14 @@ void cmdMap() {
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now, with its legend", ^{ exportPng(); });
-        NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Show:"), mw.squares, mw.grid, mw.labels, mw.entities, mw.contacts, mw.parks,
-                                                              mw.programs, mw.mine, mw.paths ]];
+        NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Show:"), mw.squares, mw.entities, mw.contacts, mw.parks, mw.programs, mw.mine ]];
         row.spacing = 10;
         NSStackView *row2 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Only:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.colorBy ]];
         row2.spacing = 8;
         [row2 setCustomSpacing:24 afterView:mw.confirmed];
-        NSStackView *row3 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.projection, mw.style, save ]];
+        NSStackView *overlays = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Overlays:"), mw.grid, mw.labels, mw.cqZones, mw.ituZones, mw.states ]];
+        overlays.spacing = 10;
+        NSStackView *row3 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, mw.style, save ]];
         row3.spacing = 8;
         [row3 setCustomSpacing:24 afterView:world];
         mw.view = [[ADIFMapView alloc] initWithFrame:NSZeroRect];
@@ -1840,7 +2053,7 @@ void cmdMap() {
         mw.status = [NSTextField wrappingLabelWithString:@""];
         mw.status.maximumNumberOfLines = 3;
         mw.status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        for (NSView *v in @[ mw.target, row, row2, row3, mw.view, scroll, mw.status ]) {
+        for (NSView *v in @[ mw.target, row, overlays, row2, row3, mw.view, scroll, mw.status ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [root addSubview:v];
         }
@@ -1851,7 +2064,10 @@ void cmdMap() {
             [row.topAnchor constraintEqualToAnchor:mw.target.bottomAnchor constant:8],
             [row.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
             [row.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-            [row2.topAnchor constraintEqualToAnchor:row.bottomAnchor constant:6],
+            [overlays.topAnchor constraintEqualToAnchor:row.bottomAnchor constant:6],
+            [overlays.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+            [overlays.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+            [row2.topAnchor constraintEqualToAnchor:overlays.bottomAnchor constant:6],
             [row2.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
             [row2.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
             [row3.topAnchor constraintEqualToAnchor:row2.bottomAnchor constant:6],

@@ -9,23 +9,39 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-10
+
 ### Added
 
-- **Map**: projections (Equirectangular, Mercator, Equal Earth, and a Globe centred on your
-  grid); colour by confirmation, band, mode, QSO
-  count or year first worked, with a legend (in the PNG too); palettes (Standard,
-  Colour-blind safe, High contrast, Light for printing); marker size and shape, solid,
-  see-through or outlined squares; Maidenhead grid and Labels each on or off; Other
-  programs as a list of common programs with a colour and a count each (SOTA, IOTA, GMA,
-  WWBOTA, HEMA, SiOTA, WCA, ILLW, ARLHS, MOTA, ZLOTA, WOTA and any other SIG); lines to
-  contacts (great circles from your station to each contact's grid, else its DXCC entity)
-  and distance rings from your grid; filters for dates (last 30 days, 12 months, this year,
-  a year) and confirmation; the distance and bearing from home of the square under the
-  pointer. The Globe (orthographic, Snyder 1987) shows the side of the Earth facing you and
-  turns as you drag, in any direction, with coasts, borders, the grid and paths cut at the
-  horizon; zoom in for detail, World to come home. **Contacts** puts a pin (or a dot or
-  crosshair) at each contact's own place, from LAT and LON or a 6 or 8 character grid.
-  Every choice is remembered.
+- **Map → Globe**: the Earth as seen from space (the orthographic projection, Snyder 1987),
+  centred on your grid. Drag, scroll on a trackpad or use the arrow keys to turn it in any
+  direction; zoom in for detail; **World** turns it back to home. Coasts, borders, the grid,
+  lines to contacts and distance rings stop at the horizon, and bearings from the centre are
+  true (beam headings).
+- **Map → Contacts**: a pin, dot or crosshair at each contact's own place, from LAT and LON,
+  else a 6 or 8 character GRIDSQUARE; point at one for the calls and the distance and
+  bearing from home, click it for its QSOs. Placeholder places (LAT/LON 0°, 0° as QRZ.com
+  writes them, grids AA00 and JJ00) are drawn nowhere, and LAT/LON more than half a square
+  from the QSO's grid is left out.
+- **Map projections**: Equirectangular, Mercator, Equal Earth (every area at its true size)
+  and the Globe.
+- **Map → Colour by** confirmation, band (in PSKReporter's band colours), mode, QSO count or
+  year first worked, with a legend (in the PNG too).
+- **Map → Options**: palettes (Standard, Colour-blind safe, High contrast, Light for
+  printing), marker size and shape, contact markers, worked squares solid, see-through or
+  outlined, **Lines to contacts** (great circles from your station to each contact's
+  LAT/LON, grid, or DXCC entity) solid, dashed or dotted and thin, medium or thick, the
+  legend, and distance rings from your grid.
+- **Map → Show**: **Other programs** as a list of common programs with a colour and a count
+  each (SOTA, IOTA, GMA, WWBOTA, HEMA, SiOTA, WCA, ILLW, ARLHS, MOTA, ZLOTA, WOTA and any
+  other SIG). **Overlays**: the Maidenhead grid and its labels, **CQ zones** and **ITU
+  zones** with their numbers (HB9HIL's hamradio-zones-geojson, MIT), and **US states** with
+  their postal codes (Natural Earth), each on or off.
+- **Map → Region** zooms to a continent; the globe turns to face it.
+- **Map → Only**: dates (the last 30 days, the last 12 months, this year, a year) and
+  confirmed or not confirmed QSOs, beside band and mode.
+- The Map's status line gives the distance and bearing from home of the square under the
+  pointer. Every Map choice is remembered.
 
 ## [1.0.1] - 2026-10-10
 
@@ -388,7 +404,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.8.0...v0.9.0

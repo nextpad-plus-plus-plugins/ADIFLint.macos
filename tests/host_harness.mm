@@ -3657,8 +3657,10 @@ int main(int argc, char **argv) {
             NSPopUpButton *colour = findPopupWith(mapw.contentView, @"Colour by band");
             NSPopUpButton *styleMenu = findPopupWith(mapw.contentView, @"Legend");
             NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
-            NSButton *pathsBox = findButton(mapw.contentView, @"Lines to contacts");
-            CHECK(proj && colour && styleMenu && programsMenu && pathsBox && [proj itemAtIndex:3].enabled &&
+            NSPopUpButton *regionMenu = findPopupWith(mapw.contentView, @"South America");
+            CHECK(proj && colour && styleMenu && programsMenu && regionMenu && [styleMenu itemAtIndex:0].title.length &&
+                      [[styleMenu itemAtIndex:0].title isEqualToString:@"Options"] && !findButton(mapw.contentView, @"Lines to contacts") &&
+                      [proj itemAtIndex:3].enabled &&
                       [[proj itemAtIndex:3].title isEqualToString:@"Globe from EN52WA"],
                   "projection, colour, Style and Other programs controls; the globe from the log's grid: %s",
                   proj ? [proj itemAtIndex:3].title.UTF8String : "");
@@ -3687,13 +3689,28 @@ int main(int argc, char **argv) {
             CHECK(clickFn31(), "Equal Earth: a click on FN31 lists K1AB");
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-equal-earth");
+            {  // the zones on a flat world map: those across the 180th meridian end at the map's edges
+                NSButton *cq = findButton(mapw.contentView, @"CQ zones");
+                cq.state = NSControlStateValueOn;
+                [cq sendAction:cq.action to:cq.target];
+                snapshot(mapw, "map-equal-earth-zones");
+                cq.state = NSControlStateValueOff;
+                [cq sendAction:cq.action to:cq.target];
+            }
             pick(proj, @"Mercator");
             CHECK(clickFn31(), "Mercator: a click on FN31 lists K1AB");
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-mercator");
             pick(proj, [proj itemAtIndex:3].title);
-            pathsBox.state = NSControlStateValueOn;
-            [pathsBox sendAction:pathsBox.action to:pathsBox.target];
+            auto menuEnabled = [&](NSPopUpButton *p, NSString *prefix) {
+                for (NSMenuItem *i in p.menu.itemArray)
+                    if ([i.title hasPrefix:prefix]) return (bool)i.enabled;
+                return false;
+            };
+            CHECK(!menuEnabled(styleMenu, @"Dashed line") && menuAction(styleMenu, @"Lines to contacts") && menuState(styleMenu, @"Lines to contacts") &&
+                      menuEnabled(styleMenu, @"Dashed line") && menuAction(styleMenu, @"Dashed line") && menuState(styleMenu, @"Dashed line") &&
+                      menuAction(styleMenu, @"Thick line") && menuState(styleMenu, @"Thick line") && !menuState(styleMenu, @"Solid line"),
+                  "Options: lines to contacts, then their style and width");
             CHECK(menuAction(styleMenu, @"Distance rings") && menuState(styleMenu, @"Distance rings"), "distance rings on");
             // Fit Log fits the farthest QSO around home, where FN20's park sits beside FN31: zoom in on
             // FN31 first (double-clicks turn the globe toward the pointer, keeping FN31 under it).
@@ -3749,9 +3766,42 @@ int main(int argc, char **argv) {
             snapshot(mapw, "map-globe-far-side");
             [findButton(mapw.contentView, @"World") performClick:nil];
             CHECK(homeAtMiddle(), "World comes home from the far side");
+            // Region: the globe turns to face Africa and zooms to it; on a flat map, Europe fills the view.
+            auto regionMiddle = [&](double lon, double lat) {
+                NSPoint p = pointFor(lon, lat);
+                return std::hypot(p.x - middle.x, p.y - middle.y);
+            };
+            CHECK(menuAction(regionMenu, @"Africa") && regionMiddle(16.5, 1) < 3 && std::atof(zoomShown().c_str()) > 1.2,
+                  "Region → Africa turns the globe to face it (%.1f px off, %s)", regionMiddle(16.5, 1), zoomShown().c_str());
+            snapshot(mapw, "map-globe-africa");
+            // Overlays: CQ and ITU zones on the globe, then US states on a flat map.
+            NSButton *cqBox = findButton(mapw.contentView, @"CQ zones"), *ituBox = findButton(mapw.contentView, @"ITU zones"),
+                     *statesBox = findButton(mapw.contentView, @"US states");
+            CHECK(cqBox && ituBox && statesBox && cqBox.state == NSControlStateValueOff, "the overlay boxes, off at first");
+            for (NSButton *bx in @[ cqBox, ituBox ]) {
+                bx.state = NSControlStateValueOn;
+                [bx sendAction:bx.action to:bx.target];
+            }
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            snapshot(mapw, "map-globe-zones");
+            [findButton(mapw.contentView, @"World") performClick:nil];
             pick(colour, @"Colour by band");
             CHECK(menuAction(styleMenu, @"Light (for printing)") && menuState(styleMenu, @"Light (for printing)"), "the light palette");
             pick(proj, @"Equirectangular");
+            CHECK(menuAction(regionMenu, @"Europe") && regionMiddle(10, 53) < 3 && std::atof(zoomShown().c_str()) > 2,
+                  "Region → Europe on a flat map (%.1f px off, %s)", regionMiddle(10, 53), zoomShown().c_str());
+            snapshot(mapw, "map-europe");
+            for (NSButton *bx in @[ cqBox, ituBox ]) {
+                bx.state = NSControlStateValueOff;
+                [bx sendAction:bx.action to:bx.target];
+            }
+            statesBox.state = NSControlStateValueOn;
+            [statesBox sendAction:statesBox.action to:statesBox.target];
+            CHECK(menuAction(regionMenu, @"North America"), "Region → North America");
+            snapshot(mapw, "map-us-states");
+            statesBox.state = NSControlStateValueOff;
+            [statesBox sendAction:statesBox.action to:statesBox.target];
+            [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-light-band");
             CHECK(!menuState(programsMenu, @"IOTA (islands): 1") && menuAction(programsMenu, @"IOTA (islands)") &&
                       menuState(programsMenu, @"IOTA (islands): 1") && menuState(programsMenu, @"SOTA (summits): none"),
@@ -3763,8 +3813,9 @@ int main(int argc, char **argv) {
             menuAction(styleMenu, @"Distance rings");
             menuAction(programsMenu, @"IOTA (islands)");
             pick(colour, @"Colour by confirmation");
-            pathsBox.state = NSControlStateValueOff;
-            [pathsBox sendAction:pathsBox.action to:pathsBox.target];
+            menuAction(styleMenu, @"Solid line");
+            menuAction(styleMenu, @"Medium line");
+            menuAction(styleMenu, @"Lines to contacts");
             [mapw orderOut:nil];
         }
 

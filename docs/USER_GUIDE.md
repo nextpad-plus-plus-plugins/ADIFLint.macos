@@ -455,15 +455,18 @@ in), country borders, and state and province lines from 2.5×. Every choice is r
 **Show** what to draw:
 
 - **Worked squares**, from GRIDSQUARE and VUCC_GRIDS;
-- **Maidenhead grid**: the fields' lines (20 × 10 degrees), and the squares' (2 × 1) when
-  zoomed in; **Labels**: their names (`FN`, then `FN31`);
 - **DXCC**: each entity worked, from the call's prefix in the country data, as a dot at its
   centre, bigger with more QSOs;
 - **Contacts**: a marker at each contact's own place, from its LAT and LON, else a
   GRIDSQUARE of 6 or 8 characters (a 4-character square is 100 km or more across, so
-  **Worked squares** shows those). QSOs at the same place share one marker. Style chooses
+  **Worked squares** shows those). QSOs at the same place share one marker. Options chooses
   pins, dots or crosshairs; point at one for the calls, where the place came from and how far
-  it is from home, or click it to list its QSOs;
+  it is from home, or click it to list its QSOs. LAT and LON are left out when they are a
+  placeholder (0°, 0°, as QRZ.com writes for "unknown", or the centre of grid AA00aa or
+  JJ00aa), or when they are more than half a square outside the QSO's GRIDSQUARE: a callbook
+  fills them in from the station's address, which is not where it was when it worked
+  portable. Then a 6 or 8 character grid places it, or nothing does. The status line counts
+  the LAT/LON left out. Grids AA00 and JJ00 are placeholders too, drawn nowhere;
 - **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE, since
   there is no offline list of where parks are;
 - **Other programs**, a list with a colour and a count for each: SOTA summits, IOTA islands,
@@ -471,17 +474,26 @@ in), country borders, and state and province lines from 2.5×. Every choice is r
   mills, ZLOTA, WOTA, and any other SIG in the log. Tick the ones to show (**Show All**,
   **Hide All**). IOTA starts hidden: a callbook such as QRZ.com fills it in for every island
   station;
-- **My station**: a star at each MY_GRIDSQUARE;
-- **Lines to contacts**: a great-circle line from your station (the QSO's MY_GRIDSQUARE, else
-  home) to each contact (its LAT and LON, else its GRIDSQUARE at full precision, else its DXCC
-  entity's centre), coloured as the map colours; each pair once.
+- **My station**: a star at each MY_GRIDSQUARE.
+
+**Overlays** on the map:
+
+- **Maidenhead grid**: the fields' lines (20 × 10 degrees), and the squares' (2 × 1) when
+  zoomed in; **Labels**: their names (`FN`, then `FN31`);
+- **CQ zones** (orange) and **ITU zones** (blue), each with its number, from HB9HIL's
+  [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) (MIT; the files
+  Wavelog uses). Zone lines are approximate, across the sea in particular, and sources
+  disagree in places; the zone a QSO counts for is the one in its CQZ or ITUZ field;
+- **US states**: state lines and postal codes (Natural Earth), a code where the state is big
+  enough on screen to hold it.
 
 **Only** these QSOs: a band, a mode, a time (the last 30 days, the last 12 months, this
 year, or a year in the log), and all, confirmed or not confirmed QSOs (confirmed: QSL_RCVD,
 LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V).
 
 **Colour by**: confirmation (confirmed or only worked), band (the band with the most QSOs
-in the square), mode (CW, phone or data), QSO count (1, 2-4, 5-9, 10-24, 25 and more) or
+in the square, in [PSKReporter](https://pskreporter.info/pskmap.html)'s colours, so 20m is
+the same yellow as on its map), mode (CW, phone or data), QSO count (1, 2-4, 5-9, 10-24, 25 and more) or
 the year a square was first worked. The **legend** in the corner says what each colour and
 marker means.
 
@@ -500,18 +512,23 @@ The **projection**:
   centred on home it gives the beam heading. The legend says where it is centred. Coasts,
   borders, the grid and lines to contacts stop at the horizon.
 
-**Style**: colours (**Standard**, **Colour-blind safe** with the Okabe-Ito colours and
-viridis, **High contrast**, **Light** for printing), marker size, markers by layer (dots,
-triangles, diamonds) or all circles or squares, worked squares solid, see-through or as
-outlines, **Contacts** as pins, dots or crosshairs, the **Legend**, and **Distance rings**
+**Options**: colours (**Standard**, **Colour-blind safe** with the Okabe-Ito colours, and
+viridis from 160m to 70cm in place of PSKReporter's band colours, **High contrast**,
+**Light** for printing), marker size, markers by layer (dots, triangles, diamonds) or all
+circles or squares, **Contacts** as pins, dots or crosshairs, worked squares solid,
+see-through or as outlines, **Lines to contacts** (a great-circle line from your station,
+the QSO's MY_GRIDSQUARE, else home, to each contact, its LAT and LON, else its GRIDSQUARE at
+full precision, else its DXCC entity's centre; coloured as the map colours; each pair once)
+solid, dashed or dotted and thin, medium or thick, the **Legend**, and **Distance rings**
 from your grid (2,500 km apart for the whole world, closer as you zoom in; with bearings
 every 30° when the globe is centred on home).
 
 Moving around:
 
 - **Zoom** with a pinch, the mouse wheel, Option and a two-finger scroll, a double-click,
-  the **+** and **−** buttons or keys; **Fit Log** zooms to the log's QSOs and **World** (or
-  the 0 key) shows the whole world.
+  the **+** and **−** buttons or keys; **Fit Log** zooms to the log's QSOs, **World** (or
+  the 0 key) shows the whole world, and **Region** zooms to a continent (Africa, Antarctica,
+  Asia, Europe, North America, Oceania, South America; the globe turns to face it).
 - **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys (on the globe
   these turn it).
 - **Point** at a square, DXCC dot, contact or park to read what it is, its QSOs, and (for a

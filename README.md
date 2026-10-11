@@ -183,7 +183,7 @@ tab); Settings suggests some.
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
-| Map (Grids, DXCC, Parks)… | The log on a world map: worked squares, DXCC, parks and other programs, coloured by confirmation, band, mode, count or year; contacts at their exact place; four projections, including a globe you turn by dragging; paths and distance rings; PNG export |
+| Map (Grids, DXCC, Parks)… | The log on a world map: worked squares, DXCC, parks and other programs, coloured by confirmation, band, mode, count or year; contacts at their exact place; CQ zones, ITU zones and US states; four projections, including a globe you turn by dragging; paths and distance rings; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
 | QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
@@ -294,6 +294,12 @@ Nextpad++ and its plugins.
   published by the ADIF Development Group for developers.
 - `data/cty.csv` is Jim Reisert AD1C's [Big CTY](https://www.country-files.com/) country
   file, under the MIT licence ([`data/cty-copyright.txt`](data/cty-copyright.txt)).
+- The Map draws [Natural Earth](https://www.naturalearthdata.com)'s land, lakes, rivers,
+  borders and US states (public domain), and CQ and ITU zones from HB9HIL's
+  [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) under the MIT
+  licence ([`data/zones-license.txt`](data/zones-license.txt)); see
+  [`data/SOURCE.md`](data/SOURCE.md). Colour by band uses
+  [PSKReporter](https://pskreporter.info)'s band colours.
 - `third_party/` holds the Nextpad++ plugin header (GPL v3) and the Scintilla headers
   (Scintilla licence); see [`third_party/README.md`](third_party/README.md).
 - HamQTH data is credited in the Enrich window, as HamQTH asks.

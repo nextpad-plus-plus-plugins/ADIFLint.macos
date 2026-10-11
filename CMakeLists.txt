@@ -51,6 +51,7 @@ add_library(adif_core STATIC
     src/core/adif_labels.cpp
     src/core/adif_world.cpp
     src/core/adif_world_data.cpp
+    src/core/adif_overlays_data.cpp
     src/core/adif_projection.cpp)
 target_include_directories(adif_core PUBLIC src/core)
 target_compile_options(adif_core PRIVATE ${WARNINGS})
@@ -126,7 +127,7 @@ if(NOT ADIF_SANITIZE)
         endif()
         execute_process(COMMAND codesign --force --sign - \"\${dir}/ADIFLint.dylib.new\")
         file(RENAME \"\${dir}/ADIFLint.dylib.new\" \"\${dir}/ADIFLint.dylib\")
-        file(COPY \"${CMAKE_SOURCE_DIR}/data/cty.csv\" \"${CMAKE_SOURCE_DIR}/data/cty-copyright.txt\" DESTINATION \"\${dir}\")
+        file(COPY \"${CMAKE_SOURCE_DIR}/data/cty.csv\" \"${CMAKE_SOURCE_DIR}/data/cty-copyright.txt\" \"${CMAKE_SOURCE_DIR}/data/zones-license.txt\" DESTINATION \"\${dir}\")
         file(GLOB icons \"${CMAKE_SOURCE_DIR}/data/toolbar/*.png\")
         file(COPY \${icons} DESTINATION \"\${dir}\")
         message(STATUS \"Installed \${dir}/ADIFLint.dylib; restart Nextpad++ to load it\")

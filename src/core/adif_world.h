@@ -22,6 +22,17 @@ size_t layerShapeCount(MapLayer l);
 std::vector<std::pair<double, double>> layerShape(MapLayer l, size_t i);
 int layerShapeRank(MapLayer l, size_t i);  // rivers: Natural Earth's scalerank, 1 (major) to 6; else 0
 
+// Overlays: US states, CQ zones and ITU zones, each an area with a name (a postal code, a
+// zone number) and a place to write it; adif_overlays_data.cpp, by tools/gen_map_overlays.py.
+enum class Overlay { UsStates, CqZones, ItuZones };
+struct OverlayArea {
+    std::string name;
+    double labelLon = 0, labelLat = 0;
+    std::vector<std::vector<std::pair<double, double>>> rings;  // (lon, lat), not closed
+};
+size_t overlayCount(Overlay o);
+OverlayArea overlayArea(Overlay o, size_t i);
+
 // A QSO confirmed by card, LoTW or eQSL: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V.
 bool isConfirmed(const Record &r);
 
@@ -34,6 +45,10 @@ struct MapQso {
     bool confirmed = false;
     // Where the other station was, when the record says closely: LAT and LON, else a
     // GRIDSQUARE of 6 or 8 characters (a 4-character square is 100 km or more across).
+    // LAT and LON are left out when they are a placeholder (isPlaceholderPlace) or, with a
+    // GRIDSQUARE, more than half a square outside it: a callbook fills them in from the
+    // station's address, which is not where it was when it worked portable, and the two
+    // can't tell which is right.
     bool located = false;
     double lat = 0, lon = 0;
     std::string locatedBy;  // "LAT/LON", or the grid
@@ -58,6 +73,7 @@ struct MapData {
     std::vector<std::pair<std::string, bool>> calls;  // every CALL with whether that QSO is confirmed (entities)
     std::vector<MapQso> qsos;                         // the records shown, in log order (calls[i] is qsos[i]'s)
     size_t records = 0, withoutGrid = 0;
+    size_t unusedLatLon = 0;  // records whose LAT and LON were left out (MapQso::located)
 };
 // Which records the map shows: empty strings mean any.
 struct MapFilter {
@@ -68,6 +84,12 @@ struct MapFilter {
 MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filter);
 // The log's records on `band` and `mode` (empty: all; mode matches MODE or SUBMODE).
 MapData mapData(std::string_view text, const DocModel &m, std::string_view band, std::string_view mode);
+
+// What programs write for "unknown", seen in a QRZ.com Logbook export (2026-10-09): the
+// grids AA00 and JJ00 (their first square, alone or with subsquare aa), and LAT/LON at
+// 0, 0 or at the centre of AA00aa or JJ00aa. The map draws no square, park or contact there.
+bool isPlaceholderGrid(std::string_view grid);
+bool isPlaceholderPlace(double lat, double lon);
 
 // A 4-character square's corners: west, south, east, north (degrees); false when not a grid.
 bool squareBounds(std::string_view grid, double *west, double *south, double *east, double *north);
