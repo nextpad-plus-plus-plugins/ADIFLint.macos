@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-10
+
 ### Added
 
 - **Bulk Edit → Change case**: UPPER CASE, lower case or Title Case for names and places
@@ -368,7 +370,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases/tag/v0.8.0
