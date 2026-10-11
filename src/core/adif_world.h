@@ -22,9 +22,10 @@ size_t layerShapeCount(MapLayer l);
 std::vector<std::pair<double, double>> layerShape(MapLayer l, size_t i);
 int layerShapeRank(MapLayer l, size_t i);  // rivers: Natural Earth's scalerank, 1 (major) to 6; else 0
 
-// Overlays: US states, CQ zones and ITU zones, each an area with a name (a postal code, a
-// zone number) and a place to write it; adif_overlays_data.cpp, by tools/gen_map_overlays.py.
-enum class Overlay { UsStates, CqZones, ItuZones };
+// Overlays: US states, CQ zones, ITU zones and countries, each an area with a name (a postal
+// code, a zone number, a country's short name) and a place to write it; adif_overlays_data.cpp,
+// by tools/gen_map_overlays.py.
+enum class Overlay { UsStates, CqZones, ItuZones, Countries };
 struct OverlayArea {
     std::string name;
     double labelLon = 0, labelLat = 0;

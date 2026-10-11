@@ -34,9 +34,10 @@ Versions before 0.8.0 were development builds and were not published.
   legend, and distance rings from your grid.
 - **Map → Show**: **Other programs** as a list of common programs with a colour and a count
   each (SOTA, IOTA, GMA, WWBOTA, HEMA, SiOTA, WCA, ILLW, ARLHS, MOTA, ZLOTA, WOTA and any
-  other SIG). **Overlays**: the Maidenhead grid and its labels, **CQ zones** and **ITU
-  zones** with their numbers (HB9HIL's hamradio-zones-geojson, MIT), and **US states** with
-  their postal codes (Natural Earth), each on or off.
+  other SIG). **Overlays**: the Maidenhead grid and its labels, **Countries** outlined with
+  their names and **US states** with their postal codes (Natural Earth), and **CQ zones**
+  and **ITU zones** with their numbers (HB9HIL's hamradio-zones-geojson, MIT), each on or
+  off.
 - **Map → Region** zooms to a continent; the globe turns to face it.
 - **Map → Only**: dates (the last 30 days, the last 12 months, this year, a year) and
   confirmed or not confirmed QSOs, beside band and mode.

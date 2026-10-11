@@ -480,6 +480,8 @@ in), country borders, and state and province lines from 2.5×. Every choice is r
 
 - **Maidenhead grid**: the fields' lines (20 × 10 degrees), and the squares' (2 × 1) when
   zoomed in; **Labels**: their names (`FN`, then `FN31`);
+- **Countries**: every country outlined, coasts and borders, with its name where the name
+  fits inside it on screen (Natural Earth); the faint land borders are always drawn;
 - **CQ zones** (orange) and **ITU zones** (blue), each with its number, from HB9HIL's
   [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) (MIT; the files
   Wavelog uses). Zone lines are approximate, across the sea in particular, and sources

@@ -3801,6 +3801,14 @@ int main(int argc, char **argv) {
             snapshot(mapw, "map-us-states");
             statesBox.state = NSControlStateValueOff;
             [statesBox sendAction:statesBox.action to:statesBox.target];
+            NSButton *countriesBox = findButton(mapw.contentView, @"Countries");
+            CHECK(countriesBox && countriesBox.state == NSControlStateValueOff, "the Countries box, off at first");
+            countriesBox.state = NSControlStateValueOn;
+            [countriesBox sendAction:countriesBox.action to:countriesBox.target];
+            CHECK(menuAction(regionMenu, @"Europe"), "Region → Europe with countries");
+            snapshot(mapw, "map-countries");
+            countriesBox.state = NSControlStateValueOff;
+            [countriesBox sendAction:countriesBox.action to:countriesBox.target];
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-light-band");
             CHECK(!menuState(programsMenu, @"IOTA (islands): 1") && menuAction(programsMenu, @"IOTA (islands)") &&

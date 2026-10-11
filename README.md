@@ -183,7 +183,7 @@ tab); Settings suggests some.
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
-| Map (Grids, DXCC, Parks)… | The log on a world map: worked squares, DXCC, parks and other programs, coloured by confirmation, band, mode, count or year; contacts at their exact place; CQ zones, ITU zones and US states; four projections, including a globe you turn by dragging; paths and distance rings; PNG export |
+| Map (Grids, DXCC, Parks)… | The log on a world map: worked squares, DXCC, parks and other programs, coloured by confirmation, band, mode, count or year; contacts at their exact place; countries, US states, CQ zones and ITU zones; four projections, including a globe you turn by dragging; paths and distance rings; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
 | QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
@@ -295,7 +295,7 @@ Nextpad++ and its plugins.
 - `data/cty.csv` is Jim Reisert AD1C's [Big CTY](https://www.country-files.com/) country
   file, under the MIT licence ([`data/cty-copyright.txt`](data/cty-copyright.txt)).
 - The Map draws [Natural Earth](https://www.naturalearthdata.com)'s land, lakes, rivers,
-  borders and US states (public domain), and CQ and ITU zones from HB9HIL's
+  borders, countries and US states (public domain), and CQ and ITU zones from HB9HIL's
   [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) under the MIT
   licence ([`data/zones-license.txt`](data/zones-license.txt)); see
   [`data/SOURCE.md`](data/SOURCE.md). Colour by band uses

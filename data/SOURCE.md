@@ -17,8 +17,9 @@ MIT-licensed; the notice is in `zones-license.txt`. They are the zone files Wave
 repository does not say where the lines were drawn from, so treat them as approximate: zone
 lines across the sea are not exact in any source, and sources disagree in places.
 
-**US states** come from Natural Earth's `ne_50m_admin_1_states_provinces.geojson` (public
+**US states** and **Countries** come from Natural Earth's
+`ne_50m_admin_1_states_provinces.geojson` and `ne_50m_admin_0_countries.geojson` (public
 domain), from https://github.com/nvkelso/natural-earth-vector commit ca96624 (downloaded
 2026-10-10).
 
-`tools/gen_map_overlays.py` turns the three files into `src/core/adif_overlays_data.cpp`.
+`tools/gen_map_overlays.py` turns the four files into `src/core/adif_overlays_data.cpp`.

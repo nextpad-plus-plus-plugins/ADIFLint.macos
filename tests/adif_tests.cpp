@@ -2909,6 +2909,11 @@ static void testWorld() {
                   zoneAt(Overlay::CqZones, c.lon, c.lat).c_str(), zoneAt(Overlay::ItuZones, c.lon, c.lat).c_str());
         CHECK(zoneAt(Overlay::UsStates, -87.6, 41.9) == "IL" && zoneAt(Overlay::UsStates, -149.9, 61.2) == "AK" && zoneAt(Overlay::UsStates, -0.13, 51.5).empty(),
               "US states: Chicago is in IL, Anchorage in AK, London in none");
+        CHECK(overlayCount(Overlay::Countries) > 230 && zoneAt(Overlay::Countries, -0.13, 51.5) == "United Kingdom" &&
+                  zoneAt(Overlay::Countries, -87.6, 41.9) == "United States of America" && zoneAt(Overlay::Countries, 174.76, -36.85) == "New Zealand" &&
+                  zoneAt(Overlay::Countries, -30, 30).empty(),
+              "countries: %zu; London %s, Chicago, Auckland; none in the mid-Atlantic", overlayCount(Overlay::Countries),
+              zoneAt(Overlay::Countries, -0.13, 51.5).c_str());
     }
         CHECK(isPlaceholderGrid("jj00aa") && isPlaceholderGrid("AA00") && !isPlaceholderGrid("JJ00ab") && !isPlaceholderGrid("AA01") &&
                   isPlaceholderPlace(0, 0) && !isPlaceholderPlace(0, 0.001),

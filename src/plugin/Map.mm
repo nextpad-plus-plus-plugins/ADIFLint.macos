@@ -43,7 +43,7 @@ struct ADIFMapStyle {
     int lineWidth = 1;  // 0 thin, 1 medium, 2 thick
     double marker = 1;  // marker size factor
     bool grid = true, labels = true, legend = true, rings = false, paths = false, mine = true;
-    bool cqZones = false, ituZones = false, states = false;  // overlays
+    bool cqZones = false, ituZones = false, states = false, countries = false;  // overlays
 };
 
 // QSOs at one exact place (MapQso::located), for the Contacts layer.
@@ -891,7 +891,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     }
 
-    // Overlays: US states, CQ zones and ITU zones, outlined, each named where it has room.
+    // Overlays: countries, US states, ITU zones and CQ zones, outlined, each named where its
+    // name fits inside it on screen.
     struct OverlayStyle {
         bool on;
         adif::Overlay which;
@@ -899,6 +900,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         CGFloat width, labelSize, minPixels;
     };
     const OverlayStyle overlayStyles[] = {
+        {_style.countries, adif::Overlay::Countries, [NSColor colorWithCalibratedWhite:ink alpha:0.6], 0.8, 10, 24},
         {_style.states, adif::Overlay::UsStates, [NSColor colorWithCalibratedWhite:ink alpha:0.5], 0.7, 10, 26},
         {_style.ituZones, adif::Overlay::ItuZones, pal.dark ? rgb(0x4FC3F7, 0.75) : rgb(0x0277BD, 0.8), 1.0, 12, 30},
         {_style.cqZones, adif::Overlay::CqZones, pal.dark ? rgb(0xFFB74D, 0.8) : rgb(0xE65100, 0.8), 1.4, 14, 30},
@@ -919,9 +921,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             NSPoint p = [self viewPointForLon:a.labelLon lat:a.labelLat];
             if (!NSPointInRect(p, NSInsetRect(b, -20, -10))) continue;
             double wide = [self pixelsForLon:a.labelLon lat:a.labelLat span:std::min(oc.span[i].first, 60.0)];
-            if (wide < os.minPixels) continue;  // too small on screen for its name
             NSString *name = ADIFString(a.name);
             NSSize sz = [name sizeWithAttributes:attrs];
+            if (wide < std::max((double)os.minPixels, sz.width + 6)) continue;  // too small on screen for its name
             [name drawAtPoint:NSMakePoint(p.x - sz.width / 2, p.y - sz.height / 2) withAttributes:attrs];
         }
     }
@@ -1407,7 +1409,7 @@ struct {
     ADIFMapList *list = nil;
     NSTableView *table = nil;
     NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *contacts = nil, *parks = nil, *mine = nil;
-    NSButton *cqZones = nil, *ituZones = nil, *states = nil;
+    NSButton *cqZones = nil, *ituZones = nil, *states = nil, *countries = nil;
     NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil, *region = nil;
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
@@ -1464,6 +1466,7 @@ ADIFMapStyle savedStyle() {
     s.cqZones = flag("mapCqZones", false);
     s.ituZones = flag("mapItuZones", false);
     s.states = flag("mapUsStates", false);
+    s.countries = flag("mapCountries", false);
     s.labels = flag("mapLabels", true);
     s.legend = flag("mapLegend", true);
     s.rings = flag("mapRings", false);
@@ -1938,6 +1941,10 @@ void cmdMap() {
         mw.ituZones = ADIFCheckbox(@"ITU zones", flag("mapItuZones", false));
         mw.states = ADIFCheckbox(@"US states", flag("mapUsStates", false));
         mw.states.toolTip = @"State lines and postal codes (Natural Earth, public domain)";
+        mw.countries = ADIFCheckbox(@"Countries", flag("mapCountries", false));
+        mw.countries.toolTip = @"Every country outlined, coasts and borders, with its name where it fits (Natural Earth, public domain)";
+        mw.cqZones.toolTip = @"CQ zones 1-40 with their numbers (HB9HIL's hamradio-zones-geojson, MIT); approximate";
+        mw.ituZones.toolTip = @"ITU zones 1-90 with their numbers (HB9HIL's hamradio-zones-geojson, MIT); approximate";
         mw.entities = ADIFCheckbox(@"DXCC", flag("mapDxcc", true));
         mw.contacts = ADIFCheckbox(@"Contacts", flag("mapContacts", false));
         mw.contacts.toolTip = @"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
@@ -1988,12 +1995,13 @@ void cmdMap() {
             saveFlag("mapParks", mw.parks.state == NSControlStateValueOn);
             refresh();
         });
-        for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.cqZones, mw.ituZones, mw.states ]) ADIFOnAction(b, ^{
+        for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.cqZones, mw.ituZones, mw.states, mw.countries ]) ADIFOnAction(b, ^{
             saveFlag("mapGrid", mw.grid.state == NSControlStateValueOn);
             saveFlag("mapLabels", mw.labels.state == NSControlStateValueOn);
             saveFlag("mapCqZones", mw.cqZones.state == NSControlStateValueOn);
             saveFlag("mapItuZones", mw.ituZones.state == NSControlStateValueOn);
             saveFlag("mapUsStates", mw.states.state == NSControlStateValueOn);
+            saveFlag("mapCountries", mw.countries.state == NSControlStateValueOn);
             saveFlag("mapMine", mw.mine.state == NSControlStateValueOn);
             applyStyle();
             fillStyle();
@@ -2018,7 +2026,8 @@ void cmdMap() {
         NSStackView *row2 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Only:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.colorBy ]];
         row2.spacing = 8;
         [row2 setCustomSpacing:24 afterView:mw.confirmed];
-        NSStackView *overlays = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Overlays:"), mw.grid, mw.labels, mw.cqZones, mw.ituZones, mw.states ]];
+        NSStackView *overlays =
+            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Overlays:"), mw.grid, mw.labels, mw.countries, mw.states, mw.cqZones, mw.ituZones ]];
         overlays.spacing = 10;
         NSStackView *row3 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, mw.style, save ]];
         row3.spacing = 8;
