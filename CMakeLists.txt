@@ -9,7 +9,7 @@ if(NOT ADIF_SANITIZE)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 
-project(ADIFLint VERSION 1.0.1 LANGUAGES CXX OBJCXX)
+project(ADIFLint VERSION 1.1.0 LANGUAGES CXX OBJCXX)
 
 # Plugin build follows the Nextpad++ porting playbook: universal, macOS 11+,
 # ARC, a .dylib named after its plugins/ folder.
