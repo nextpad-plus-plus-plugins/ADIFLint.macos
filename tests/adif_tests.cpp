@@ -2630,8 +2630,8 @@ static void testLabels() {
           "marked sent:\n%s", marked.c_str());
 }
 
-// Projections: known values, round trips, and the azimuthal projection's distance and
-// bearing checked against adif_geo (an independent calculation).
+// Projections: known values, round trips, the globe's bearings and arcs checked against
+// adif_geo (an independent calculation), and shapes cut at the globe's horizon.
 static void testProjections() {
     const double kDeg = 180.0 / M_PI;
     double x = 0, y = 0, lon = 0, lat = 0;
@@ -2648,11 +2648,12 @@ static void testProjections() {
     ee.forward(0, 90, &x, &y);
     double pole = l * (A1 + A2 * l * l + std::pow(l, 6) * (A3 + A4 * l * l)) * kDeg;
     CHECK(std::fabs(y - pole) < 1e-9, "Equal Earth pole: %f vs %f", y, pole);
-    for (Projection p : {Projection::Equirectangular, Projection::Mercator, Projection::EqualEarth, Projection::Azimuthal}) {
+    for (Projection p : {Projection::Equirectangular, Projection::Mercator, Projection::EqualEarth, Projection::Globe}) {
         Projector pr(p, 39.0, -98.0);
         bool ok = true;
         for (double la : {-60.0, -12.5, 0.0, 33.3, 71.0})
             for (double lo : {-179.0, -98.0, -40.5, 0.0, 77.7, 179.0}) {
+                if (!pr.visible(lo, la)) continue;  // the globe's far side
                 if (!pr.forward(lo, la, &x, &y) || !pr.inverse(x, y, &lon, &lat)) {
                     ok = false;
                     continue;
@@ -2661,18 +2662,72 @@ static void testProjections() {
             }
         CHECK(ok, "projection %d: forward then inverse returns the point", (int)p);
     }
-    // Azimuthal from Kansas (39 N, 98 W): the radius is the arc to the point, the angle its bearing.
-    Projector az(Projection::Azimuthal, 39.0, -98.0);
-    struct { double lat, lon; } targets[] = {{51.5, -0.1}, {-33.9, 151.2}, {35.7, 139.7}, {-34.6, -58.4}};
+    // The globe from Kansas (39 N, 98 W): a point an arc c away is R sin c from the centre
+    // (R = 57.3, a degree of arc at the centre), on its bearing; past 90 degrees it is hidden.
+    Projector globe(Projection::Globe, 39.0, -98.0);
+    struct { double lat, lon; } targets[] = {{51.5, -0.1}, {-34.6, -58.4}, {61.2, -149.9}, {64.1, -21.9}, {19.4, -99.1}};
     for (auto t : targets) {
-        az.forward(t.lon, t.lat, &x, &y);
-        double arc = greatCircleKm(39.0, -98.0, t.lat, t.lon) / 6371.0 * kDeg;
+        bool shown = globe.forward(t.lon, t.lat, &x, &y);
+        double arc = greatCircleKm(39.0, -98.0, t.lat, t.lon) / 6371.0;
         double bearing = std::fmod(std::atan2(x, y) * kDeg + 360.0, 360.0);
-        CHECK(std::fabs(std::hypot(x, y) - arc) < 1e-6 && std::fabs(std::remainder(bearing - initialBearing(39.0, -98.0, t.lat, t.lon), 360.0)) < 1e-6,
-              "azimuthal: %f deg at %f (geo: %f at %f)", std::hypot(x, y), bearing, arc, initialBearing(39.0, -98.0, t.lat, t.lon));
+        CHECK(shown && std::fabs(std::hypot(x, y) - kDeg * std::sin(arc)) < 1e-6 &&
+                  std::fabs(std::remainder(bearing - initialBearing(39.0, -98.0, t.lat, t.lon), 360.0)) < 1e-6,
+              "globe: %f at %f (geo: %f at %f)", std::hypot(x, y), bearing, kDeg * std::sin(arc), initialBearing(39.0, -98.0, t.lat, t.lon));
     }
-    az.forward(-98.0, 39.0, &x, &y);
-    CHECK(x == 0 && y == 0 && !az.forward(82.0, -39.0, &x, &y) && !az.inverse(200, 0, &lon, &lat), "azimuthal centre, antipode, outside");
+    globe.forward(-98.0, 39.0, &x, &y);
+    CHECK(std::hypot(x, y) < 1e-9 && !globe.forward(151.2, -33.9, &x, &y) && !globe.visible(151.2, -33.9) && !globe.inverse(58, 0, &lon, &lat) &&
+              globe.inverse(57, 0, &lon, &lat),
+          "globe centre, Sydney behind, outside the disc");
+    auto onDisc = [&](const std::vector<ShapePiece> &pieces) {
+        for (const ShapePiece &p : pieces)
+            for (const auto &q : p.pts)
+                if (std::hypot(q.first, q.second) > kDeg + 1e-6) return false;
+        return true;
+    };
+    auto onRim = [&](std::pair<double, double> q) { return std::fabs(std::hypot(q.first, q.second) - kDeg) < 1e-6; };
+    // A line from Kansas to Sydney goes behind at the horizon, 90 degrees out.
+    std::vector<ShapePiece> line = projectShape(globe, greatCirclePath(39.0, -98.0, -33.9, 151.2, 2), false, false);
+    CHECK(line.size() == 1 && std::hypot(line[0].pts.front().first, line[0].pts.front().second) < 1e-9 && onRim(line[0].pts.back()) && !line[0].closed,
+          "a line going behind ends on the rim (%zu pieces)", line.size());
+    // Sydney to Perth is all behind; a line in and out of view is cut twice.
+    CHECK(projectShape(globe, greatCirclePath(-33.9, 151.2, -31.9, 115.9, 2), false, false).empty(), "a line all behind is dropped");
+    Projector fromPole(Projection::Globe, 90, 0);
+    std::vector<std::pair<double, double>> equatorish;
+    for (double lo = -180; lo <= 180; lo += 5) equatorish.emplace_back(lo, 10 * std::sin(lo * M_PI / 45));
+    std::vector<ShapePiece> wave = projectShape(fromPole, equatorish, false, false);
+    CHECK(wave.size() == 4 && onDisc(wave) && onRim(wave[0].pts.back()) && onRim(wave[1].pts.front()), "a line dipping behind four times: %zu pieces",
+          wave.size());
+    // Polygons: one in front stays as it is; one behind is dropped; one across the horizon
+    // follows the rim behind.
+    std::vector<std::pair<double, double>> kansas = {{-100, 37}, {-95, 37}, {-95, 40}, {-100, 40}}, australia = {{115, -35}, {150, -35}, {150, -12}, {115, -12}};
+    std::vector<ShapePiece> front = projectShape(globe, kansas, true, false);
+    CHECK(front.size() == 1 && front[0].closed && front[0].pts.size() == 4 && projectShape(globe, australia, true, false).empty(), "polygons in front and behind");
+    std::vector<std::pair<double, double>> band = {{-120, -20}, {-40, -20}, {-40, -60}, {-120, -60}};  // reaches past the horizon south of Kansas
+    std::vector<ShapePiece> cut = projectShape(globe, band, true, false);
+    size_t rimPts = 0;
+    for (const auto &q : cut.empty() ? std::vector<std::pair<double, double>>() : cut[0].pts) rimPts += onRim(q);
+    CHECK(cut.size() == 1 && cut[0].closed && onDisc(cut) && rimPts >= 3, "a polygon across the horizon keeps to the rim (%zu rim points)", rimPts);
+    // A continent round the antipode, seen from the far side: the disc outside it is added
+    // the other way round. From (-40, 174), the antipode (40, -6) is in this box, and so is
+    // the box's west edge at 40 E... behind; its east edge at 150 E shows.
+    Projector nz(Projection::Globe, -40, 174);
+    std::vector<std::pair<double, double>> eurasia = {{-10, 35}, {150, 35}, {150, 70}, {-10, 70}};
+    std::vector<ShapePiece> inv = projectShape(nz, eurasia, true, false);
+    double a0 = 0, a1 = 0;
+    if (inv.size() == 2)
+        for (int k = 0; k < 2; ++k)
+            for (size_t i = 0, j = inv[k].pts.size() - 1; i < inv[k].pts.size(); j = i++)
+                (k ? a1 : a0) += inv[k].pts[j].first * inv[k].pts[i].second - inv[k].pts[i].first * inv[k].pts[j].second;
+    CHECK(inv.size() == 2 && onDisc(inv) && a0 * a1 < 0 && std::fabs(a1 / 2) > 10000, "round the antipode: the rim added the other way (%zu pieces)",
+          inv.size());
+    // Without the antipode inside, no rim is added.
+    CHECK(projectShape(globe, band, true, false).size() == 1, "no added rim when the antipode is outside");
+    // The flat maps: a polygon is one closed piece; a path over the 180th meridian splits.
+    Projector flat(Projection::Equirectangular);
+    CHECK(projectShape(flat, kansas, true, false).size() == 1 && projectShape(flat, kansas, true, false)[0].closed &&
+              projectShape(flat, greatCirclePath(35.7, 139.7, 21.3, -157.9, 2), false, true).size() == 2 &&
+              projectShape(flat, greatCirclePath(35.7, 139.7, 21.3, -157.9, 2), false, false).size() == 1,
+          "flat maps: closed polygon, path split at the 180th meridian only when it wraps");
     // Great circles and destinations.
     std::vector<std::pair<double, double>> path = greatCirclePath(39.0, -98.0, 51.5, -0.1, 2);
     double mid = greatCircleKm(39.0, -98.0, path[path.size() / 2].second, path[path.size() / 2].first);
@@ -2766,6 +2821,28 @@ static void testWorld() {
     CHECK(all.qsos.size() == 4 && all.qsos[1].record == 2 && all.qsos[1].date == "2026-10-09" && all.parks[0].qso == 1 &&
               all.squares[2].qsoIndex == std::vector<size_t>({0, 1}) && all.qsos[0].confirmed && all.qsos[2].mode == "FT8",
           "map QSOs, and the squares' and parks' links to them");
+    // Exact locations: LAT and LON first, then a 6 or 8 character grid; a 4-character square is not one.
+    {
+        std::string placed = std::string(kHeader) +
+                             "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:4>FN31 "
+                             "<LAT:11>N041 42.840 <LON:11>W072 43.620 <EOR>\n"
+                             "<CALL:4>K2CD <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:6>FN20xr <EOR>\n"
+                             "<CALL:4>K3EF <QSO_DATE:8>20261009 <TIME_ON:4>1220 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:4>FM19 <EOR>\n"
+                             "<CALL:4>K4GH <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:2>CW <LAT:11>E041 42.840 <LON:11>W072 43.620 "
+                             "<GRIDSQUARE:8>FN31pr45 <EOR>\n";
+        MapData md = mapData(placed, lintModel(placed).model, "", "");
+        double glat = 0, glon = 0;
+        gridToLatLon("FN20xr", &glat, &glon);
+        CHECK(md.qsos.size() == 4 && md.qsos[0].located && md.qsos[0].locatedBy == "LAT/LON" && std::fabs(md.qsos[0].lat - 41.714) < 1e-9 &&
+                  std::fabs(md.qsos[0].lon + 72.727) < 1e-9 && md.qsos[1].located && md.qsos[1].locatedBy == "FN20xr" && md.qsos[1].lat == glat &&
+                  md.qsos[1].lon == glon && !md.qsos[2].located && md.qsos[3].located && md.qsos[3].locatedBy == "FN31pr45",
+              "exact locations: LAT/LON, a 6 or 8 character grid, not a 4-character one (a bad LAT falls back to the grid)");
+        double d = 0;
+        CHECK(locationToDegrees("S033 52.000", true, &d) && std::fabs(d + 33 + 52.0 / 60) < 1e-9 && locationToDegrees("E180 00.000", false, &d) &&
+                  d == 180 && !locationToDegrees("E180 00.001", false, &d) && !locationToDegrees("N091 00.000", true, &d) &&
+                  !locationToDegrees("W072 60.000", false, &d) && !locationToDegrees("N41 42.840", true, &d) && !locationToDegrees("W072 43.620", true, &d),
+              "ADIF Locations: hemispheres, limits and form");
+    }
 }
 
 int main(int argc, char **argv) {

@@ -1,6 +1,7 @@
 #include "adif_world.h"
 
 #include "adif_enrich.h"
+#include "adif_geo.h"
 #include "adif_programs.h"
 #include "adif_spec.h"
 
@@ -95,6 +96,13 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
             q.myGrid = upper(trimmed(r.get("MY_GRIDSQUARE")));
             q.modeGroup = modeGroup(trimmed(r.get("MODE")));
             q.confirmed = confirmed;
+            if (locationToDegrees(trimmed(r.get("LAT")), true, &q.lat) && locationToDegrees(trimmed(r.get("LON")), false, &q.lon)) {
+                q.located = true, q.locatedBy = "LAT/LON";
+            } else if (q.grid.size() >= 6 && gridToLatLon(q.grid, &q.lat, &q.lon)) {
+                q.located = true, q.locatedBy = q.grid;
+            } else {
+                q.lat = q.lon = 0;
+            }
             out.qsos.push_back(std::move(q));
             out.calls.emplace_back(call, confirmed);
         }

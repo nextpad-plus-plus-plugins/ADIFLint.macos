@@ -459,6 +459,11 @@ in), country borders, and state and province lines from 2.5×. Every choice is r
   zoomed in; **Labels**: their names (`FN`, then `FN31`);
 - **DXCC**: each entity worked, from the call's prefix in the country data, as a dot at its
   centre, bigger with more QSOs;
+- **Contacts**: a marker at each contact's own place, from its LAT and LON, else a
+  GRIDSQUARE of 6 or 8 characters (a 4-character square is 100 km or more across, so
+  **Worked squares** shows those). QSOs at the same place share one marker. Style chooses
+  pins, dots or crosshairs; point at one for the calls, where the place came from and how far
+  it is from home, or click it to list its QSOs;
 - **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE, since
   there is no offline list of where parks are;
 - **Other programs**, a list with a colour and a count for each: SOTA summits, IOTA islands,
@@ -468,8 +473,8 @@ in), country borders, and state and province lines from 2.5×. Every choice is r
   station;
 - **My station**: a star at each MY_GRIDSQUARE;
 - **Lines to contacts**: a great-circle line from your station (the QSO's MY_GRIDSQUARE, else
-  home) to each contact (its GRIDSQUARE at full precision, else its DXCC entity's centre),
-  coloured as the map colours; each pair once.
+  home) to each contact (its LAT and LON, else its GRIDSQUARE at full precision, else its DXCC
+  entity's centre), coloured as the map colours; each pair once.
 
 **Only** these QSOs: a band, a mode, a time (the last 30 days, the last 12 months, this
 year, or a year in the log), and all, confirmed or not confirmed QSOs (confirmed: QSL_RCVD,
@@ -485,27 +490,32 @@ The **projection**:
 - **Equirectangular**: the grid as rectangles, the usual Maidenhead map;
 - **Mercator**: familiar shapes, but the far north and south grow;
 - **Equal Earth**: every area at its true size (Šavrič, Patterson and Jenny, 2018);
-- **Azimuthal from your grid**: distance and bearing from home are true, so a straight line
-  from the centre is the beam heading. Home is Settings → Your Station's grid, else the
-  grid the log uses most in MY_GRIDSQUARE. **Drag** (or scroll on a trackpad, or the arrow
-  keys) to turn the globe in any direction, zoom in for detail (zooming turns toward the
-  pointer), and **World** turns it back to home. The legend says where it is centred.
+- **Globe from your grid**: the Earth as seen from space (the orthographic projection), the
+  side facing you only. Home is Settings → Your Station's grid, else the grid the log uses
+  most in MY_GRIDSQUARE; with neither, the globe faces the middle of the squares worked.
+  **Drag** to turn it in any direction (the surface moves with the pointer; north stays up,
+  so it stops with a pole in the middle), or scroll on a trackpad, or use the arrow keys
+  (left looks west, up looks north). Zoom in for detail; zooming turns toward the pointer.
+  **World** turns it back to home. A straight line from the centre is a great circle, so
+  centred on home it gives the beam heading. The legend says where it is centred. Coasts,
+  borders, the grid and lines to contacts stop at the horizon.
 
 **Style**: colours (**Standard**, **Colour-blind safe** with the Okabe-Ito colours and
 viridis, **High contrast**, **Light** for printing), marker size, markers by layer (dots,
 triangles, diamonds) or all circles or squares, worked squares solid, see-through or as
-outlines, the **Legend**, and **Distance rings** from your grid (2,500 km apart for the
-whole world, closer as you zoom in; with bearings on the azimuthal map).
+outlines, **Contacts** as pins, dots or crosshairs, the **Legend**, and **Distance rings**
+from your grid (2,500 km apart for the whole world, closer as you zoom in; with bearings
+every 30° when the globe is centred on home).
 
 Moving around:
 
 - **Zoom** with a pinch, the mouse wheel, Option and a two-finger scroll, a double-click,
   the **+** and **−** buttons or keys; **Fit Log** zooms to the log's QSOs and **World** (or
   the 0 key) shows the whole world.
-- **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys (on the azimuthal
-  map these turn the globe).
-- **Point** at a square, DXCC dot or park to read what it is, its QSOs, and (for a square)
-  how far it is from home and at what bearing. **Click** it to list its QSOs under the map,
+- **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys (on the globe
+  these turn it).
+- **Point** at a square, DXCC dot, contact or park to read what it is, its QSOs, and (for a
+  square or contact) how far it is from home and at what bearing. **Click** it to list its QSOs under the map,
   and double-click one to go to its record in the log.
 
 **Export PNG…** saves the map as it is shown, legend included, at twice the screen's size.

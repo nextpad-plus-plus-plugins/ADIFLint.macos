@@ -3538,7 +3538,8 @@ int main(int argc, char **argv) {
             NSString *mapStatus = mapw ? labelContaining(mapw.contentView, @"grid square") : nil;
             CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 park (POTA, WWFF)"] &&
                       [mapStatus containsString:@"1 other reference (IOTA"] && findButton(mapw.contentView, @"Other programs").state == NSControlStateValueOff &&
-                      [mapStatus containsString:@"1 DXCC (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"],
+                      [mapStatus containsString:@"1 DXCC (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"] &&
+                      [mapStatus containsString:@"1 QSO with an exact place (Contacts)"],
                   "the map's summary: %s", mapStatus.UTF8String);
             NSString *mapDir = [tmp stringByAppendingPathComponent:@"mapout"];
             [[NSFileManager defaultManager] createDirectoryAtPath:mapDir withIntermediateDirectories:YES attributes:nil error:nil];
@@ -3626,6 +3627,31 @@ int main(int argc, char **argv) {
             }
             if (mapw) snapshot(mapw, "map-great-lakes");
 
+            // Contacts: a pin at K1AB's own place (its 6-character grid, FN31pr); a click on the
+            // pin's head lists the QSO and says where the place came from.
+            NSButton *contactsBox = findButton(mapw.contentView, @"Contacts");
+            CHECK(contactsBox && contactsBox.state == NSControlStateValueOff, "Contacts starts off");
+            contactsBox.state = NSControlStateValueOn;
+            [contactsBox sendAction:contactsBox.action to:contactsBox.target];
+            [findButton(mapw.contentView, @"Fit Log") performClick:nil];
+            for (int i = 0; i < 2; ++i) {
+                NSPoint at = pointFor(-72.7083, 41.7292);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 2)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 2)];
+            }
+            NSPoint pinHead = pointFor(-72.7083, 41.7292);
+            pinHead.y += 8.8;  // the head sits above the point
+            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pinHead, 1)];
+            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pinHead, 1)];
+            NSTableView *contactList = findTable(mapw.contentView);
+            CHECK([contactList.dataSource numberOfRowsInTableView:contactList] == 1 && [cell(contactList, 0, @"1") isEqualToString:@"K1AB"] &&
+                      [labelContaining(mapw.contentView, @"K1AB:") hasPrefix:@"K1AB: 1 QSO at 41.7292 N, 72.7083 W (from FN31pr)."] &&
+                      [labelContaining(mapw.contentView, @"K1AB:") containsString:@"from EN52WA."],
+                  "a click on the contact's pin: %s", labelContaining(mapw.contentView, @"K1AB:").UTF8String);
+            snapshot(mapw, "map-contacts");
+            contactsBox.state = NSControlStateValueOff;
+            [contactsBox sendAction:contactsBox.action to:contactsBox.target];
+
             // Projections, colours and styles: each draws, and a click still finds its square.
             NSPopUpButton *proj = findPopupWith(mapw.contentView, @"Equal Earth");
             NSPopUpButton *colour = findPopupWith(mapw.contentView, @"Colour by band");
@@ -3633,8 +3659,8 @@ int main(int argc, char **argv) {
             NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
             NSButton *pathsBox = findButton(mapw.contentView, @"Lines to contacts");
             CHECK(proj && colour && styleMenu && programsMenu && pathsBox && [proj itemAtIndex:3].enabled &&
-                      [[proj itemAtIndex:3].title isEqualToString:@"Azimuthal from EN52WA"],
-                  "projection, colour, Style and Other programs controls; azimuthal from the log's grid: %s",
+                      [[proj itemAtIndex:3].title isEqualToString:@"Globe from EN52WA"],
+                  "projection, colour, Style and Other programs controls; the globe from the log's grid: %s",
                   proj ? [proj itemAtIndex:3].title.UTF8String : "");
             auto pick = [&](NSPopUpButton *p, NSString *title) {
                 [p selectItemWithTitle:title];
@@ -3681,29 +3707,48 @@ int main(int argc, char **argv) {
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, fn31Now, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, fn31Now, 1)];
             CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"K1AB"],
-                  "azimuthal: zoomed in on FN31, a click lists K1AB");
+                  "globe: zoomed in on FN31, a click lists K1AB");
             CHECK([labelContaining(mapw.contentView, @"FN31:") containsString:@"from EN52WA"], "the status gives distance and bearing from home: %s",
                   labelContaining(mapw.contentView, @"FN31:").UTF8String);
             [findButton(mapw.contentView, @"World") performClick:nil];
-            snapshot(mapw, "map-azimuthal");
-            // The azimuthal map turns: the arrow keys (as a drag) move the centre off home; World brings it back.
+            snapshot(mapw, "map-globe");
+            // The globe turns: the arrow keys (as a drag) move the centre off home; World brings it back.
             NSPoint middle = [mapView convertPoint:NSMakePoint(NSMidX(mapView.bounds), NSMidY(mapView.bounds)) toView:nil];
             auto homeAtMiddle = [&]() {
-                NSPoint h = pointFor(-89.5, 42.95);  // EN52WA, the log's MY_GRIDSQUARE
+                NSPoint h = pointFor(-88.125, 42.0208);  // EN52WA's centre, the log's MY_GRIDSQUARE
                 return std::hypot(h.x - middle.x, h.y - middle.y) < 3;
             };
             NSString *right = [NSString stringWithFormat:@"%C", (unichar)NSRightArrowFunctionKey];
             NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:mapw.windowNumber
                                              context:nil characters:right charactersIgnoringModifiers:right isARepeat:NO keyCode:124];
-            CHECK(homeAtMiddle(), "the azimuthal map starts on home");
+            CHECK(homeAtMiddle(), "the globe starts on home");
             for (int i = 0; i < 6; ++i) [mapView keyDown:key];
             CHECK(!homeAtMiddle() && zoomShown() == "1.0×", "turned: home is no longer the centre");
             [findButton(mapw.contentView, @"+") performClick:nil];
             [findButton(mapw.contentView, @"+") performClick:nil];
             [mapw.contentView layoutSubtreeIfNeeded];
-            snapshot(mapw, "map-azimuthal-turned");
+            snapshot(mapw, "map-globe-turned");
             [findButton(mapw.contentView, @"World") performClick:nil];
             CHECK(homeAtMiddle(), "World turns the globe back to home");
+            // To the far side, over New Zealand: Eurasia wraps round behind, so only its south-east
+            // shows (filled on the right side of its coast), and home is hidden.
+            auto press = [&](unichar k, int times) {
+                NSString *ch = [NSString stringWithFormat:@"%C", k];
+                NSEvent *e = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:mapw.windowNumber
+                                               context:nil characters:ch charactersIgnoringModifiers:ch isARepeat:NO keyCode:0];
+                for (int i = 0; i < times; ++i) [mapView keyDown:e];
+            };
+            [findButton(mapw.contentView, @"+") performClick:nil];
+            [findButton(mapw.contentView, @"+") performClick:nil];
+            press(NSDownArrowFunctionKey, 14);
+            press(NSLeftArrowFunctionKey, 12);
+            [findButton(mapw.contentView, @"−") performClick:nil];
+            [findButton(mapw.contentView, @"−") performClick:nil];
+            NSPoint homeNow = pointFor(-88.125, 42.0208);
+            CHECK(!homeAtMiddle() && homeNow.x < -1e5 && zoomShown() == "1.0×", "the far side: home is behind the globe");
+            snapshot(mapw, "map-globe-far-side");
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            CHECK(homeAtMiddle(), "World comes home from the far side");
             pick(colour, @"Colour by band");
             CHECK(menuAction(styleMenu, @"Light (for printing)") && menuState(styleMenu, @"Light (for printing)"), "the light palette");
             pick(proj, @"Equirectangular");

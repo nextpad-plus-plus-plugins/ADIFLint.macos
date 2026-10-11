@@ -13,6 +13,10 @@ namespace adif {
 // The centre of a 2, 4, 6 or 8 character locator, in degrees (north and east
 // positive); false when it is not one.
 bool gridToLatLon(std::string_view grid, double *lat, double *lon);
+// An ADIF Location (§III.A: XDDD MM.MMM, as LAT and LON hold) in degrees, north and east
+// positive; false when it is not one, or is a longitude where a latitude is wanted (or
+// the other way round).
+bool locationToDegrees(std::string_view v, bool latitude, double *degrees);
 // Short-path great-circle distance in km (a sphere of radius 6371 km), and the
 // initial bearing from the first point, in degrees clockwise from true north.
 double greatCircleKm(double lat1, double lon1, double lat2, double lon2);

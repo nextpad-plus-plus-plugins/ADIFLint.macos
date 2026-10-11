@@ -11,8 +11,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
-- **Map**: projections (Equirectangular, Mercator, Equal Earth, and Azimuthal from your grid,
-  where distance and bearing from home are true); colour by confirmation, band, mode, QSO
+- **Map**: projections (Equirectangular, Mercator, Equal Earth, and a Globe centred on your
+  grid); colour by confirmation, band, mode, QSO
   count or year first worked, with a legend (in the PNG too); palettes (Standard,
   Colour-blind safe, High contrast, Light for printing); marker size and shape, solid,
   see-through or outlined squares; Maidenhead grid and Labels each on or off; Other
@@ -21,8 +21,11 @@ Versions before 0.8.0 were development builds and were not published.
   contacts (great circles from your station to each contact's grid, else its DXCC entity)
   and distance rings from your grid; filters for dates (last 30 days, 12 months, this year,
   a year) and confirmation; the distance and bearing from home of the square under the
-  pointer. The azimuthal map turns like a globe: drag in any direction, zoom for detail,
-  World to come home. Every choice is remembered.
+  pointer. The Globe (orthographic, Snyder 1987) shows the side of the Earth facing you and
+  turns as you drag, in any direction, with coasts, borders, the grid and paths cut at the
+  horizon; zoom in for detail, World to come home. **Contacts** puts a pin (or a dot or
+  crosshair) at each contact's own place, from LAT and LON or a 6 or 8 character grid.
+  Every choice is remembered.
 
 ## [1.0.1] - 2026-10-10
 

@@ -27,9 +27,9 @@ struct ADIFMapEntity {
 
 // What the pointer is over, or what was clicked.
 struct ADIFMapHit {
-    enum Kind { None, Square, Dxcc, Park, Empty } kind = None;
+    enum Kind { None, Square, Dxcc, Park, Contact, Empty } kind = None;
     std::string square;  // the 4-character square under the point (always set on the map)
-    size_t index = 0;    // into squares, entities or parks
+    size_t index = 0;    // into squares, entities, parks or contacts
 };
 
 // How the map looks: the Style menu, the colour popup and the overlay checkboxes.
@@ -38,8 +38,15 @@ struct ADIFMapStyle {
     int palette = 0;    // 0 standard, 1 colour-blind safe, 2 high contrast, 3 light (print)
     int shape = 0;      // markers: 0 by layer (DXCC dots, park triangles, program diamonds), 1 circles, 2 squares
     int fill = 0;       // worked squares: 0 solid, 1 translucent, 2 outline
+    int contact = 0;    // contacts: 0 pins, 1 dots, 2 crosshairs
     double marker = 1;  // marker size factor
     bool grid = true, labels = true, legend = true, rings = false, paths = false, mine = true;
+};
+
+// QSOs at one exact place (MapQso::located), for the Contacts layer.
+struct ADIFMapContact {
+    double lat = 0, lon = 0;
+    std::vector<size_t> qsos;  // into MapData::qsos
 };
 
 // What colours a square or a DXCC dot, over its QSOs.
@@ -54,19 +61,7 @@ struct ADIFMapAgg {
 namespace {
 
 constexpr double kMaxZoom = 64;
-constexpr double kJump = 60;  // plane units: on the azimuthal map, a longer step crosses its edge
-
-// Whether the step from one point to the next leaves the map at one edge and comes back at
-// the other: across the 180th meridian on the flat maps (paths and rings cross it), across
-// the rim on the azimuthal one. Natural Earth's shapes never cross the meridian; their long
-// edges along it and along the pole (Antarctica's) are drawn, so layers use rimJump.
-bool rimJump(const adif::Projector &pr, double x0, double y0, double x1, double y1) {
-    return pr.kind() == adif::Projection::Azimuthal && std::hypot(x1 - x0, y1 - y0) > kJump;
-}
-bool jumps(const adif::Projector &pr, double lon0, double lon1, double x0, double y0, double x1, double y1) {
-    if (pr.kind() == adif::Projection::Azimuthal) return rimJump(pr, x0, y0, x1, y1);
-    return std::fabs(lon1 - lon0) > 180;
-}
+constexpr double kPin = 4;  // a contact pin's head radius (times Style's marker size); the head is 2.2 of these above the point
 
 // ── Colours ──
 
@@ -160,12 +155,12 @@ const ProgramInfo kPrograms[] = {{"SOTA", "SOTA (summits)"},       {"IOTA", "IOT
                                  {"MOTA", "MOTA (mills)"},         {"ZLOTA", "ZLOTA (New Zealand)"}, {"WOTA", "WOTA (Lake District)"}};
 constexpr size_t kProgramCount = sizeof(kPrograms) / sizeof(kPrograms[0]);
 
-// A layer projected onto the plane, kept for the projection in use; a jump (the edge of an
-// azimuthal map) or a point with no place starts a new piece.
+// A layer projected onto the plane, kept for the projection in use (and the globe's turn).
+// On the globe, shapes are cut where they go behind (adif::projectShape).
 CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRank = 99) {
     static std::map<std::tuple<int, int>, CGPathRef> cache;
     static std::tuple<int, long, long> cachedFor{-1, 0, 0};
-    std::tuple<int, long, long> key{(int)pr.kind(), std::lround(pr.centerLat() * 100), std::lround(pr.centerLon() * 100)};
+    std::tuple<int, long, long> key{(int)pr.kind(), std::lround(pr.centerLat() * 1e6), std::lround(pr.centerLon() * 1e6)};
     if (key != cachedFor) {
         for (auto &kv : cache) CGPathRelease(kv.second);
         cache.clear();
@@ -174,50 +169,15 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGPathRef &p = cache[{(int)l, maxRank}];
     if (p) return p;
     bool polygons = l == adif::MapLayer::Land110 || l == adif::MapLayer::Land50 || l == adif::MapLayer::Lakes110 || l == adif::MapLayer::Lakes50;
-    // On the azimuthal map the centre's antipode is the whole rim, so a shape around it
-    // (Africa, when the map is centred on the Pacific) lies between its outline and the rim:
-    // the rim is added to it, and the even-odd fill gives that ring.
-    bool azimuthal = pr.kind() == adif::Projection::Azimuthal;
-    double antiLat = -pr.centerLat(), antiLon = pr.centerLon() > 0 ? pr.centerLon() - 180 : pr.centerLon() + 180;
     CGMutablePathRef m = CGPathCreateMutable();
     for (size_t i = 0; i < adif::layerShapeCount(l); ++i) {
         if (adif::layerShapeRank(l, i) > maxRank) continue;
-        std::vector<std::pair<double, double>> shape = adif::layerShape(l, i);
-        if (polygons && azimuthal) {
-            bool inside = false;  // even-odd ray test in longitude and latitude (Natural Earth's rings never cross 180)
-            for (size_t a = 0, b = shape.size() - 1; a < shape.size(); b = a++) {
-                const auto &p1 = shape[a], &p2 = shape[b];
-                if ((p1.second > antiLat) != (p2.second > antiLat) &&
-                    antiLon < (p2.first - p1.first) * (antiLat - p1.second) / (p2.second - p1.second) + p1.first)
-                    inside = !inside;
-            }
-            if (inside) {
-                for (int k = 0; k <= 360; ++k) {
-                    double x = 179.999 * std::cos(k * M_PI / 180), y = 179.999 * std::sin(k * M_PI / 180);
-                    if (k == 0) CGPathMoveToPoint(m, nullptr, x, y);
-                    else CGPathAddLineToPoint(m, nullptr, x, y);
-                }
-                CGPathCloseSubpath(m);
-            }
+        for (const adif::ShapePiece &piece : adif::projectShape(pr, adif::layerShape(l, i), polygons, false)) {
+            for (size_t k = 0; k < piece.pts.size(); ++k)
+                if (k == 0) CGPathMoveToPoint(m, nullptr, piece.pts[k].first, piece.pts[k].second);
+                else CGPathAddLineToPoint(m, nullptr, piece.pts[k].first, piece.pts[k].second);
+            if (piece.closed) CGPathCloseSubpath(m);
         }
-        bool open = false, broken = false;
-        double px = 0, py = 0;
-        for (const auto &pt : shape) {
-            double x, y;
-            if (!pr.forward(pt.first, pt.second, &x, &y)) {
-                open = false, broken = true;
-                continue;
-            }
-            if (open && !rimJump(pr, px, py, x, y)) {
-                CGPathAddLineToPoint(m, nullptr, x, y);
-            } else {
-                broken |= open;
-                CGPathMoveToPoint(m, nullptr, x, y);
-                open = true;
-            }
-            px = x, py = y;
-        }
-        if (polygons && !broken) CGPathCloseSubpath(m);
     }
     p = m;
     return p;
@@ -227,8 +187,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 // The map, in one of four projections. Scroll or pinch to zoom (a trackpad's two-finger
 // scroll pans), drag to pan, double-click to zoom in, + and - keys, 0 for the whole world.
+// On the globe, dragging, a two-finger scroll and the arrow keys turn it instead.
 @interface ADIFMapView : NSView
-@property(nonatomic) BOOL showSquares, showEntities, showParks;
+@property(nonatomic) BOOL showSquares, showEntities, showParks, showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
 @property(nonatomic) ADIFMapStyle style;
 @property(nonatomic, readonly) double zoom;
@@ -241,16 +202,18 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)showWorld;
 - (void)fitLog;                 // zoom to what the log shows
 - (NSPoint)viewPointForLon:(double)lon lat:(double)lat;
+- (const std::vector<ADIFMapContact> &)contacts;
 @end
 
 @implementation ADIFMapView {
     adif::MapData _data;
     std::vector<ADIFMapEntity> _entities;
-    std::vector<ADIFMapAgg> _squareAgg, _entityAgg;
+    std::vector<ADIFMapContact> _contacts;
+    std::vector<ADIFMapAgg> _squareAgg, _entityAgg, _contactAgg;
     std::vector<std::string> _bands;  // in the data, frequency order
     int _minYear, _maxYear;
-    adif::Projector _pr;    // in use: on the azimuthal map, turned to wherever you dragged it
-    adif::Projector _base;  // as chosen: the azimuthal one centred on home
+    adif::Projector _pr;    // in use: the globe turned to wherever you dragged it
+    adif::Projector _base;  // as chosen: the globe centred on home
     bool _hasHome;
     double _homeLat, _homeLon;
     NSString *_homeGrid;
@@ -323,8 +286,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     _entities = entities;
     _squareAgg.clear();
     _entityAgg.clear();
+    _contactAgg.clear();
+    _contacts.clear();
     for (const adif::MapSquare &sq : _data.squares) _squareAgg.push_back([self aggregate:sq.qsoIndex]);
     for (const ADIFMapEntity &e : _entities) _entityAgg.push_back([self aggregate:e.qsos]);
+    std::map<std::pair<long, long>, size_t> at;  // QSOs at the same place (to about 10 m) share a marker
+    for (size_t i = 0; i < _data.qsos.size(); ++i) {
+        const adif::MapQso &q = _data.qsos[i];
+        if (!q.located) continue;
+        auto [it, added] = at.emplace(std::make_pair(std::lround(q.lat * 1e4), std::lround(q.lon * 1e4)), _contacts.size());
+        if (added) _contacts.push_back({q.lat, q.lon, {}});
+        _contacts[it->second].qsos.push_back(i);
+    }
+    for (const ADIFMapContact &c : _contacts) _contactAgg.push_back([self aggregate:c.qsos]);
     std::set<std::string> bands;
     _minYear = _maxYear = 0;
     for (const adif::MapQso &q : _data.qsos) {
@@ -355,6 +329,15 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     else self.needsDisplay = YES;
 }
 
+- (const std::vector<ADIFMapContact> &)contacts {
+    return _contacts;
+}
+
+- (void)setShowContacts:(BOOL)on {
+    _showContacts = on;
+    self.needsDisplay = YES;
+}
+
 - (void)setStyle:(ADIFMapStyle)style {
     _style = style;
     self.needsDisplay = YES;
@@ -374,15 +357,25 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return std::min(b.size.width / (maxX - minX), b.size.height / (maxY - minY)) * _zoom;
 }
 
-- (BOOL)azimuthal {
-    return _pr.kind() == adif::Projection::Azimuthal;
+- (BOOL)globe {
+    return _pr.kind() == adif::Projection::Globe;
 }
 
-// The azimuthal map turns rather than pans: the place at plane point (x, y) becomes the centre.
+// The globe turns rather than pans: the place at plane point (x, y) becomes the centre.
 - (void)turnTo:(double)x y:(double)y {
     double lon, lat;
     if (!_pr.inverse(x, y, &lon, &lat)) return;
-    _pr = adif::Projector(adif::Projection::Azimuthal, lat, lon);
+    _pr = adif::Projector(adif::Projection::Globe, lat, lon);
+    [self viewChanged];
+}
+
+// Turn the globe so its surface moves (dx, dy) plane units: exactly with the pointer at the
+// centre, where a unit is a degree of arc. North stays up, so it stops with a pole in the
+// middle; near a pole, sideways moves spin the globe about it.
+- (void)rotateBy:(double)dx y:(double)dy {
+    double lat = std::clamp(_pr.centerLat() - dy, -90.0, 90.0);
+    double lon = _pr.centerLon() - dx / std::max(std::cos(_pr.centerLat() * M_PI / 180), 0.2);
+    _pr = adif::Projector(adif::Projection::Globe, lat, lon);
     [self viewChanged];
 }
 
@@ -391,7 +384,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (void)clampCenter {
-    if ([self azimuthal]) {  // always centred on the projection's centre
+    if ([self globe]) {  // always centred on the globe's centre
         _cx = _cy = 0;
         return;
     }
@@ -428,27 +421,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return _pr.inverse(x, y, lon, lat);
 }
 
-// A run of (lon, lat) points as a path in view coordinates, broken where it jumps.
+// A run of (lon, lat) points as a path in view coordinates: on the globe, cut where it goes
+// behind (a closed shape follows the rim there); on a flat map, cut where it crosses the
+// 180th meridian when it `wraps` (paths and rings do, the grid doesn't).
 - (NSBezierPath *)viewPath:(const std::vector<std::pair<double, double>> &)pts close:(BOOL)close wraps:(BOOL)wraps {
     NSBezierPath *path = [NSBezierPath bezierPath];
-    bool open = false, broken = false;
-    double px = 0, py = 0, plon = 0;
-    for (const auto &pt : pts) {
-        double x, y;
-        if (!_pr.forward(pt.first, pt.second, &x, &y)) {
-            open = false, broken = true;
-            continue;
+    for (const adif::ShapePiece &piece : adif::projectShape(_pr, pts, close, wraps)) {
+        for (size_t k = 0; k < piece.pts.size(); ++k) {
+            NSPoint v = [self planeToView:piece.pts[k].first y:piece.pts[k].second];
+            if (k == 0) [path moveToPoint:v];
+            else [path lineToPoint:v];
         }
-        NSPoint v = [self planeToView:x y:y];
-        if (open && !(wraps ? jumps(_pr, plon, pt.first, px, py, x, y) : rimJump(_pr, px, py, x, y))) [path lineToPoint:v];
-        else {
-            broken |= open;
-            [path moveToPoint:v];
-            open = true;
-        }
-        px = x, py = y, plon = pt.first;
+        if (piece.closed) [path closePath];
     }
-    if (close && !broken && !path.isEmpty) [path closePath];
     return path;
 }
 
@@ -484,7 +469,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         if (pole > 0) *north = 90;
         else *south = -90;
     }
-    if (hits < 81 || _pr.kind() == adif::Projection::Azimuthal || *east - *west > 300) {  // edges show, or the view wraps
+    if (hits < 81 || [self globe] || *east - *west > 300) {  // edges show, or the view wraps
         if (_zoom < 2 || hits < 81) *west = -180, *east = 180, *south = -90, *north = 90;
     }
     *west = std::max(-180.0, *west - 2), *east = std::min(180.0, *east + 2);
@@ -509,7 +494,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self viewToPlane:p x:&x y:&y];
     double z = std::clamp(_zoom * factor, 1.0, kMaxZoom);
     if (z == _zoom) return;
-    if ([self azimuthal]) {  // turn toward the pointer so the place under it stays there
+    if ([self globe]) {  // turn toward the pointer so the place under it stays about there
         double f = z / _zoom;
         _zoom = z;
         [self turnTo:x * (1 - 1 / f) y:y * (1 - 1 / f)];
@@ -527,7 +512,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (void)showWorld {
-    _pr = _base;  // the azimuthal map back on home
+    _pr = _base;  // the globe back on home
     double minX, minY, maxX, maxY;
     _pr.bounds(&minX, &minY, &maxX, &maxY);
     _zoom = 1, _cx = (minX + maxX) / 2, _cy = (minY + maxY) / 2;
@@ -549,12 +534,14 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     if (_showEntities)
         for (const ADIFMapEntity &e : _entities) add(e.lon, e.lat);
+    if (_showContacts)
+        for (const ADIFMapContact &c : _contacts) add(c.lon, c.lat);
     for (const std::string &g : _data.mine) {
         double lat, lon;
         if (adif::gridToLatLon(g, &lat, &lon)) add(lon, lat);
     }
     if (west > east) return [self showWorld];
-    if ([self azimuthal]) {  // centred on home: the span is twice the farthest point
+    if ([self globe]) {  // centred on home: the span is twice the farthest point in front
         double r = std::max({std::fabs(west), std::fabs(east), std::fabs(south), std::fabs(north)});
         west = -r, east = r, south = -r, north = r;
     }
@@ -594,12 +581,30 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return p.qualitative[i % p.qualitative.size()];
 }
 
-// A marker centred on p: kind 0 dot, 1 triangle, 2 diamond, 3 star; Style's shape overrides 0-2.
+// A marker centred on p: kind 0 dot, 1 triangle, 2 diamond, 3 star, 4 pin (its point at p),
+// 5 crosshair; Style's shape overrides 0-2.
 - (NSBezierPath *)marker:(int)kind at:(NSPoint)p size:(double)r {
-    if (kind != 3 && _style.shape == 1) kind = 0;
-    if (kind != 3 && _style.shape == 2) return [NSBezierPath bezierPathWithRect:NSMakeRect(p.x - r * 0.85, p.y - r * 0.85, r * 1.7, r * 1.7)];
+    if (kind < 3 && _style.shape == 1) kind = 0;
+    if (kind < 3 && _style.shape == 2) return [NSBezierPath bezierPathWithRect:NSMakeRect(p.x - r * 0.85, p.y - r * 0.85, r * 1.7, r * 1.7)];
     NSBezierPath *m = [NSBezierPath bezierPath];
     switch (kind) {
+        case 4: {  // a head of radius r, 2.2 r above the point, the sides tangent to it
+            NSPoint head = NSMakePoint(p.x, p.y + 2.2 * r);
+            double t = std::acos(1 / 2.2) * 180 / M_PI;  // the tangent points, from straight down
+            [m moveToPoint:p];
+            [m appendBezierPathWithArcWithCenter:head radius:r startAngle:-90 + t endAngle:270 - t clockwise:NO];
+            [m closePath];
+            [m appendBezierPathWithOvalInRect:NSMakeRect(head.x - r * 0.38, head.y - r * 0.38, r * 0.76, r * 0.76)];
+            m.windingRule = NSWindingRuleEvenOdd;  // the head's hole
+            return m;
+        }
+        case 5:
+            [m appendBezierPathWithOvalInRect:NSMakeRect(p.x - r, p.y - r, 2 * r, 2 * r)];
+            [m moveToPoint:NSMakePoint(p.x - r * 1.6, p.y)];
+            [m lineToPoint:NSMakePoint(p.x + r * 1.6, p.y)];
+            [m moveToPoint:NSMakePoint(p.x, p.y - r * 1.6)];
+            [m lineToPoint:NSMakePoint(p.x, p.y + r * 1.6)];
+            return m;
         case 1:
             [m moveToPoint:NSMakePoint(p.x, p.y + r * 1.15)];
             [m lineToPoint:NSMakePoint(p.x - r, p.y - r * 0.75)];
@@ -627,6 +632,15 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 - (double)dotRadius:(size_t)qsos {
     return std::min(8.0, 3.0 + std::log2((double)qsos + 1)) * _style.marker;
+}
+
+// The contact marker's shape and size, by Style.
+- (NSBezierPath *)contactMarkerAt:(NSPoint)p {
+    switch (_style.contact) {
+        case 1: return [self marker:0 at:p size:3 * _style.marker];
+        case 2: return [self marker:5 at:p size:3.6 * _style.marker];
+        default: return [self marker:4 at:p size:kPin * _style.marker];
+    }
 }
 
 - (BOOL)programShown:(const adif::MapPark &)pk {
@@ -666,9 +680,22 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
     [world closePath];
     CGContextSaveGState(ctx);
+    bool globe = [self globe];
+    NSPoint middle = [self planeToView:0 y:0];
+    double radius = 180 / M_PI * ppu;  // the globe's, in points
+    if (globe) {  // a thin glow of air round it
+        NSGradient *air = [[NSGradient alloc] initWithColors:@[ rgb(pal.river, pal.dark ? 0.45 : 0.35), rgb(pal.river, 0) ]];
+        [air drawFromCenter:middle radius:radius toCenter:middle radius:radius * 1.07 options:0];
+    }
     [rgb(pal.ocean) setFill];
     [world fill];
     [world addClip];
+    if (globe) {  // lit from the upper left
+        NSColor *sea = rgb(pal.ocean);
+        NSGradient *light = [[NSGradient alloc] initWithColors:@[ [sea blendedColorWithFraction:0.22 ofColor:NSColor.whiteColor], sea,
+                                                                  [sea blendedColorWithFraction:0.3 ofColor:NSColor.blackColor] ]];
+        [light drawFromCenter:NSMakePoint(middle.x - radius * 0.35, middle.y + radius * 0.35) radius:0 toCenter:middle radius:radius options:0];
+    }
     CGContextSaveGState(ctx);
     CGContextTranslateCTM(ctx, NSMidX(b) - _cx * ppu, NSMidY(b) - _cy * ppu);
     CGContextScaleCTM(ctx, ppu, ppu);
@@ -698,6 +725,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGContextAddPath(ctx, projectedLayer(_pr, adif::MapLayer::Borders50));
     CGContextStrokePath(ctx);
     CGContextRestoreGState(ctx);
+    if (globe) {  // the edge turns away into shadow, so the globe looks round
+        NSGradient *edge = [[NSGradient alloc] initWithColors:@[ [NSColor colorWithCalibratedWhite:0 alpha:0], [NSColor colorWithCalibratedWhite:0 alpha:pal.dark ? 0.38 : 0.18] ]];
+        [edge drawFromCenter:middle radius:radius * 0.72 toCenter:middle radius:radius options:0];
+    }
 
     double west, south, east, north;
     [self visibleWest:&west south:&south east:&east north:&north];
@@ -742,8 +773,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
 
     // Lines to contacts: from your station (the QSO's MY_GRIDSQUARE, else home) to the contact
-    // (its GRIDSQUARE, else its DXCC entity's centre), along great circles; each pair once,
-    // coloured as the map colours.
+    // (its LAT and LON, else its GRIDSQUARE, else its DXCC entity's centre), along great
+    // circles; each pair once, coloured as the map colours.
     if (_style.paths) {
         std::map<size_t, size_t> entityOf, squareOf;  // QSO -> entity, QSO -> square
         for (size_t e = 0; e < _entities.size(); ++e)
@@ -759,7 +790,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             } else if (!_hasHome) {
                 continue;
             }
-            if (!adif::gridToLatLon(q.grid, &tlat, &tlon)) {
+            if (q.located) {
+                tlat = q.lat, tlon = q.lon;
+            } else if (!adif::gridToLatLon(q.grid, &tlat, &tlon)) {
                 auto e = entityOf.find(qi);
                 if (e == entityOf.end()) continue;
                 tlat = _entities[e->second].lat, tlon = _entities[e->second].lon;
@@ -824,7 +857,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 }
     }
 
-    // Distance rings around home (and bearings on the azimuthal map).
+    // Distance rings around home (and bearings on the globe, when it is centred there).
     if (_style.rings && _hasHome) {
         double step = _zoom < 3 ? 2500 : _zoom < 8 ? 1000 : 500;
         NSBezierPath *rings = [NSBezierPath bezierPath];
@@ -836,25 +869,28 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 ring.emplace_back(lo, la);
             }
             [rings appendBezierPath:[self viewPath:ring close:NO wraps:YES]];
-            double la, lo;
+            // The distance where the ring crosses north of home, beside the N spoke rather than on it.
+            double la, lo, x, y;
             adif::destinationPoint(_homeLat, _homeLon, 0, km, &la, &lo);
-            NSPoint p = [self viewPointForLon:lo lat:la];
+            if (!_pr.forward(lo, la, &x, &y) || (globe && std::hypot(x, y) > 180 / M_PI - 30 / ppu)) continue;  // behind, or cut by the rim
+            NSPoint p = [self planeToView:x y:y];
             if (NSPointInRect(p, b))
-                [self drawLabel:[NSString stringWithFormat:@"%.0f km", km] at:NSMakePoint(p.x, p.y + 7) size:10 alpha:0.55];
+                [self drawLabel:[NSString stringWithFormat:@"%.0f km", km] at:NSMakePoint(p.x + 30, p.y + 7) size:10 alpha:0.55];
         }
         CGFloat dash[] = {4, 3};
         [rings setLineDash:dash count:2 phase:0];
         rings.lineWidth = 0.8;
         [[NSColor colorWithCalibratedWhite:ink alpha:0.35] setStroke];
         [rings stroke];
-        if ([self azimuthal] && [self atHome]) {
+        if (globe && [self atHome]) {  // great circles through the centre are straight lines on the globe
             NSBezierPath *spokes = [NSBezierPath bezierPath];
+            double rim = 180 / M_PI;
             for (int a = 0; a < 360; a += 30) {
                 double s = std::sin(a * M_PI / 180), c = std::cos(a * M_PI / 180);
                 [spokes moveToPoint:[self planeToView:0 y:0]];
-                [spokes lineToPoint:[self planeToView:180 * s y:180 * c]];
+                [spokes lineToPoint:[self planeToView:rim * s y:rim * c]];
                 NSString *name = a == 0 ? @"N" : a == 90 ? @"E" : a == 180 ? @"S" : a == 270 ? @"W" : [NSString stringWithFormat:@"%d°", a];
-                NSPoint p = [self planeToView:170 * s y:170 * c];
+                NSPoint p = [self planeToView:rim * 0.93 * s y:rim * 0.93 * c];
                 if (NSPointInRect(p, b)) [self drawLabel:name at:p size:11 alpha:0.6];
             }
             spokes.lineWidth = 0.5;
@@ -876,6 +912,32 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             [[NSColor colorWithCalibratedWhite:ink alpha:lit ? 1 : 0.6] setStroke];
             dot.lineWidth = lit ? 2 : 1;
             [dot stroke];
+        }
+
+    // Contacts: a marker at each QSO's own place (LAT and LON, else a 6 or 8 character grid).
+    if (_showContacts)
+        for (size_t i = 0; i < _contacts.size(); ++i) {
+            NSPoint p = [self viewPointForLon:_contacts[i].lon lat:_contacts[i].lat];
+            if (!NSPointInRect(p, NSInsetRect(b, -12, -12))) continue;
+            // In the map's colours, outlined dark so a marker shows on a square of its own colour.
+            NSBezierPath *m = [self contactMarkerAt:p];
+            NSColor *c = [self colorFor:_contactAgg[i] entity:NO];
+            bool lit = (_hover.kind == ADIFMapHit::Contact && _hover.index == i) || (_selected.kind == ADIFMapHit::Contact && _selected.index == i);
+            NSColor *edge = lit ? [NSColor colorWithCalibratedWhite:ink alpha:1] : [NSColor colorWithCalibratedWhite:0 alpha:0.85];
+            if (_style.contact == 2) {  // crosshairs: a dark halo under the coloured lines
+                m.lineWidth = 3.2;
+                [edge setStroke];
+                [m stroke];
+                m.lineWidth = lit ? 1.8 : 1.4;
+                [c setStroke];
+                [m stroke];
+                continue;
+            }
+            [c setFill];
+            [m fill];
+            [edge setStroke];
+            m.lineWidth = lit ? 1.6 : 1;
+            [m stroke];
         }
 
     // Parks (triangles) and other programs' references (diamonds, a colour each).
@@ -911,7 +973,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     for (const ADIFMapHit *h : {&_hover, &_selected}) {
         if (h->square.empty() || (h->kind != ADIFMapHit::Square && h->kind != ADIFMapHit::Empty)) continue;
         NSBezierPath *box = [self squarePath:h->square];
-        if (!box || box.bounds.size.width < 3) continue;
+        if (!box || box.isEmpty || box.bounds.size.width < 3) continue;  // behind the globe, or too small to see
         box.lineWidth = h == &_selected ? 2 : 1;
         [[NSColor colorWithCalibratedWhite:ink alpha:h == &_selected ? 0.95 : 0.6] setStroke];
         [box stroke];
@@ -925,19 +987,20 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)drawLegend {
     const MapPalette &pal = paletteAt(_style.palette);
     struct Entry {
-        int kind;  // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 heading, 7 plain text
+        int kind;  // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text
         NSColor *color;
         std::string text;
     };
     std::vector<Entry> rows;
-    if ([self azimuthal]) {
-        std::string centre = adif::squareAt(_pr.centerLon() >= 180 ? _pr.centerLon() - 360 : _pr.centerLon(), std::min(89.999, _pr.centerLat()));
-        rows.push_back({7, nil, [self atHome] ? "Centre: " + centre + " (home)" : "Centre: " + centre + "; World goes home"});
+    if ([self globe]) {
+        std::string centre = adif::squareAt(_pr.centerLon() >= 180 ? _pr.centerLon() - 360 : _pr.centerLon(), std::clamp(_pr.centerLat(), -89.999, 89.999));
+        rows.push_back({8, nil, [self atHome] && _hasHome ? "Centre: " + centre + " (home)" : "Centre: " + centre + (_hasHome ? "; World goes home" : "")});
     }
-    static const char *const kBy[] = {"Squares: confirmed or not", "Squares: band (the most QSOs)", "Squares: mode (the most QSOs)",
-                                      "Squares: QSO count", "Squares: year first worked"};
-    if (_showSquares || _showEntities) {
-        rows.push_back({6, nil, kBy[std::clamp(_style.colorBy, 0, 4)]});
+    static const char *const kBy[] = {"Colour: confirmed or not", "Colour: band (the most QSOs)", "Colour: mode (the most QSOs)",
+                                      "Colour: QSO count", "Colour: year first worked"};
+    bool contacts = _showContacts && !_contacts.empty();
+    if (_showSquares || _showEntities || contacts) {
+        rows.push_back({7, nil, kBy[std::clamp(_style.colorBy, 0, 4)]});
         switch (_style.colorBy) {
             case 1:
                 for (size_t i = 0; i < _bands.size() && i < 14; ++i) rows.push_back({0, bandColor(_bands[i], pal), _bands[i]});
@@ -959,7 +1022,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     }
                 break;
             default:
-                if (_showSquares) rows.push_back({0, pal.confirmed, "confirmed"}), rows.push_back({0, pal.worked, "worked"});
+                if (_showSquares || contacts) rows.push_back({0, pal.confirmed, "confirmed"}), rows.push_back({0, pal.worked, "worked"});
                 if (_showEntities) rows.push_back({1, pal.dxccConfirmed, "DXCC confirmed"}), rows.push_back({1, pal.dxccWorked, "DXCC worked"});
                 break;
         }
@@ -968,7 +1031,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     bool parks = false;
     for (const adif::MapPark &pk : _data.parks)
         if ([self programShown:pk]) pk.park() ? (void)(parks = true) : (void)programs.insert(pk.program);
-    if (parks || !programs.empty()) rows.push_back({6, nil, "References"});
+    if (contacts || parks || !programs.empty()) rows.push_back({7, nil, "Markers"});
+    if (contacts) rows.push_back({6, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], "contacts (exact place)"});
     if (parks) rows.push_back({2, pal.park, "parks (POTA, WWFF)"});
     for (const std::string &p : programs) rows.push_back({3, [self programColor:p], p});
     if (_style.mine && !_data.mine.empty()) rows.push_back({4, pal.me, "my station"});
@@ -980,7 +1044,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:11],
                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9]};
     CGFloat width = 0, lineH = 16;
-    for (const Entry &e : rows) width = std::max(width, [ADIFString(e.text) sizeWithAttributes:e.kind == 6 ? head : text].width + (e.kind >= 6 ? 0 : 20));
+    for (const Entry &e : rows) width = std::max(width, [ADIFString(e.text) sizeWithAttributes:e.kind == 7 ? head : text].width + (e.kind >= 7 ? 0 : 20));
     NSRect box = NSMakeRect(NSMinX(self.bounds) + 8, NSMinY(self.bounds) + 8, width + 16, rows.size() * lineH + 10);
     NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
     [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.62] setFill];
@@ -988,8 +1052,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGFloat y = NSMaxY(box) - 5 - lineH;
     for (const Entry &e : rows) {
         NSPoint at = NSMakePoint(NSMinX(box) + 8, y);
-        if (e.kind >= 6) {
-            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x, y + 1) withAttributes:e.kind == 6 ? head : text];
+        if (e.kind >= 7) {
+            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x, y + 1) withAttributes:e.kind == 7 ? head : text];
         } else {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
             NSBezierPath *m = nil;
@@ -999,13 +1063,14 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 case 2: m = [self marker:1 at:c size:5]; break;
                 case 3: m = [self marker:2 at:c size:5]; break;
                 case 4: m = [self marker:3 at:c size:6]; break;
+                case 6: m = [self contactMarkerAt:NSMakePoint(c.x, _style.contact == 0 ? c.y - 5 : c.y)]; break;
                 default:
                     m = [NSBezierPath bezierPath];
                     [m moveToPoint:NSMakePoint(c.x - 6, c.y)];
                     [m lineToPoint:NSMakePoint(c.x + 6, c.y)];
                     break;
             }
-            if (e.kind == 5) {
+            if (e.kind == 5 || (e.kind == 6 && _style.contact == 2)) {
                 m.lineWidth = 1.5;
                 [e.color setStroke];
                 [m stroke];
@@ -1034,6 +1099,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         NSPoint q = [self viewPointForLon:plon lat:plat];
         if (std::hypot(q.x - p.x, q.y - p.y) <= 7 * _style.marker) return h.kind = ADIFMapHit::Park, h.index = i, h;
     }
+    if (_showContacts)  // the pin's head, or the dot or crosshair
+        for (size_t i = 0; i < _contacts.size(); ++i) {
+            NSPoint q = [self viewPointForLon:_contacts[i].lon lat:_contacts[i].lat];
+            if (_style.contact == 0) q.y += 2.2 * kPin * _style.marker;
+            if (std::hypot(q.x - p.x, q.y - p.y) <= 5 * _style.marker + 1) return h.kind = ADIFMapHit::Contact, h.index = i, h;
+        }
     if (_showEntities)
         for (size_t i = 0; i < _entities.size(); ++i) {
             NSPoint q = [self viewPointForLon:_entities[i].lon lat:_entities[i].lat];
@@ -1073,7 +1144,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     double ppu = [self ppu];
     _dragged = YES;
     [[NSCursor closedHandCursor] set];
-    if ([self azimuthal]) return [self turnTo:-event.deltaX / ppu y:event.deltaY / ppu];  // turn the globe
+    if ([self globe]) return [self rotateBy:event.deltaX / ppu y:-event.deltaY / ppu];  // the surface moves with the pointer
     _cx -= event.deltaX / ppu;
     _cy += event.deltaY / ppu;
     [self viewChanged];
@@ -1092,7 +1163,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
     if (event.hasPreciseScrollingDeltas && !(event.modifierFlags & NSEventModifierFlagOption)) {  // a trackpad: pan
         double ppu = [self ppu];
-        if ([self azimuthal]) return [self turnTo:-event.scrollingDeltaX / ppu y:event.scrollingDeltaY / ppu];
+        if ([self globe]) return [self rotateBy:event.scrollingDeltaX / ppu y:-event.scrollingDeltaY / ppu];
         _cx -= event.scrollingDeltaX / ppu;
         _cy += event.scrollingDeltaY / ppu;
         [self viewChanged];
@@ -1110,9 +1181,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     NSString *c = event.charactersIgnoringModifiers;
     unichar k = c.length ? [c characterAtIndex:0] : 0;
     double step = 60 / [self ppu];
-    if ([self azimuthal] && (k == NSLeftArrowFunctionKey || k == NSRightArrowFunctionKey || k == NSUpArrowFunctionKey || k == NSDownArrowFunctionKey)) {
-        [self turnTo:k == NSLeftArrowFunctionKey ? -step : k == NSRightArrowFunctionKey ? step : 0
-                   y:k == NSDownArrowFunctionKey ? -step : k == NSUpArrowFunctionKey ? step : 0];
+    if ([self globe] && (k == NSLeftArrowFunctionKey || k == NSRightArrowFunctionKey || k == NSUpArrowFunctionKey || k == NSDownArrowFunctionKey)) {
+        // Look west, east, north or south: the surface moves the other way.
+        [self rotateBy:k == NSLeftArrowFunctionKey ? step : k == NSRightArrowFunctionKey ? -step : 0
+                     y:k == NSDownArrowFunctionKey ? step : k == NSUpArrowFunctionKey ? -step : 0];
         return;
     }
     if (k == '+' || k == '=') [self zoomBy:1.5];
@@ -1168,7 +1240,7 @@ struct {
     ADIFMapView *view = nil;
     ADIFMapList *list = nil;
     NSTableView *table = nil;
-    NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *parks = nil, *mine = nil, *paths = nil;
+    NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *contacts = nil, *parks = nil, *mine = nil, *paths = nil;
     NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil;
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
@@ -1176,7 +1248,7 @@ struct {
     std::vector<ADIFMapEntity> dxcc;
     std::vector<size_t> listed;   // the table's rows: indexes into data.qsos
     std::string summary, chosen;  // what the status line says when nothing is under the pointer
-    std::string home;             // the grid the azimuthal map, rings and paths start from
+    std::string home;             // the grid the globe, rings and paths start from
     intptr_t buffer = 0;
 } mw;
 
@@ -1220,6 +1292,7 @@ ADIFMapStyle savedStyle() {
     s.shape = number("mapMarkerShape", 0, 2);
     s.fill = number("mapSquareFill", 0, 2);
     s.marker = kSizes[number("mapMarkerSize", 1, 3)];
+    s.contact = number("mapContactMarker", 0, 2);
     s.grid = flag("mapGrid", true);
     s.labels = flag("mapLabels", true);
     s.legend = flag("mapLegend", true);
@@ -1264,6 +1337,21 @@ std::string describe(const ADIFMapHit &h) {
             const adif::MapQso &q = mw.data.qsos[p.qso];
             return p.program + " " + p.reference + ": " + plural(n, "QSO") + ", in " + p.grid + " (" + q.call + " " + q.date + ")";
         }
+        case ADIFMapHit::Contact: {
+            const ADIFMapContact &c = mw.view.contacts[h.index];
+            const adif::MapQso &q = mw.data.qsos[c.qsos[0]];
+            char at[64];
+            snprintf(at, sizeof at, "%.4f %c, %.4f %c", std::fabs(c.lat), c.lat < 0 ? 'S' : 'N', std::fabs(c.lon), c.lon < 0 ? 'W' : 'E');
+            std::string from;
+            double hlat, hlon;
+            if (!mw.home.empty() && adif::gridToLatLon(mw.home, &hlat, &hlon)) {
+                char d[96];
+                snprintf(d, sizeof d, " %ld km at %.0f° from %s.", std::lround(adif::greatCircleKm(hlat, hlon, c.lat, c.lon)),
+                         adif::initialBearing(hlat, hlon, c.lat, c.lon), mw.home.c_str());
+                from = d;
+            }
+            return callsOf(c.qsos) + ": " + plural(c.qsos.size(), "QSO") + " at " + at + " (from " + q.locatedBy + ")." + from;
+        }
         case ADIFMapHit::Empty: return h.square + ": no QSOs." + where;
         case ADIFMapHit::None: break;
     }
@@ -1286,6 +1374,7 @@ void selected(const ADIFMapHit &h) {
     std::vector<size_t> qsos;
     if (h.kind == ADIFMapHit::Square) qsos = mw.data.squares[h.index].qsoIndex;
     else if (h.kind == ADIFMapHit::Dxcc) qsos = mw.dxcc[h.index].qsos;
+    else if (h.kind == ADIFMapHit::Contact) qsos = mw.view.contacts[h.index].qsos;
     else if (h.kind == ADIFMapHit::Park)
         for (const adif::MapPark &p : mw.data.parks)
             if (p.reference == mw.data.parks[h.index].reference && p.program == mw.data.parks[h.index].program) qsos.push_back(p.qso);
@@ -1299,19 +1388,29 @@ void updateZoomLabel() {
     mw.zoomLabel.stringValue = z < 10 ? [NSString stringWithFormat:@"%.1f×", z] : [NSString stringWithFormat:@"%.0f×", z];
 }
 
-// The map's projection, centred (for the azimuthal one) on home.
+// The map's projection; the globe is centred on home, else on the log's squares.
 void applyProjection() {
     double lat = 0, lon = 0;
     bool home = !mw.home.empty() && adif::gridToLatLon(mw.home, &lat, &lon);
     int p = number("mapProjection", 0, 3);
     static const adif::Projection kinds[] = {adif::Projection::Equirectangular, adif::Projection::Mercator, adif::Projection::EqualEarth,
-                                             adif::Projection::Azimuthal};
-    adif::Projector pr(kinds[p], home ? lat : 0, home ? lon : 0);
+                                             adif::Projection::Globe};
+    double clat = lat, clon = lon;
+    if (!home) {  // the middle of the squares worked (the mean of their directions from the Earth's centre)
+        double x = 0, y = 0, z = 0;
+        for (const adif::MapSquare &sq : mw.data.squares) {
+            double a, o;
+            if (!adif::gridToLatLon(sq.grid, &a, &o)) continue;
+            a *= M_PI / 180, o *= M_PI / 180;
+            x += std::cos(a) * std::cos(o), y += std::cos(a) * std::sin(o), z += std::sin(a);
+        }
+        if (std::hypot(x, y, z) > 1e-9) clat = std::atan2(z, std::hypot(x, y)) * 180 / M_PI, clon = std::atan2(y, x) * 180 / M_PI;
+        else clat = 20, clon = 0;
+    }
+    adif::Projector pr(kinds[p], clat, clon);
     [mw.view setProjector:pr home:home ? ADIFString(mw.home) : @"" lat:lat lon:lon];
-    NSMenuItem *az = [mw.projection itemAtIndex:3];
-    az.title = home ? [NSString stringWithFormat:@"Azimuthal from %@", ADIFString(mw.home)] : @"Azimuthal (set your grid first)";
-    az.enabled = home;
-    [mw.projection selectItemAtIndex:home || p != 3 ? p : 0];
+    [mw.projection itemAtIndex:3].title = home ? [NSString stringWithFormat:@"Globe from %@", ADIFString(mw.home)] : @"Globe";
+    [mw.projection selectItemAtIndex:p];
 }
 
 void applyStyle() {
@@ -1399,7 +1498,7 @@ void fillPrograms() {
     }
 }
 
-// Style: palette, marker size and shape, square fill, legend, distance rings.
+// Style: palette, marker size and shape, contact markers, square fill, legend, distance rings.
 void fillStyle() {
     NSMenu *menu = mw.style.menu;
     menu.autoenablesItems = NO;
@@ -1433,6 +1532,11 @@ void fillStyle() {
     menuItem(menu, @"Markers", false, nil);
     NSArray *shapes = @[ @"By layer: dots, triangles, diamonds", @"All circles", @"All squares" ];
     for (NSInteger i = 0; i < 3; ++i) menuItem(menu, shapes[(NSUInteger)i], s.shape == i, choose("mapMarkerShape", (int)i)).indentationLevel = 1;
+    [menu addItem:[NSMenuItem separatorItem]];
+    menuItem(menu, @"Contacts", false, nil);
+    NSArray *contactShapes = @[ @"Pins", @"Dots", @"Crosshairs" ];
+    for (NSInteger i = 0; i < 3; ++i)
+        menuItem(menu, contactShapes[(NSUInteger)i], s.contact == i, choose("mapContactMarker", (int)i)).indentationLevel = 1;
     [menu addItem:[NSMenuItem separatorItem]];
     menuItem(menu, @"Worked squares", false, nil);
     NSArray *fills = @[ @"Solid", @"See-through", @"Outline" ];
@@ -1526,6 +1630,7 @@ void refresh() {
         mw.view.showSquares = mw.squares.state == NSControlStateValueOn;
         mw.view.showEntities = mw.entities.state == NSControlStateValueOn;
         mw.view.showParks = mw.parks.state == NSControlStateValueOn;
+        mw.view.showContacts = mw.contacts.state == NSControlStateValueOn;
         mw.home = homeGrid();
         applyStyle();
         applyProjection();
@@ -1533,6 +1638,8 @@ void refresh() {
         fillPrograms();
         fillStyle();
         showList({});
+        size_t located = 0;
+        for (const adif::MapQso &q : mw.data.qsos) located += q.located;
         std::set<std::string> parkRefs, otherRefs;
         for (const adif::MapPark &p : mw.data.parks) (p.park() ? parkRefs : otherRefs).insert(p.program + " " + p.reference);
         mw.summary = plural(mw.data.squares.size(), "grid square") + " (" + std::to_string(confirmedSquares) + " confirmed), " +
@@ -1542,8 +1649,9 @@ void refresh() {
                      (mw.data.withoutGrid ? plural(mw.data.withoutGrid, "QSO") + " without GRIDSQUARE " + (mw.data.withoutGrid == 1 ? "isn't" : "aren't") +
                                                 " on the squares. "
                                           : "") +
-                     "The legend shows the colours. Scroll or pinch to zoom, drag to move (on the azimuthal map, to turn the globe), "
-                     "click a square, dot or park for its QSOs.";
+                     plural(located, "QSO") + " with an exact place (Contacts). "
+                     "The legend shows the colours. Scroll or pinch to zoom, drag to move (on the globe, to turn it), "
+                     "click a square, dot, pin or park for its QSOs.";
         mw.chosen.clear();
         setStatus(mw.summary);
     } catch (...) {
@@ -1636,6 +1744,9 @@ void cmdMap() {
         mw.labels = ADIFCheckbox(@"Labels", flag("mapLabels", true));
         mw.labels.toolTip = @"Field names (FN, EM...), and square names (FN31) when zoomed in";
         mw.entities = ADIFCheckbox(@"DXCC", flag("mapDxcc", true));
+        mw.contacts = ADIFCheckbox(@"Contacts", flag("mapContacts", false));
+        mw.contacts.toolTip = @"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
+                              @"square is 100 km or more across: Worked squares shows those). Style chooses pins, dots or crosshairs";
         mw.parks = ADIFCheckbox(@"Parks", flag("mapParks", true));
         mw.parks.toolTip = @"POTA and WWFF parks you hunted, where the QSO has a grid";
         mw.programs = pullDown(@"Other programs", @"Other programs' references, a colour each: SOTA summits, IOTA islands, GMA, bunkers, "
@@ -1654,14 +1765,16 @@ void cmdMap() {
                                   @"Colour by year first worked" ]);
         [mw.colorBy selectItemAtIndex:number("mapColorBy", 0, 4)];
         // Row 3: zoom, projection, style.
-        mw.projection = ADIFPopup(@[ @"Equirectangular", @"Mercator", @"Equal Earth", @"Azimuthal" ]);
+        mw.projection = ADIFPopup(@[ @"Equirectangular", @"Mercator", @"Equal Earth", @"Globe" ]);
         mw.projection.autoenablesItems = NO;
-        mw.projection.toolTip = @"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Azimuthal: "
-                                @"distance and bearing from your grid are true (beam headings); drag to turn the globe, World to come home";
+        mw.projection.toolTip = @"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Globe: the Earth "
+                                @"as seen from space, centred on your grid; drag (or the arrow keys) to turn it any way, zoom in for detail, "
+                                @"World to come home. Bearings from the centre are true (beam headings)";
         mw.style = pullDown(@"Style", @"Colours, marker size and shape, how worked squares are filled, the legend, distance rings");
-        for (NSControl *c in @[ mw.squares, mw.entities, mw.parks, mw.band, mw.mode, mw.dates, mw.confirmed ]) ADIFOnAction(c, ^{
+        for (NSControl *c in @[ mw.squares, mw.entities, mw.contacts, mw.parks, mw.band, mw.mode, mw.dates, mw.confirmed ]) ADIFOnAction(c, ^{
             saveFlag("mapSquares", mw.squares.state == NSControlStateValueOn);
             saveFlag("mapDxcc", mw.entities.state == NSControlStateValueOn);
+            saveFlag("mapContacts", mw.contacts.state == NSControlStateValueOn);
             saveFlag("mapParks", mw.parks.state == NSControlStateValueOn);
             refresh();
         });
@@ -1688,8 +1801,8 @@ void cmdMap() {
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now, with its legend", ^{ exportPng(); });
-        NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Show:"), mw.squares, mw.grid, mw.labels, mw.entities, mw.parks, mw.programs,
-                                                              mw.mine, mw.paths ]];
+        NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Show:"), mw.squares, mw.grid, mw.labels, mw.entities, mw.contacts, mw.parks,
+                                                              mw.programs, mw.mine, mw.paths ]];
         row.spacing = 10;
         NSStackView *row2 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Only:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.colorBy ]];
         row2.spacing = 8;

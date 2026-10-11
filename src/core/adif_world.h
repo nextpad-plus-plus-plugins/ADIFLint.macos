@@ -32,6 +32,11 @@ struct MapQso {
     std::string myGrid;  // MY_GRIDSQUARE
     int modeGroup = 2;   // 0 CW, 1 phone, 2 data (from MODE, as modeGroup() in adif_enrich.h)
     bool confirmed = false;
+    // Where the other station was, when the record says closely: LAT and LON, else a
+    // GRIDSQUARE of 6 or 8 characters (a 4-character square is 100 km or more across).
+    bool located = false;
+    double lat = 0, lon = 0;
+    std::string locatedBy;  // "LAT/LON", or the grid
 };
 struct MapSquare {
     std::string grid;  // 4 characters, upper case ("FN31")

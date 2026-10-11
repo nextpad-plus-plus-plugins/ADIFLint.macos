@@ -44,18 +44,11 @@ bool Projector::forward(double lon, double lat, double *x, double *y) const {
             *y = l * (A1 + A2 * l2 + l6 * (A3 + A4 * l2)) * kDeg;
             return true;
         }
-        case Projection::Azimuthal: {
+        case Projection::Globe: {
+            if (!visible(lon, lat)) return false;
             double phi = lat * kRad, phi1 = lat0_ * kRad, dl = (lon - lon0_) * kRad;
-            double cosc = std::clamp(std::sin(phi1) * std::sin(phi) + std::cos(phi1) * std::cos(phi) * std::cos(dl), -1.0, 1.0);
-            double c = std::acos(cosc);
-            if (c < 1e-12) {
-                *x = *y = 0;
-                return true;
-            }
-            if (kPi - c < 1e-9) return false;  // the antipode: every direction at once
-            double k = c / std::sin(c);
-            *x = k * std::cos(phi) * std::sin(dl) * kDeg;
-            *y = k * (std::cos(phi1) * std::sin(phi) - std::sin(phi1) * std::cos(phi) * std::cos(dl)) * kDeg;
+            *x = std::cos(phi) * std::sin(dl) * kDeg;
+            *y = (std::cos(phi1) * std::sin(phi) - std::sin(phi1) * std::cos(phi) * std::cos(dl)) * kDeg;
             return true;
         }
     }
@@ -90,27 +83,33 @@ bool Projector::inverse(double x, double y, double *lon, double *lat) const {
             *lat = std::asin(std::clamp(std::sin(l) / M, -1.0, 1.0)) * kDeg;
             return true;
         }
-        case Projection::Azimuthal: {
-            double X = x * kRad, Y = y * kRad, c = std::hypot(X, Y), phi1 = lat0_ * kRad;
-            if (c > kPi + 1e-9) return false;
-            if (c < 1e-12) {
+        case Projection::Globe: {  // Snyder (1987) eqs. 20-14 and 20-15
+            double X = x / kDeg, Y = y / kDeg, rho = std::hypot(X, Y), phi1 = lat0_ * kRad;
+            if (rho > 1 + 1e-12) return false;
+            if (rho < 1e-12) {
                 *lon = lon0_, *lat = lat0_;
                 return true;
             }
-            double sc = std::sin(c), cc = std::cos(c);
-            *lat = std::asin(std::clamp(cc * std::sin(phi1) + Y * sc * std::cos(phi1) / c, -1.0, 1.0)) * kDeg;
-            *lon = normLon(lon0_ + std::atan2(X * sc, c * std::cos(phi1) * cc - Y * std::sin(phi1) * sc) * kDeg);
+            double c = std::asin(std::min(1.0, rho)), sc = std::sin(c), cc = std::cos(c);
+            *lat = std::asin(std::clamp(cc * std::sin(phi1) + Y * sc * std::cos(phi1) / rho, -1.0, 1.0)) * kDeg;
+            *lon = normLon(lon0_ + std::atan2(X * sc, rho * std::cos(phi1) * cc - Y * std::sin(phi1) * sc) * kDeg);
             return true;
         }
     }
     return false;
 }
 
+bool Projector::visible(double lon, double lat) const {
+    if (kind_ != Projection::Globe) return true;
+    double phi = lat * kRad, phi1 = lat0_ * kRad, dl = (lon - lon0_) * kRad;
+    return std::sin(phi1) * std::sin(phi) + std::cos(phi1) * std::cos(phi) * std::cos(dl) >= 0;
+}
+
 void Projector::bounds(double *minX, double *minY, double *maxX, double *maxY) const {
     switch (kind_) {
         case Projection::Equirectangular: *minX = -180, *maxX = 180, *minY = -90, *maxY = 90; return;
-        case Projection::Mercator:
-        case Projection::Azimuthal: *minX = -180, *maxX = 180, *minY = -180, *maxY = 180; return;
+        case Projection::Mercator: *minX = -180, *maxX = 180, *minY = -180, *maxY = 180; return;
+        case Projection::Globe: *minX = -kDeg, *maxX = kDeg, *minY = -kDeg, *maxY = kDeg; return;
         case Projection::EqualEarth: {
             double xe = 0, ye = 0, xn = 0, yn = 0;
             forward(180, 0, &xe, &ye);
@@ -138,10 +137,161 @@ std::vector<std::pair<double, double>> Projector::outline() const {
             for (double lat = 90; lat >= -90; lat -= 1)
                 if (forward(-180, lat, &x, &y)) out.emplace_back(x, y);
             break;
-        case Projection::Azimuthal:
-            for (int a = 0; a < 360; ++a) out.emplace_back(180 * std::cos(a * kRad), 180 * std::sin(a * kRad));
+        case Projection::Globe:
+            for (int a = 0; a < 360; ++a) out.emplace_back(kDeg * std::cos(a * kRad), kDeg * std::sin(a * kRad));
             break;
     }
+    return out;
+}
+
+namespace {
+
+struct Vec {
+    double x, y, z;
+};
+Vec unit(double lon, double lat) {
+    double p = lat * kRad, l = lon * kRad;
+    return {std::cos(p) * std::cos(l), std::cos(p) * std::sin(l), std::sin(p)};
+}
+double dot(const Vec &a, const Vec &b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+// Where the great-circle step from a to b crosses the globe's horizon (exactly one end in
+// front): on the arc P(t) = slerp(a, b, t), P(t)·C = 0 at t·d = atan2(sin d · a·C, cos d · a·C - b·C).
+std::pair<double, double> horizonCrossing(const Projector &pr, std::pair<double, double> a, std::pair<double, double> b) {
+    Vec c = unit(pr.centerLon(), pr.centerLat()), va = unit(a.first, a.second), vb = unit(b.first, b.second);
+    double d = std::acos(std::clamp(dot(va, vb), -1.0, 1.0));
+    if (d < 1e-12) return a;
+    double da = dot(va, c), db = dot(vb, c);
+    double td = std::atan2(std::sin(d) * da, std::cos(d) * da - db);
+    double f = std::clamp(td / d, 0.0, 1.0), wa = std::sin((1 - f) * d) / std::sin(d), wb = std::sin(f * d) / std::sin(d);
+    Vec p{wa * va.x + wb * vb.x, wa * va.y + wb * vb.y, wa * va.z + wb * vb.z};
+    return {std::atan2(p.y, p.x) * kDeg, std::atan2(p.z, std::hypot(p.x, p.y)) * kDeg};
+}
+
+// The rim point in the direction of (lon, lat) from the centre (any side), as an angle on the plane.
+bool rimAngle(const Projector &pr, double lon, double lat, double *angle) {
+    double phi = lat * kRad, phi1 = pr.centerLat() * kRad, dl = (lon - pr.centerLon()) * kRad;
+    double x = std::cos(phi) * std::sin(dl), y = std::cos(phi1) * std::sin(phi) - std::sin(phi1) * std::cos(phi) * std::cos(dl);
+    if (std::hypot(x, y) < 1e-12) return false;  // the centre's antipode: no direction
+    *angle = std::atan2(y, x);
+    return true;
+}
+
+}  // namespace
+
+std::vector<ShapePiece> projectShape(const Projector &pr, const std::vector<std::pair<double, double>> &pts, bool polygon, bool wraps) {
+    std::vector<ShapePiece> out;
+    if (pts.empty()) return out;
+    if (pr.kind() != Projection::Globe) {
+        ShapePiece cur;
+        for (size_t i = 0; i < pts.size(); ++i) {
+            double x, y;
+            if (!pr.forward(pts[i].first, pts[i].second, &x, &y)) continue;
+            if (wraps && !cur.pts.empty() && std::fabs(pts[i].first - pts[i - 1].first) > 180) {
+                if (cur.pts.size() > 1) out.push_back(cur);
+                cur = ShapePiece();
+            }
+            cur.pts.emplace_back(x, y);
+        }
+        cur.closed = polygon && out.empty();
+        if (!cur.pts.empty()) out.push_back(cur);
+        return out;
+    }
+    auto onPlane = [&](std::pair<double, double> p) {
+        double x = 0, y = 0;
+        pr.forward(p.first, p.second, &x, &y);
+        return std::pair<double, double>{x, y};
+    };
+    // A horizon crossing, on the rim (rounding can put it a hair behind).
+    auto onRim = [&](std::pair<double, double> p) {
+        double angle = 0;
+        rimAngle(pr, p.first, p.second, &angle);
+        return std::pair<double, double>{kDeg * std::cos(angle), kDeg * std::sin(angle)};
+    };
+    if (polygon) {
+        ShapePiece piece;
+        piece.closed = true;
+        bool front = false, behind = false, lastOnRim = false;
+        double lastAngle = 0;
+        // A rim point, with the arc from the last one when the shape keeps to the rim.
+        auto rim = [&](double angle) {
+            if (lastOnRim) {
+                double delta = std::remainder(angle - lastAngle, 2 * kPi);
+                int steps = (int)std::ceil(std::fabs(delta) / (3 * kRad));
+                for (int k = 1; k < steps; ++k) {
+                    double a = lastAngle + delta * k / steps;
+                    piece.pts.emplace_back(kDeg * std::cos(a), kDeg * std::sin(a));
+                }
+            }
+            piece.pts.emplace_back(kDeg * std::cos(angle), kDeg * std::sin(angle));
+            lastOnRim = true, lastAngle = angle;
+        };
+        size_t n = pts.size();
+        for (size_t i = 0; i < n; ++i) {
+            const auto &a = pts[i], &b = pts[(i + 1) % n];
+            bool va = pr.visible(a.first, a.second), vb = pr.visible(b.first, b.second);
+            double angle, next;
+            if (va) {
+                piece.pts.push_back(onPlane(a));
+                front = true, lastOnRim = false;
+            } else if (rimAngle(pr, a.first, a.second, &angle)) {
+                behind = true;
+                rim(angle);
+                // An edge passing near the antipode turns fast round the rim: follow its middle
+                // so the arc goes the way the edge does, not the short way.
+                if (!vb && rimAngle(pr, b.first, b.second, &next) && std::fabs(std::remainder(next - angle, 2 * kPi)) > kPi / 3) {
+                    std::vector<std::pair<double, double>> mid = greatCirclePath(a.second, a.first, b.second, b.first, 0.5);
+                    for (size_t k = 1; k + 1 < mid.size(); ++k)
+                        if (rimAngle(pr, mid[k].first, mid[k].second, &angle)) rim(angle);
+                }
+            }
+            if (va != vb) {
+                std::pair<double, double> x = horizonCrossing(pr, va ? a : b, va ? b : a);
+                if (rimAngle(pr, x.first, x.second, &angle)) rim(angle);
+                if (vb) lastOnRim = false;
+            }
+        }
+        if (!front) return out;
+        out.push_back(piece);
+        // A shape round the centre's antipode that shows in front (a continent seen from the
+        // far side of the world) winds round the whole disc, so its front part is the disc
+        // outside the piece: add the rim the other way round, so either fill rule leaves the
+        // piece's inside empty. Natural Earth's shapes are cut at the 180th meridian, so
+        // "round the antipode" is the plain (lon, lat) point-in-polygon test.
+        double alon = normLon(pr.centerLon() + 180), alat = -pr.centerLat();
+        bool inside = false;
+        for (size_t i = 0, j = n - 1; i < n; j = i++) {
+            const auto &pi = pts[i], &pj = pts[j];
+            if ((pi.second > alat) != (pj.second > alat) && alon < (pj.first - pi.first) * (alat - pi.second) / (pj.second - pi.second) + pi.first)
+                inside = !inside;
+        }
+        if (behind && inside) {
+            double area = 0;
+            for (size_t i = 0, j = piece.pts.size() - 1; i < piece.pts.size(); j = i++)
+                area += piece.pts[j].first * piece.pts[i].second - piece.pts[i].first * piece.pts[j].second;
+            ShapePiece disc;
+            disc.closed = true;
+            for (int k = 0; k < 120; ++k) {
+                double a = (area > 0 ? -k : k) * 3 * kRad;
+                disc.pts.emplace_back(kDeg * std::cos(a), kDeg * std::sin(a));
+            }
+            out.push_back(disc);
+        }
+        return out;
+    }
+    ShapePiece cur;
+    for (size_t i = 0; i < pts.size(); ++i) {
+        bool v = pr.visible(pts[i].first, pts[i].second), prev = i > 0 && pr.visible(pts[i - 1].first, pts[i - 1].second);
+        if (v) {
+            if (i > 0 && !prev) cur.pts.push_back(onRim(horizonCrossing(pr, pts[i], pts[i - 1])));  // coming round the rim
+            cur.pts.push_back(onPlane(pts[i]));
+        } else if (prev) {  // going behind
+            cur.pts.push_back(onRim(horizonCrossing(pr, pts[i - 1], pts[i])));
+            if (cur.pts.size() > 1) out.push_back(cur);
+            cur = ShapePiece();
+        }
+    }
+    if (cur.pts.size() > 1) out.push_back(cur);
     return out;
 }
 

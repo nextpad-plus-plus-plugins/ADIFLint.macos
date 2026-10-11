@@ -40,6 +40,21 @@ bool gridToLatLon(std::string_view g, double *lat, double *lon) {
     return true;
 }
 
+bool locationToDegrees(std::string_view v, bool latitude, double *degrees) {
+    auto digit = [&](size_t i) { return v[i] >= '0' && v[i] <= '9'; };
+    if (v.size() != 11 || v[4] != ' ' || v[7] != '.' || !digit(1) || !digit(2) || !digit(3) || !digit(5) || !digit(6) || !digit(8) ||
+        !digit(9) || !digit(10))
+        return false;
+    char x = up(v[0]);
+    if (latitude ? (x != 'N' && x != 'S') : (x != 'E' && x != 'W')) return false;
+    int d = (v[1] - '0') * 100 + (v[2] - '0') * 10 + (v[3] - '0');
+    double minutes = (v[5] - '0') * 10 + (v[6] - '0') + ((v[8] - '0') * 100 + (v[9] - '0') * 10 + (v[10] - '0')) / 1000.0;
+    double value = d + minutes / 60.0;
+    if (minutes >= 60 || value > (latitude ? 90 : 180)) return false;
+    if (degrees) *degrees = x == 'S' || x == 'W' ? -value : value;
+    return true;
+}
+
 double greatCircleKm(double lat1, double lon1, double lat2, double lon2) {
     double p1 = rad(lat1), p2 = rad(lat2), dp = rad(lat2 - lat1), dl = rad(lon2 - lon1);
     double a = std::sin(dp / 2) * std::sin(dp / 2) + std::cos(p1) * std::cos(p2) * std::sin(dl / 2) * std::sin(dl / 2);
