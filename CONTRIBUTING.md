@@ -70,6 +70,10 @@ Also run, before a pull request that touches the plugin or the core:
 
 - **Layout**, for a change to a window: run the harness with `ADIFLINT_SNAPSHOT_DIR` set
   to a folder, and look at the dark-mode PNG it saves of each window.
+- **Screenshots** in the README and user guide: `tools/docs-screenshots.sh` (after a build)
+  saves them into `docs/images` from the harness, the map and Log Table drawn from a
+  generated sample log (`ADIFLINT_DOCS=1`), never a real one. Add a window to its list to
+  use a new one.
 
 ## Project layout
 

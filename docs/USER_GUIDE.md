@@ -1,32 +1,60 @@
 # ADIF Lint user guide
 
-Everything ADIF Lint does, window by window. Every command is on the **Plugins → ADIF
-Lint** menu, and New QSO, Log Table, Check Log and Spots also have toolbar buttons.
-**Import…**, **Export…** and **Enrich…** open the window you used last (**QSL Sync…** opens
-each upload window); the
-popup at the top of each switches to the others, in the same place. Every change a command makes to your log is one undo step, and nothing is
-saved to disk until you save the file.
+ADIF Lint checks and repairs amateur-radio logs in ADIF 3.1.7 ADI format in Nextpad++ on
+macOS, and adds logging, activations, spots, a map and QSL sync around them. This guide
+describes every window and option; the [README](../README.md) covers installing.
 
-- [Checking and repairing a log](#checking-and-repairing-a-log)
-- [Logging with New QSO](#logging-with-new-qso)
+Every command is on the **Plugins → ADIF Lint** menu, and New QSO, Log Table, Check Log and
+Spots also have toolbar buttons. **Import…**, **Export…** and **Enrich…** open the window
+you used last, and the pop-up at the top of each switches to the others; **QSL Sync…** opens
+each upload window. Every change a command makes to your log is one undo step, and nothing
+is saved to disk until you save the file.
+
+**A quick tour**
+
+1. Open an `.adi` file: problems are marked as you type
+   ([Checking and repairing a log](#checking-and-repairing-a-log)).
+2. **Check Log…** repairs what it can, and **Fix Lengths** fixes the data lengths.
+3. **Settings… → Your Station**: your callsign and grid ([Settings](#settings)).
+4. **New QSO…** logs contacts ([Logging with New QSO](#logging-with-new-qso)), and **Start
+   Activation…** starts a park, reference or summit
+   ([Station profiles and activations](#station-profiles-and-activations)).
+5. **Map (Grids, DXCC, Parks)…** shows where you've worked ([Map](#map)).
+6. **QSL Sync…** uploads your QSOs and downloads confirmations
+   ([QSL Sync and uploading](#qsl-sync-and-uploading)).
+
+**Contents**
+
+- [Checking and repairing a log](#checking-and-repairing-a-log):
+  [what is checked](#what-is-checked), [bytes or characters?](#bytes-or-characters)
+- [Logging with New QSO](#logging-with-new-qso): [choosing the fields](#choosing-the-fields),
+  [looking up the call](#looking-up-the-call), [contests and Field Day](#contests-and-field-day)
 - [Station profiles and activations](#station-profiles-and-activations)
-- [Monitor: QSOs from WSJT-X and other programs](#monitor-qsos-from-wsjt-x-and-other-programs)
+- [Monitor: QSOs from WSJT-X and other programs](#monitor-qsos-from-wsjt-x-and-other-programs):
+  [setting up the other programs](#setting-up-the-other-programs)
 - [Spots](#spots)
 - [Log Table, Summary and Worked Before](#log-table-summary-and-worked-before)
+- [Map](#map): [what it shows](#what-it-shows), [contacts and their places](#contacts-and-their-places),
+  [overlays](#overlays), [colours](#colours), [projections and the globe](#projections-and-the-globe),
+  [moving around](#moving-around), [options and export](#options-and-export)
 - [Activations: POTA, WWFF and SOTA](#activations-pota-wwff-and-sota)
-- [Editing the whole log](#editing-the-whole-log)
+- [Editing the whole log](#editing-the-whole-log): [Sort and Organize](#sort-and-organize)
 - [Importing and exporting](#importing-and-exporting)
 - [Importing from LoTW, QRZ.com Logbook and eQSL](#importing-from-lotw-qrzcom-logbook-and-eqsl)
-- [Uploading](#uploading)
+- [QSL Sync and uploading](#qsl-sync-and-uploading)
 - [Enrich](#enrich)
 - [Settings](#settings)
 - [Command line](#command-line)
 - [Limits](#limits)
 
+*The screenshots come from the test suite, with sample data.*
+
 ## Checking and repairing a log
 
 ADIF Lint checks `.adi` and `.adif` files as you type, against the
 [ADIF 3.1.7 specification](https://www.adif.org/317/ADIF_317.htm) (2026-03-22).
+
+![Check Log: errors, warnings and notes, each with its record, line, field and repair, ticked to repair together](images/check-log.png)
 
 - **Marks:** red squiggles for errors, orange for warnings, blue dots for notes. Rest the
   mouse on a mark to read why. **Next Problem** and **Previous Problem** move between
@@ -169,6 +197,8 @@ is selected.
 
 **New QSO…** opens a window for logging contacts one after another.
 
+![New QSO with a call looked up in the country data: DXCC, zones and continent filled in, and the distance and bearing from your grid](images/new-qso-lookup.png)
+
 - **Fields:** the window keeps the log's field order, then adds CALL, QSO_DATE, TIME_ON,
   BAND, FREQ, MODE, SUBMODE, RST_SENT and RST_RCVD if the log doesn't have them.
 - **Carry-over:** your station's fields come from the last record (STATION_CALLSIGN,
@@ -262,6 +292,8 @@ New QSO's **Station** popup chooses what it writes for your station: **From the 
 log's last record, as before) or a profile, whose fields fill their rows and are written
 in every QSO even when not shown.
 
+![Start Activation: POTA with two parks, the Portable profile, and the log file named as POTA asks](images/start-activation.png)
+
 **Start Activation…**:
 
 - **Program** POTA, WWFF or SOTA, and the **References**: one or more parks for POTA (a
@@ -288,6 +320,8 @@ in every QSO even when not shown.
 as they log them. It listens for the message a program sends when you log a contact, or
 watches a log file a program adds to. It only listens: it never sends anything, and it
 takes messages only from this Mac unless you tick **Accept from other computers**.
+
+![Monitor listening for WSJT-X, ADIF over UDP, N1MM and logger commands, with each arrived QSO and where it went](images/monitor.png)
 
 **Add QSOs to**: **Choose…** an `.adi` log, or **Use the Open Log**. Where each QSO goes:
 
@@ -372,6 +406,8 @@ with band and mode filters and a search box. The popup at the top chooses where 
   that use it, identifies itself, and never sends a login. Spothole is a volunteer's free
   service, so it may sometimes be down.
 
+![POTA spots: activator, frequency, mode, park and its name, with NEW for parks not in your logs](images/spots.png)
+
 - Double-click a spot (or select it and press **Use in New QSO**) to fill CALL, FREQ,
   BAND, MODE and the reference: SIG (POTA or WWFF) and SIG_INFO, plus POTA_REF or
   WWFF_REF. A Spothole spot gives SIG the program (GMA, WWBOTA...) and SIG_INFO its
@@ -386,13 +422,17 @@ with band and mode filters and a search box. The popup at the top chooses where 
   already worked today on that band. References logged in SIG_INFO for any program, and
   in IOTA, count as worked, and show on the Map's Other programs layer where the QSO has a grid.
 
+![New QSO filled from a POTA spot: the call, frequency, band, mode and park, with the lookup line saying it is a new park](images/new-qso-spot.png)
+
 ## Log Table, Summary and Worked Before
 
 **Log Table…** shows every record in a table with a filter box, in its own window, and
 edits like a spreadsheet. Dates and times read as 2026-10-06 and 22:30. The `.adi` file
 stays the document: every change is written into it as one undo step (Command-Z in the
 editor), each field with its length, and an uploaded QSO whose data changes becomes M (see
-[Uploading](#uploading)).
+[QSL Sync and uploading](#qsl-sync-and-uploading)).
+
+![Log Table: QSOs with readable dates and times, editable cells, and Bulk Edit, Organize Log, Add Row and Export CSV buttons](images/log-table.png)
 
 - Click a heading to sort; the sort is remembered. Bands sort by frequency (160m before
   20m), dates and times in time order, numbers by value, and empty cells last.
@@ -445,84 +485,93 @@ subfolders) for a call, matching portable forms (`VE3/K1ABC/P` finds K1ABC). The
 is read in the background; files that changed are read again when you use it after a
 couple of minutes.
 
-### Map
+## Map
+
+![The Map as a globe centred on your station: a pin at each contact, with a line to it, coloured by band](images/map-globe.png)
 
 **Map (Grids, DXCC, Parks)…** draws the open log on a world map, offline, over
 [Natural Earth](https://www.naturalearthdata.com)'s maps (public domain; 1:110m for the whole
 world, 1:50m zoomed in): land, lakes, rivers (the largest at first, smaller ones as you zoom
 in), country borders, and state and province lines from 2.5×. Every choice is remembered.
 
-**Show** what to draw:
+The rows at the top choose what to draw (**Show**), what to lay over the map (**Overlays**),
+which QSOs (**Only**) and how to colour them (**Colour by**); the next row zooms, jumps to a
+**Region**, chooses the projection and opens **Options**. Under the map, a list shows the
+QSOs of whatever you click, and the status line says what is under the pointer.
 
-- **Worked squares**, from GRIDSQUARE and VUCC_GRIDS;
+### What it shows
+
+**Show**:
+
+- **Worked squares**, from GRIDSQUARE and VUCC_GRIDS. QSOs without GRIDSQUARE count for
+  DXCC but not for squares.
 - **DXCC**: each entity worked, from the call's prefix in the country data, as a dot at its
-  centre, bigger with more QSOs;
-- **Contacts**: a marker at each contact's own place, from its LAT and LON, else a
-  GRIDSQUARE of 6 or 8 characters (a 4-character square is 100 km or more across, so
-  **Worked squares** shows those). QSOs at the same place share one marker. Options chooses
-  pins, dots or crosshairs; point at one for the calls, where the place came from and how far
-  it is from home, or click it to list its QSOs. LAT and LON are left out when they are a
-  placeholder (0°, 0°, as QRZ.com writes for "unknown", or the centre of grid AA00aa or
-  JJ00aa), or when they are more than half a square outside the QSO's GRIDSQUARE: a callbook
-  fills them in from the station's address, which is not where it was when it worked
-  portable. Then a 6 or 8 character grid places it, or nothing does. The status line counts
-  the LAT/LON left out. Grids AA00 and JJ00 are placeholders too, drawn nowhere;
+  centre, bigger with more QSOs.
+- **Contacts**: a marker at each contact's own place (see
+  [contacts and their places](#contacts-and-their-places)).
 - **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE, since
-  there is no offline list of where parks are;
+  there is no offline list of where parks are.
 - **Other programs**, a list with a colour and a count for each: SOTA summits, IOTA islands,
   GMA, WWBOTA bunkers, HEMA, SiOTA silos, WCA castles, ILLW and ARLHS lighthouses, MOTA
   mills, ZLOTA, WOTA, and any other SIG in the log. Tick the ones to show (**Show All**,
   **Hide All**). IOTA starts hidden: a callbook such as QRZ.com fills it in for every island
-  station;
+  station.
 - **My station**: a star at each MY_GRIDSQUARE.
-
-**Overlays** on the map:
-
-- **Maidenhead grid**: the fields' lines (20 × 10 degrees), and the squares' (2 × 1) when
-  zoomed in; **Labels**: their names (`FN`, then `FN31`);
-- **Countries**: every country outlined, coasts and borders, with its name where the name
-  fits inside it on screen (Natural Earth); the faint land borders are always drawn;
-- **CQ zones** (orange) and **ITU zones** (blue), each with its number, from HB9HIL's
-  [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) (MIT; the files
-  Wavelog uses). Zone lines are approximate, across the sea in particular, and sources
-  disagree in places; the zone a QSO counts for is the one in its CQZ or ITUZ field;
-- **US states**: state lines and postal codes (Natural Earth), a code where the state is big
-  enough on screen to hold it.
 
 **Only** these QSOs: a band, a mode, a time (the last 30 days, the last 12 months, this
 year, or a year in the log), and all, confirmed or not confirmed QSOs (confirmed: QSL_RCVD,
 LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V).
 
+### Contacts and their places
+
+**Contacts** puts a marker at each contact's own place: its LAT and LON, else a GRIDSQUARE
+of 6 or 8 characters. A 4-character square is 100 km or more across, so **Worked squares**
+shows those instead. QSOs at the same place share one marker. Point at one for the calls,
+where the place came from and how far it is from home, or click it to list its QSOs.
+**Options** chooses pins, dots or crosshairs.
+
+![Europe in the Mercator projection, with country outlines and names and a pin at each contact](images/map-europe.png)
+
+LAT and LON are left out when:
+
+- they are a placeholder for "unknown": 0°, 0° (as QRZ.com writes it, `S000 00.000` and
+  `W000 00.000`), or the centre of grid AA00aa or JJ00aa;
+- they are more than half a square outside the QSO's GRIDSQUARE. A callbook fills them in
+  from the station's address, which is not where the station was when it worked portable,
+  and the two can't tell which is right.
+
+Then a 6 or 8 character grid places the contact, or nothing does; the status line counts
+the LAT/LON left out. The grids AA00 and JJ00 are placeholders too, and are drawn nowhere.
+
+### Overlays
+
+**Overlays** on the map:
+
+- **Maidenhead grid**: the fields' lines (20 × 10 degrees), and the squares' (2 × 1) when
+  zoomed in; **Labels**: their names (`FN`, then `FN31`).
+- **Countries**: every country outlined, coasts and borders, with its name where the name
+  fits inside it on screen (Natural Earth). The faint land borders are always drawn.
+- **US states**: state lines and postal codes (Natural Earth), a code where the state is
+  big enough on screen to hold it.
+- **CQ zones** (orange) and **ITU zones** (blue), each with its number, from HB9HIL's
+  [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) (MIT; the files
+  Wavelog uses). Zone lines are approximate, across the sea in particular, and sources
+  disagree in places; the zone a QSO counts for is the one in its CQZ or ITUZ field.
+
+| Worked squares and CQ zones (Equal Earth) | Worked squares and US states |
+|---|---|
+| ![The world in the Equal Earth projection, worked squares coloured by band, and the CQ zones numbered](images/map-zones.png) | ![North America with US state lines and postal codes, worked squares coloured confirmed or worked](images/map-states.png) |
+
+### Colours
+
 **Colour by**: confirmation (confirmed or only worked), band (the band with the most QSOs
 in the square, in [PSKReporter](https://pskreporter.info/pskmap.html)'s colours, so 20m is
-the same yellow as on its map), mode (CW, phone or data), QSO count (1, 2-4, 5-9, 10-24, 25 and more) or
-the year a square was first worked. The **legend** in the corner says what each colour and
-marker means.
+the same yellow as on its map), mode (CW, phone or data), QSO count (1, 2-4, 5-9, 10-24,
+25 and more) or the year a square was first worked. The **legend** in the corner says what
+each colour and marker means.
 
-The **projection**:
-
-- **Equirectangular**: the grid as rectangles, the usual Maidenhead map;
-- **Mercator**: familiar shapes, but the far north and south grow;
-- **Equal Earth**: every area at its true size (Šavrič, Patterson and Jenny, 2018);
-- **Globe from your grid**: the Earth as seen from space (the orthographic projection), the
-  side facing you only. Home is Settings → Your Station's grid, else the grid the log uses
-  most in MY_GRIDSQUARE; with neither, the globe faces the middle of the squares worked.
-  **Drag** to turn it in any direction (the surface moves with the pointer; north stays up,
-  so it stops with a pole in the middle), or scroll on a trackpad, or use the arrow keys
-  (left looks west, up looks north). Zoom in for detail; zooming turns toward the pointer.
-  **World** turns it back to home. A straight line from the centre is a great circle, so
-  centred on home it gives the beam heading. The legend says where it is centred. Coasts,
-  borders, the grid and lines to contacts stop at the horizon.
-
-**Options**: colours (**Standard**; **Colour-blind safe**, below; **High contrast**;
-**Light** for printing), marker size, markers by layer (dots, triangles, diamonds) or all
-circles or squares, **Contacts** as pins, dots or crosshairs, worked squares solid,
-see-through or as outlines, **Lines to contacts** (a great-circle line from your station,
-the QSO's MY_GRIDSQUARE, else home, to each contact, its LAT and LON, else its GRIDSQUARE at
-full precision, else its DXCC entity's centre; coloured as the map colours; each pair once)
-solid, dashed or dotted and thin, medium or thick, the **Legend**, and **Distance rings**
-from your grid (2,500 km apart for the whole world, closer as you zoom in; with bearings
-every 30° when the globe is centred on home).
+**Options** has four palettes: **Standard**, **Colour-blind safe**, **High contrast**, and
+**Light** for printing.
 
 **Colour-blind safe** keeps markers apart for red-green (protan, deutan) and blue-yellow
 (tritan) colour blindness on the dark map. By band it has seven colours of its own, chosen
@@ -530,29 +579,67 @@ from Paul Tol's, Okabe and Ito's and Petroff's colour-blind safe sets as the sev
 furthest apart, from each other and from the ocean and land, when those kinds of colour
 vision are simulated (Machado et al., 2009). The log's seven most used bands get them, in
 frequency order, counted over the whole log so the filters don't change them; any other band
-is grey. Confirmed and worked squares are sky blue and orange (Okabe and Ito), DXCC dots
-white and vermilion, parks reddish purple, your station yellow. Colour by band still names
-each band in the legend; there is room for about seven colours that everyone can tell apart.
+is grey, and the legend lists those as "other bands". Confirmed and worked squares are sky
+blue and orange (Okabe and Ito), DXCC dots white and vermilion, parks reddish purple, your
+station yellow. There is room for about seven colours that everyone can tell apart.
 
-Moving around:
+![The colour-blind safe palette: contacts coloured by band in seven distinct colours, with the other bands grey](images/map-colour-blind.png)
+
+### Projections and the globe
+
+- **Equirectangular**: the grid as rectangles, the usual Maidenhead map.
+- **Mercator**: familiar shapes, but the far north and south grow.
+- **Equal Earth**: every area at its true size (Šavrič, Patterson and Jenny, 2018).
+- **Globe from your grid**: the Earth as seen from space (the orthographic projection), the
+  side facing you only. Home is Settings → Your Station's grid, else the grid the log uses
+  most in MY_GRIDSQUARE; with neither, the globe faces the middle of the squares worked.
+
+On the globe:
+
+- **Drag** to turn it in any direction: the surface moves with the pointer, and north stays
+  up, so it stops with a pole in the middle. A two-finger scroll on a trackpad and the arrow
+  keys turn it too (left looks west, up looks north).
+- Zoom in for detail; zooming turns toward the pointer. **World** turns it back to home.
+- A straight line from the centre is a great circle, so centred on home it gives the beam
+  heading. The legend says where it is centred.
+- Coasts, borders, the grid, overlays and lines to contacts stop at the horizon.
+
+### Moving around
 
 - **Zoom** with a pinch, the mouse wheel, Option and a two-finger scroll, a double-click,
-  the **+** and **−** buttons or keys; **Fit Log** zooms to the log's QSOs, **World** (or
+  or the **+** and **−** buttons or keys. **Fit Log** zooms to the log's QSOs, **World** (or
   the 0 key) shows the whole world, and **Region** zooms to a continent (Africa, Antarctica,
   Asia, Europe, North America, Oceania, South America; the globe turns to face it).
 - **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys (on the globe
   these turn it).
 - **Point** at a square, DXCC dot, contact or park to read what it is, its QSOs, and (for a
-  square or contact) how far it is from home and at what bearing. **Click** it to list its QSOs under the map,
-  and double-click one to go to its record in the log.
+  square or contact) how far it is from home and at what bearing. **Click** it to list its
+  QSOs under the map, and double-click one to go to its record in the log.
+
+### Options and export
+
+**Options**:
+
+- **Colours**: the palettes above.
+- **Marker size**, and **Markers** by layer (dots, triangles, diamonds) or all circles or
+  squares.
+- **Contacts** as pins, dots or crosshairs.
+- **Worked squares** solid, see-through or as outlines.
+- **Lines to contacts**: a great-circle line from your station (the QSO's MY_GRIDSQUARE,
+  else home) to each contact (its LAT and LON, else its GRIDSQUARE at full precision, else
+  its DXCC entity's centre), coloured as the map colours, each pair once; **solid**,
+  **dashed** or **dotted**, and **thin**, **medium** or **thick**.
+- The **Legend**, and **Distance rings** from your grid: 2,500 km apart for the whole world,
+  closer as you zoom in, with bearings every 30° when the globe is centred on home.
 
 **Export PNG…** saves the map as it is shown, legend included, at twice the screen's size.
-QSOs without GRIDSQUARE count for DXCC but not for squares.
 
 ## Activations: POTA, WWFF and SOTA
 
 **Activation Tracker (POTA, WWFF, SOTA)…** counts activations with each program's rule.
 Choose the program at the top; it is remembered.
+
+![Activation Tracker: a POTA park-day with 10 QSOs, activated](images/activation-tracker.png)
 
 - **POTA** ([rules](https://docs.pota.app/docs/rules.html), modified 2026-10-04): 10 QSOs
   from one park in one UTC day. A repeat of the same CALL, band, mode and park-to-park
@@ -602,6 +689,8 @@ the field never matches a comparison, so **not** includes it. **Preview** lists 
 (untick any) and says whether the log would have more errors afterwards; nothing changes
 until **Apply**.
 
+![Bulk Edit setting MY_STATE in every record, with the preview listing each change](images/bulk-edit.png)
+
 - **Bulk Edit…** sets, replaces text in, changes the case of, removes or renames a field.
   **Field** takes several fields separated by commas (`NAME, QTH, MY_CITY`), except for a
   rename. **Change case** writes UPPER CASE, lower case or Title Case; Title Case is for
@@ -639,6 +728,8 @@ until **Apply**.
   does it in one undo step and sorts by date and time if you like; a QSO already uploaded
   to QRZ.com or Club Log is marked modified when its data changes. It warns about USERDEF
   fields this log's header lacks.
+
+![Compare and Merge Logs: QSOs only in one log, and a QSO in both whose fields differ](images/compare.png)
 
 ### Sort and Organize
 
@@ -704,6 +795,8 @@ and compare them with the open log. Choose **QSOs on the log's dates** (all of t
 empty log) or **All your QSOs**, press **Download**, and review the list. Nothing changes
 until **Apply**, which is one undo step.
 
+![Import from QRZ.com Logbook: one QSO to add and one record to update with its confirmation](images/import-qrz.png)
+
 - **add**: a QSO the log doesn't have. It becomes a new record in the log's layout, and the
   log is then sorted by date and time if you like.
 - **update**: a QSO the log has. The record gains the site's status and confirmation and
@@ -744,7 +837,7 @@ What each site gives:
 - Club Log documents no way for programs to download QSOs or confirmations, so there is no
   Import from Club Log.
 
-## Uploading
+## QSL Sync and uploading
 
 **QSL Sync (Upload, Confirmations)…** shows each service for the open log: whether its
 account is saved, the QSOs to upload (and how many changed since an upload), uploaded, that
@@ -753,6 +846,8 @@ confirmed status as Import writes it), the newest upload date in the log, and wh
 downloaded from it. Select a service, then **Upload…** (or double-click it) or **Download
 Confirmations…**, which opens its Import window. Club Log has no confirmations to download.
 
+![QSL Sync: QRZ.com Logbook, LoTW, Club Log and eQSL with their accounts, QSOs to upload, uploaded, confirmed and the last upload and download](images/qsl-sync.png)
+
 The upload windows (QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL) list the QSOs not yet
 sent, by the ADIF status field, with the ones that can't be sent (no MODE…) in red.
 **Nothing is sent until you press Upload.** Each QSO's result is shown, and the accepted
@@ -760,6 +855,8 @@ ones get the status field Y and today's date: QRZCOM_QSO_UPLOAD_STATUS and _DATE
 LOTW_QSL_SENT and LOTW_QSLSDATE, CLUBLOG_QSO_UPLOAD_STATUS and _DATE, EQSL_QSL_SENT and
 EQSL_QSLSDATE. **Copy ADIF** copies exactly what would be sent, and QSOs you untick stay
 unticked while you edit the log.
+
+![Upload to QRZ.com Logbook: the QSOs to send, one that can't be sent in red, nothing sent until Upload](images/upload-qrz.png)
 
 - **ADIF statuses:** a QRZ.com or Club Log status of N means "do not upload" and is
   skipped; M (modified since upload) is sent again; a QSL status of I is skipped.
@@ -916,8 +1013,8 @@ The log tools work on one file and never change it.
 
 - Nextpad++ ignores plugin default shortcuts, so ADIF Lint declares none. Assign your
   own in Nextpad++'s Edit → Shortcut Mapper…; it stores them in `shortcuts.xml` under
-  `<PluginCommands>`, keyed by `moduleName="ADIF Lint"` and the command's position, so a
-  version that changes the menu (0.10) moves them: check them after updating.
+  `<PluginCommands>`, keyed by `moduleName="ADIF Lint"` and the command's position, so an
+  update that changes the menu moves them: check them after updating.
 - Plugins can't write to the status bar, so summaries appear in a tip at the caret.
 - Plugins can't supply a lexer, so colours are painted for the lines on screen as you
   scroll; while you type, they catch up when you pause.

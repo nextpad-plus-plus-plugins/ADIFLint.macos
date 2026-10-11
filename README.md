@@ -1,107 +1,129 @@
 # ADIF Lint for Nextpad++ (macOS)
 
-ADIF Lint is a [Nextpad++](https://nextpad.org) plugin for amateur-radio logs in
-[ADIF 3.1.7](https://www.adif.org/317/ADIF_317.htm) ADI format (`.adi`, `.adif`). It checks
-a log as you type and repairs its data lengths, and it adds what you need around a log:
-logging contacts, tools for POTA, WWFF and SOTA activations, importing your QSOs and
-confirmations from LoTW, QRZ.com and eQSL, filling in missing details from callbooks, and
-uploading to QRZ.com, LoTW, Club Log and eQSL.
+[![Latest release](https://img.shields.io/github/v/release/ssamjung2/Nextpad_plus_plus_ADIFLint?label=release)](https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases/latest)
+[![Licence: GPL v3](https://img.shields.io/badge/licence-GPL%20v3-blue)](LICENSE)
+![macOS 11+, Apple silicon and Intel](https://img.shields.io/badge/macOS-11%2B%20%C2%B7%20universal-lightgrey)
+![ADIF 3.1.7](https://img.shields.io/badge/ADIF-3.1.7-green)
 
-Hand-editing an ADI file is risky: every field is written `<NAME:LENGTH>data`, so
-changing `W1AW` to `W1AW/P` without changing `4` to `6` silently truncates the call, and a
-length that is too long swallows the next field. Most programs that import the file
-don't report either mistake. ADIF Lint marks them as you type and fixes them in one step.
+**ADIF Lint** turns [Nextpad++](https://nextpad.org) into a logbook workbench for amateur
+radio. It checks [ADIF 3.1.7](https://www.adif.org/317/ADIF_317.htm) logs (`.adi`,
+`.adif`) as you type and repairs them, and it adds what you need around a log: logging
+contacts, POTA, WWFF and SOTA activations, spots, QSOs captured from WSJT-X and N1MM, an
+offline map, and QSL sync with LoTW, QRZ.com, Club Log and eQSL.
+
+![The Map: a globe centred on your station, each contact at its own place with a line to it, coloured by band in PSKReporter's colours](docs/images/map-globe.png)
+
+*The Map: a globe you turn by dragging, each contact at its own place, coloured by band.*
+
+## Highlights
+
+- **Catches what breaks a log, and fixes it.** Every field is written `<NAME:LENGTH>data`,
+  so changing `W1AW` to `W1AW/P` without changing `4` to `6` silently truncates the call,
+  and most programs never say. ADIF Lint marks that, and every other ADIF 3.1.7 rule, as you
+  type. **Check Log** repairs what it can in one undo step. ADIF's own 6,197-QSO test file
+  lints clean.
+- **Logs contacts fast.** **New QSO** carries your station's fields over, looks the call up
+  (offline country data, QRZ.com or HamQTH), warns of duplicates by POTA's park-to-park
+  rule, and handles contests and Field Day.
+- **Makes activations easy.** **Start Activation** for POTA, WWFF or SOTA names the log the
+  way the program asks, writes the activation's fields into every QSO, counts toward the
+  goal ("US-7929 today: 8 of 10"), and exports the files each program wants.
+- **Spots from everywhere.** POTA, WWFF and dozens more programs through Spothole, with
+  parks you haven't worked marked NEW; double-click one to log it.
+- **Captures QSOs from your other programs.** **Monitor** adds what WSJT-X, JTDX, JS8Call,
+  N1MM Logger+, GridTracker and other loggers log, as they log it. It only listens.
+- **Maps your log, offline.** A globe or a flat map with worked squares, contacts at their
+  exact place, DXCC, parks, lines to contacts, distance rings, and overlays for countries,
+  US states, and CQ and ITU zones. Colour by band in PSKReporter's colours, mode,
+  confirmation, count or year, with a palette tested for colour blindness.
+- **Keeps QSL services in sync.** Import your QSOs and confirmations from LoTW, QRZ.com
+  Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL. Every window
+  lists exactly what would be sent or changed, and nothing happens until you say so.
+- **Edits the whole log safely.** A **Log Table** that edits like a spreadsheet, **Bulk
+  Edit**, **Time Shift**, **Remove Duplicates** and **Compare and Merge Logs**, each
+  previewed, each one undo step.
+- **Private.** Accounts live in your macOS Keychain, every request is HTTPS and only when
+  you ask, and there is no telemetry.
 
 ADIF Lint is free software under the [GNU GPL v3](LICENSE). It is an independent project,
 not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 
-| New QSO, filled from a POTA spot | Log Table |
+## Screenshots
+
+| Check Log: every problem with its repair | New QSO: lookup, distance and bearing |
 |---|---|
-| ![New QSO window filled from a POTA spot: station fields carried over, the park in SIG_INFO, and a lookup line with the country and "US-12593: a new park!"](docs/images/new-qso-spot.png) | ![Log Table: records with readable dates and times, sortable and editable like a spreadsheet, with Add Row and Organize Log buttons](docs/images/log-table.png) |
-| **Activation Tracker** | **Upload to QRZ.com Logbook** |
-| ![Activation Tracker: a POTA park-day with 10 QSOs, activated](docs/images/activation-tracker.png) | ![Upload window: QSOs to send, one that can't be sent in red, nothing sent until Upload](docs/images/upload-qrz.png) |
+| ![Check Log listing errors, warnings and notes, each with a repair, ticked to repair together](docs/images/check-log.png) | ![New QSO with the call looked up in the country data: DXCC, zones, continent, and 7,086 km at 42 degrees](docs/images/new-qso-lookup.png) |
+| **Spots: parks not in your logs in green** | **Log Table: a spreadsheet over the log** |
+| ![POTA spots with the park names, and NEW for parks not yet worked](docs/images/spots.png) | ![Log Table with 257 sample QSOs, sortable and editable](docs/images/log-table.png) |
+| **Monitor: QSOs from WSJT-X, N1MM and loggers** | **QSL Sync: every service at a glance** |
+| ![Monitor listening on its ports, listing the QSOs that arrived and where each went](docs/images/monitor.png) | ![QSL Sync listing QRZ.com Logbook, LoTW, Club Log and eQSL with QSOs to upload, uploaded and confirmed](docs/images/qsl-sync.png) |
+| **Map: worked squares and CQ zones** | **Map: countries and contacts** |
+| ![Equal Earth world map with worked squares coloured by band and CQ zones numbered](docs/images/map-zones.png) | ![Europe with country outlines and names, and a pin at each contact](docs/images/map-europe.png) |
 
 *Screenshots from the test suite, with sample data.*
 
 ## Features
 
 **Checking and repairing**
-- Problems marked as you type, checked against the ADIF 3.1.7 specification: data lengths,
+- Problems marked as you type against the ADIF 3.1.7 specification: data lengths,
   structure, field names, data types, enumerations (BAND, MODE and SUBMODE, QSL statuses,
   STATE for the DXCC entity…), FREQ against BAND, user-defined and `APP_` fields. Hover a
-  mark to read why.
+  mark to read why. Every rule is listed in [ADIF conformance](docs/ADIF_CONFORMANCE.md).
 - **Check Log** lists every problem with its repair, and repairs the ones you tick in one
-  undo step: MODE `USB` or `FT4` written as the mode (becomes MODE SSB, SUBMODE USB),
-  dates and times typed as `2026-10-06` and `22:30`, a FREQ written in kHz, BAND missing
-  or not matching FREQ, TX_PWR written as `30W`, lowercase calls and states, a satellite QSO
-  without `PROP_MODE SAT`, a POTA record without STATION_CALLSIGN, a repeated field, a
-  missing final `<EOR>`. It also flags QSO dates in the future, which POTA refuses. The Record Panel
-  offers the same repairs on a right-click.
+  undo step: MODE `USB` or `FT4` (becomes MODE SSB, SUBMODE USB), dates and times typed as
+  `2026-10-06` and `22:30`, FREQ in kHz, BAND missing or not matching FREQ, TX_PWR written
+  `30W`, lowercase calls and states, a satellite QSO without `PROP_MODE SAT`, a POTA record
+  without STATION_CALLSIGN, a repeated field, a missing final `<EOR>`, retired codes.
 - **Fix Lengths** corrects every wrong `<FIELD:LENGTH>` in one undo step.
-- The **Record Panel** shows the whole log in a line under its title: problems, QSOs waiting
-  for each upload service the log uses, and today's POTA activation ("US-7929 today: 8 of
-  10").
-- Syntax colouring, **Reformat** (one record or one field per line, without touching any
-  data), autocomplete of field names and values with automatic lengths, and a docked
-  **Record Panel** for editing the record at the caret, sortable by field, value or
-  problem.
+- Syntax colouring, **Reformat** (one record or one field per line, data untouched),
+  autocomplete of field names and values with automatic lengths, and a docked **Record
+  Panel** for the record at the caret, whose top line sums up the log (problems, QSOs
+  waiting to upload, today's activation).
 
-**Logging**
-- **New QSO**: log contacts one after another, with your station's fields carried over,
-  UTC date and time, live checks and duplicate warnings that follow POTA's park-to-park
-  rule.
-- Callsign lookup as you type: country, zones and continent offline, or name, QTH and grid
-  from QRZ.com or HamQTH, with distance and bearing and what your logs say about the park.
-- POTA and WWFF spots, and dozens more programs' (GMA, WWBOTA, IOTA, castles,
-  lighthouses...) through [Spothole](https://spothole.app), marked NEW when the reference
-  isn't in your logs; pick one to fill New QSO.
-- **Monitor**: QSOs logged in WSJT-X, JTDX, JS8Call, N1MM Logger+, GridTracker (to DXKeeper,
-  HRD, N1MM or Log4OM) or another program that sends ADIF over UDP are added to the log you
-  choose as you log them: into the open log, into the file when it's closed, or queued
-  while it's in another tab. It can also watch WSJT-X's log file. It only listens, and only
-  on this Mac unless you allow other computers.
-- **Contests and Field Day** in New QSO: ARRL Field Day, Winter Field Day or serial
-  numbers, with the exchange asked for, the contest's fields written, duplicates warned by
-  its rule, and Field Day Cabrillo lines.
-- **LoTW users** (optional): New QSO and Spots say who uploads to LoTW, from ARRL's weekly
-  list.
-- **Station profiles** (home, portable, a club station) and **Start Activation**: choose
-  the program, the park or parks (a two-fer too), WWFF reference or summit and a profile,
-  and ADIF Lint starts a log named as the program asks and opens New QSO on it, writing
-  MY_SIG, MY_POTA_REF and your station's fields in every QSO and showing the progress
-  ("US-7929 today: 8 of 10"). **Finish** opens Check Log and the export.
+**Logging and activations**
+- **New QSO**: your station's fields carried over (or a **station profile**), UTC date and
+  time, live checks, duplicate warnings, callsign lookup with distance and bearing, what
+  your logs say about the park, and LoTW users (optional).
+- **Contests and Field Day**: ARRL Field Day, Winter Field Day or serial numbers, with the
+  exchange asked for, duplicates warned by the contest's rule, and Cabrillo.
+- **Start Activation** and the **Activation Tracker** for POTA, WWFF and SOTA, each with
+  its own rule, and **Export Activation Logs** with each program's file names.
+- **Spots** from POTA, WWFF and, through [Spothole](https://spothole.app), GMA, WWBOTA,
+  IOTA, castles, lighthouses and dozens more.
+- **Monitor**: QSOs from WSJT-X, JTDX, JS8Call, N1MM Logger+, GridTracker (to DXKeeper,
+  HRD, N1MM or Log4OM) or any program that sends ADIF over UDP go to the log you choose:
+  into the open log, into the file when it's closed, or queued while it's in another tab.
+  It can also watch WSJT-X's log file.
 
 **Log tools**
-- A sortable, filterable **Log Table** that edits like a spreadsheet: type into cells,
-  copy and paste to and from Numbers or Excel, fill down, add and delete rows, and add or
-  remove a field as a column. Plus a **Log Summary** and **Worked Before** across a folder
-  of logs.
-- **Activation Tracker** for POTA, WWFF and SOTA, each with its own rule, and **Export
-  Activation Logs** with each program's file names.
-- **Sort and Organize**: sort the records by any fields (e.g. band, then call, then date),
-  each ascending or descending, and give every record the same field order, without
-  changing any data. The Log Table's **Organize Log…** starts from the table's sort and
-  columns.
-- **Bulk Edit**, **Time Shift** (local time to UTC and back, daylight saving included),
-  **Remove Duplicates** and **Compare and Merge Logs** (QSOs only one log has, and what the
-  same QSO says differently in each), each previewed before it changes anything.
-- **Import CSV**, **Export CSV** and **Export Cabrillo**.
-- An interactive **Map** of the log, offline: worked grid squares, DXCC, hunted parks and
-  your grid; zoom in to the squares, click anything for its QSOs.
-- **Print QSL Labels** for the cards to send, on Avery sheets, then mark them sent.
+- **Log Table**: sort, filter, type into cells, copy and paste with Numbers or Excel, fill
+  down, add and delete rows, add or remove a field as a column.
+- **Bulk Edit** (set, replace, change case, remove, rename; filter by 12 kinds of match),
+  **Time Shift** (local time to UTC, daylight saving included), **Sort and Organize**,
+  **Remove Duplicates** and **Compare and Merge Logs**, each previewed before it changes
+  anything.
+- **Log Summary**, **Worked Before** across a folder of logs, **Import CSV**, **Export
+  CSV**, **Export Cabrillo**, and **QSL labels** on Avery sheets.
+
+**The Map**
+- A **globe** you turn by dragging, or Equirectangular, Mercator or Equal Earth; zoom in
+  for detail, or jump to a continent with **Region**.
+- **Worked squares**, **Contacts** at their exact place (LAT/LON or a 6-character grid,
+  ignoring QRZ.com's placeholders), **DXCC**, **parks** and other programs' references,
+  **lines to contacts** and **distance rings**.
+- Overlays: the **Maidenhead grid**, **countries**, **US states**, **CQ zones** and **ITU
+  zones**, each named where it fits.
+- **Colour by** confirmation, band (PSKReporter's colours), mode, QSO count or year, with
+  a legend; palettes include **Colour-blind safe** (tested under simulated colour blindness)
+  and **Light** for printing. **Export PNG** saves what you see.
 
 **Online services**
-- **Import** your QSOs from LoTW, QRZ.com Logbook or eQSL: QSOs the log lacks are added,
-  and the ones it has gain the site's confirmation and the details that come with it,
-  after you review every change.
+- **Import** your QSOs and confirmations from LoTW, QRZ.com Logbook or eQSL, after you
+  review every change.
 - **Enrich** missing fields from QRZ.com, HamQTH or offline country data.
-- **QSL Sync** shows each service at a glance: QSOs to upload, uploaded, confirmed, and the
-  last download. Before a LoTW upload, each QSO's station fields are checked against your
-  TQSL Station Location the way TQSL checks them.
-- **Upload** to QRZ.com Logbook, LoTW (through TQSL), Club Log and eQSL. Each window lists
-  exactly what would be sent, nothing is sent until you press Upload, and the ADIF
-  upload-status fields are kept up to date.
-- Accounts are kept only in your macOS Keychain.
+- **QSL Sync** and **Upload** to QRZ.com Logbook, LoTW (through TQSL, with a pre-flight
+  check against your Station Location), Club Log and eQSL, keeping the ADIF upload-status
+  fields up to date.
 
 **Command line**
 - `adiflint` runs the same checks and log tools in a terminal.
@@ -117,17 +139,17 @@ Every window and option is described in the [user guide](docs/USER_GUIDE.md).
 ## Install
 
 **From a release.** Download `ADIFLintvX.Y.Z.zip` from
-[Releases](https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases), unzip it,
-move the `ADIFLint` folder into `~/Library/Application Support/Nextpad++/plugins/`, and
-restart Nextpad++. The release is ad-hoc signed, not notarized. If Nextpad++ won't load it
-after a browser download, clear the download's quarantine flag:
+[Releases](https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases/latest), unzip
+it, move the `ADIFLint` folder into `~/Library/Application Support/Nextpad++/plugins/`,
+and restart Nextpad++. The release is ad-hoc signed, not notarized. If Nextpad++ won't load
+it after a browser download, clear the download's quarantine flag:
 
 ```bash
 xattr -dr com.apple.quarantine ~/Library/Application\ Support/Nextpad++/plugins/ADIFLint
 ```
 
-**From Plugins Admin.** ADIF Lint is not yet in the Nextpad++ plugin list. Once it is, it
-will install from **Plugins → Plugins Admin**.
+**From Plugins Admin.** ADIF Lint has been submitted to the Nextpad++ plugin list. Once it
+is accepted, it will install from **Plugins → Plugins Admin**.
 
 **From source.** With the Xcode command-line tools and CMake 3.20 or later:
 
@@ -155,7 +177,9 @@ To uninstall, quit Nextpad++ and delete the `ADIFLint` folder.
 2. **Plugins → ADIF Lint → Check Log…** lists every problem and repairs what it can;
    **Fix Lengths** repairs the data lengths.
 3. **New QSO…** starts logging. The first time, Settings asks for your callsign and grid.
-4. To use an online service, add your account in **Settings…** first.
+4. **Map (Grids, DXCC, Parks)…** shows the log on a world map; choose **Globe** in the
+   projection pop-up and drag to turn it.
+5. To use an online service, add your account in **Settings…** first.
 
 The source repository has [`examples/try-me.adi`](examples/try-me.adi), with one of each
 kind of mistake.

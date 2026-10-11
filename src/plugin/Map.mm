@@ -1117,7 +1117,17 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         rows.push_back({7, nil, kBy[std::clamp(_style.colorBy, 0, 4)]});
         switch (_style.colorBy) {
             case 1:
-                for (size_t i = 0; i < _bands.size() && i < 14; ++i) rows.push_back({0, [self bandColor:_bands[i]], _bands[i]});
+                if (pal.safeBands) {  // the bands with a colour, then the grey ones in one row
+                    std::string others;
+                    for (const std::string &band : _bands) {
+                        NSColor *c = [self bandColor:band];
+                        if ([c isEqual:rgb(adif::kUnknownBandColour)]) others += (others.empty() ? "" : ", ") + band;
+                        else rows.push_back({0, c, band});
+                    }
+                    if (!others.empty()) rows.push_back({0, rgb(adif::kUnknownBandColour), "other bands: " + others});
+                } else {
+                    for (size_t i = 0; i < _bands.size() && i < 14; ++i) rows.push_back({0, [self bandColor:_bands[i]], _bands[i]});
+                }
                 break;
             case 2:
                 for (int m = 0; m < 3; ++m) rows.push_back({0, rgb(pal.qualitative[(size_t)m % pal.qualitative.size()]), kModeLabels[m]});

@@ -486,6 +486,84 @@ static SettingsRow settingsRow(NSWindow *w, NSInteger source) {
 
 // With ADIFLINT_SNAPSHOT_DIR set, save a window as a PNG (dark appearance, like
 // the user's setup) so its layout can be looked at without the real editor.
+// A sample log for the documentation's screenshots: a few hundred QSOs with stations in
+// cities worldwide (approximate places), generated calls, bands, modes and confirmations
+// from a fixed seed so the pictures don't change from run to run. No real log.
+static std::string demoLog() {
+    struct City {
+        double lat, lon;
+        const char *prefix;
+        int weight;  // how many QSOs, at most
+    };
+    static const City cities[] = {
+        {47.6, -122.3, "K7", 6},    {45.5, -122.7, "W7", 5},    {37.8, -122.4, "W6", 7},    {34.05, -118.25, "K6", 8},  {32.7, -117.2, "N6", 4},
+        {33.45, -112.07, "K7", 5},  {39.74, -104.99, "W0", 6},  {40.76, -111.89, "N7", 3},  {32.78, -96.8, "K5", 6},   {29.76, -95.37, "W5", 6},
+        {30.27, -97.74, "N5", 4},   {39.1, -94.58, "K0", 5},    {44.98, -93.27, "W0", 6},   {38.63, -90.2, "K0", 5},    {29.95, -90.07, "W5", 3},
+        {33.75, -84.39, "K4", 7},   {25.76, -80.19, "W4", 5},   {27.95, -82.46, "K4", 4},   {35.23, -80.84, "N4", 5},   {36.16, -86.78, "W4", 5},
+        {42.33, -83.05, "K8", 6},   {41.5, -81.69, "W8", 5},    {40.44, -79.99, "N3", 5},   {38.9, -77.04, "K3", 6},    {39.95, -75.17, "W3", 6},
+        {40.71, -74.0, "K2", 8},    {42.36, -71.06, "W1", 7},   {44.48, -73.21, "N1", 3},   {35.08, -106.65, "K5", 3},  {43.6, -116.2, "W7", 3},
+        {46.87, -96.79, "K0", 3},   {41.26, -95.94, "W0", 3},   {43.07, -89.4, "K9", 6},    {39.77, -86.16, "W9", 5},   {41.88, -87.63, "N9", 7},
+        {61.2, -149.9, "KL7", 2},   {21.3, -157.86, "KH6", 2},  {43.65, -79.38, "VE3", 5},  {45.5, -73.57, "VE2", 3},   {49.28, -123.12, "VE7", 3},
+        {51.05, -114.07, "VE6", 3}, {49.9, -97.14, "VE4", 2},   {44.65, -63.57, "VE1", 2},  {19.43, -99.13, "XE1", 3},  {20.67, -103.35, "XE2", 2},
+        {18.47, -66.1, "KP4", 2},   {23.11, -82.37, "CO2", 2},  {18.49, -69.93, "HI8", 2},  {18.0, -76.8, "6Y5", 1},    {4.71, -74.07, "HK3", 2},
+        {10.48, -66.9, "YV5", 2},   {-12.05, -77.04, "OA4", 2}, {-0.18, -78.47, "HC1", 1},  {-33.45, -70.67, "CE3", 2}, {-34.6, -58.38, "LU2", 3},
+        {-34.9, -56.16, "CX2", 1},  {-23.55, -46.63, "PY2", 3}, {-22.9, -43.2, "PY1", 2},   {-15.8, -47.9, "PY7", 1},   {51.5, -0.13, "G4", 5},
+        {53.48, -2.24, "M0", 3},    {55.86, -4.25, "GM4", 2},   {53.35, -6.26, "EI4", 2},   {48.86, 2.35, "F5", 4},     {45.76, 4.84, "F6", 2},
+        {40.42, -3.7, "EA4", 3},    {41.39, 2.17, "EA3", 3},    {38.72, -9.14, "CT1", 2},   {41.9, 12.5, "I0", 3},      {45.46, 9.19, "I2", 3},
+        {52.52, 13.4, "DL1", 4},    {48.14, 11.58, "DL5", 3},   {53.55, 9.99, "DL2", 3},    {52.37, 4.9, "PA3", 3},     {50.85, 4.35, "ON4", 2},
+        {47.38, 8.54, "HB9", 2},    {48.21, 16.37, "OE1", 2},   {50.08, 14.44, "OK1", 2},   {52.23, 21.01, "SP5", 3},   {47.5, 19.04, "HA5", 2},
+        {59.33, 18.07, "SM0", 2},   {59.91, 10.75, "LA2", 2},   {60.17, 24.94, "OH2", 2},   {55.68, 12.57, "OZ1", 2},   {37.98, 23.73, "SV1", 2},
+        {44.43, 26.1, "YO3", 2},    {50.45, 30.52, "UR5", 2},   {55.75, 37.62, "UA3", 3},   {59.94, 30.31, "UA1", 2},   {64.15, -21.94, "TF3", 1},
+        {41.01, 28.98, "TA1", 2},   {-33.92, 18.42, "ZS1", 2},  {-26.2, 28.05, "ZS6", 2},   {-1.29, 36.82, "5Z4", 1},   {30.04, 31.24, "SU1", 1},
+        {33.57, -7.59, "CN8", 1},   {14.72, -17.47, "6W1", 1},  {6.52, 3.38, "5N7", 1},     {28.1, -15.41, "EA8", 2},   {35.68, 139.69, "JA1", 4},
+        {34.69, 135.5, "JA3", 3},   {37.57, 126.98, "HL1", 2},  {39.9, 116.4, "BY1", 1},    {22.32, 114.17, "VR2", 1},  {25.03, 121.56, "BV2", 1},
+        {14.6, 120.98, "DU1", 1},   {13.76, 100.5, "HS0", 1},   {1.35, 103.82, "9V1", 1},   {3.14, 101.69, "9M2", 1},   {-6.2, 106.85, "YB0", 1},
+        {28.61, 77.21, "VU2", 1},   {25.2, 55.27, "A61", 1},    {32.08, 34.78, "4X4", 1},   {55.03, 82.92, "UA9", 1},   {43.24, 76.95, "UN7", 1},
+        {-33.87, 151.21, "VK2", 3}, {-37.81, 144.96, "VK3", 2}, {-27.47, 153.03, "VK4", 2}, {-31.95, 115.86, "VK6", 1}, {-36.85, 174.76, "ZL1", 2},
+        {-41.29, 174.78, "ZL2", 1}, {-18.14, 178.44, "3D2", 1}, {-17.53, -149.57, "FO5", 1}, {13.44, 144.79, "KH2", 1}};
+    unsigned seed = 73;
+    auto next = [&]() { return seed = seed * 1103515245u + 12345u, (seed >> 16) & 0x7FFF; };
+    auto field = [](const char *name, const std::string &v) { return "<" + std::string(name) + ":" + std::to_string(v.size()) + ">" + v + " "; };
+    auto grid = [](double lat, double lon) {
+        double x = lon + 180, y = lat + 90;
+        std::string g;
+        g += (char)('A' + (int)(x / 20)), g += (char)('A' + (int)(y / 10));
+        g += (char)('0' + (int)std::fmod(x, 20) / 2), g += (char)('0' + (int)std::fmod(y, 10));
+        g += (char)('a' + (int)(std::fmod(x, 2) * 12)), g += (char)('a' + (int)(std::fmod(y, 1) * 24));
+        return g;
+    };
+    static const char *const bands[] = {"20m", "20m", "20m", "20m", "20m", "40m", "40m", "40m", "40m", "15m", "15m", "15m",
+                                        "17m", "17m", "30m", "30m", "10m", "10m", "80m", "80m", "12m", "160m", "6m"};
+    static const char *const modes[] = {"FT8", "FT8", "FT8", "CW", "CW", "SSB", "SSB", "FT4"};
+    std::string out = "Sample log for the ADIF Lint documentation\n" + field("ADIF_VER", "3.1.7") + field("PROGRAMID", "ADIF Lint") + "<EOH>\n";
+    for (const City &c : cities) {
+        int n = 1 + (int)(next() % c.weight);
+        for (int k = 0; k < n; ++k) {
+            double lat = c.lat + ((int)(next() % 200) - 100) / 100.0, lon = c.lon + ((int)(next() % 200) - 100) / 100.0;
+            std::string call = std::string(c.prefix) + (char)('A' + next() % 26) + (char)('A' + next() % 26) + (char)('Q' + next() % 10);
+            if (std::isdigit((unsigned char)call[call.size() - 4]) == 0 && std::strlen(c.prefix) < 3) call.insert(std::strlen(c.prefix), "1");
+            int day = (int)(next() % 1000);  // from 2024-01-01
+            int y = 2024 + day / 365, doy = day % 365, m = 1 + doy / 31, d = 1 + doy % 28;
+            if (m > 12) m = 12;
+            char date[9], time[5];
+            snprintf(date, sizeof date, "%04d%02d%02d", y > 2026 ? 2026 : y, m, d);
+            snprintf(time, sizeof time, "%02d%02d", (int)(next() % 24), (int)(next() % 60));
+            const char *band = bands[next() % (sizeof bands / sizeof *bands)], *mode = modes[next() % (sizeof modes / sizeof *modes)];
+            std::string rec = field("QSO_DATE", date) + field("TIME_ON", time) + field("CALL", call) + field("BAND", band);
+            if (std::string(mode) == "FT4") rec += field("MODE", "MFSK") + field("SUBMODE", "FT4");
+            else if (std::string(mode) == "SSB") rec += field("MODE", "SSB") + field("SUBMODE", std::string(band) == "40m" || std::string(band) == "80m" || std::string(band) == "160m" ? "LSB" : "USB");
+            else rec += field("MODE", mode);
+            rec += field("GRIDSQUARE", grid(lat, lon)) + field("STATION_CALLSIGN", "KW9D") + field("MY_GRIDSQUARE", "EN52wa");
+            if (next() % 100 < 55) rec += field("LOTW_QSL_RCVD", "Y");
+            if (c.prefix[0] == 'K' || c.prefix[0] == 'W' || c.prefix[0] == 'N') {
+                if (next() % 100 < 12) rec += field("SIG", "POTA") + field("SIG_INFO", "US-" + std::to_string(1000 + next() % 9000));
+            }
+            out += rec + "<EOR>\n";
+        }
+    }
+    return out;
+}
+
 static void snapshot(NSWindow *w, const char *name) {
     const char *dir = getenv("ADIFLINT_SNAPSHOT_DIR");
     if (!dir || !w) return;
@@ -3834,6 +3912,69 @@ int main(int argc, char **argv) {
             menuAction(styleMenu, @"Solid line");
             menuAction(styleMenu, @"Medium line");
             menuAction(styleMenu, @"Lines to contacts");
+
+            // Documentation screenshots (ADIFLINT_DOCS=1, with ADIFLINT_SNAPSHOT_DIR): the map and
+            // the Log Table on the sample log above. tools/docs-screenshots.sh runs this.
+            if (getenv("ADIFLINT_DOCS")) {
+                H.doc = demoLog();
+                H.path = std::string(tmp.UTF8String) + "/sample.adi";
+                notify(NPPN_BUFFERACTIVATED);
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                pump(0.3);
+                run("Map (Grids, DXCC, Parks)...");
+                auto box = [&](NSString *title, bool on) {
+                    NSButton *b = findButton(mapw.contentView, title);
+                    if (!b || (b.state == NSControlStateValueOn) == on) return;
+                    b.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+                    [b sendAction:b.action to:b.target];
+                };
+                auto lines = [&](bool on) {
+                    if (menuState(styleMenu, @"Lines to contacts") != on) menuAction(styleMenu, @"Lines to contacts");
+                };
+                for (NSString *t in @[ @"Worked squares", @"DXCC", @"Parks", @"Maidenhead grid", @"Labels", @"Countries", @"US states", @"CQ zones", @"ITU zones" ])
+                    box(t, false);
+                box(@"Contacts", true), box(@"My station", true);
+                pick(colour, @"Colour by band");
+                pick(proj, [proj itemAtIndex:3].title);
+                lines(true);
+                menuAction(styleMenu, @"Thin line");
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                snapshot(mapw, "docs-map-globe");
+                lines(false);
+                box(@"Contacts", false), box(@"Worked squares", true), box(@"CQ zones", true);
+                pick(proj, @"Equal Earth");
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                snapshot(mapw, "docs-map-zones");
+                box(@"CQ zones", false), box(@"Worked squares", false), box(@"Countries", true), box(@"Contacts", true);
+                pick(proj, @"Mercator");
+                menuAction(regionMenu, @"Europe");
+                snapshot(mapw, "docs-map-europe");
+                box(@"Countries", false), box(@"Contacts", false), box(@"Worked squares", true), box(@"US states", true);
+                pick(colour, @"Colour by confirmation");
+                pick(proj, @"Equirectangular");
+                menuAction(regionMenu, @"North America");
+                snapshot(mapw, "docs-map-states");
+                box(@"US states", false), box(@"Worked squares", false), box(@"Contacts", true);
+                pick(colour, @"Colour by band");
+                menuAction(styleMenu, @"Colour-blind safe");
+                pick(proj, @"Equal Earth");
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                snapshot(mapw, "docs-map-colour-blind");
+                // Back to the defaults.
+                menuAction(styleMenu, @"Standard");
+                menuAction(styleMenu, @"Medium line");
+                pick(colour, @"Colour by confirmation");
+                pick(proj, @"Equirectangular");
+                box(@"Contacts", false);
+                for (NSString *t in @[ @"Worked squares", @"DXCC", @"Parks", @"Maidenhead grid", @"Labels" ]) box(t, true);
+                [mapw orderOut:nil];
+                run("Log Table...");
+                if (NSWindow *ltw = windowTitled(@"Log Table")) {
+                    [ltw.contentView layoutSubtreeIfNeeded];
+                    snapshot(ltw, "docs-log-table");
+                    [ltw orderOut:nil];
+                }
+            }
             [mapw orderOut:nil];
         }
 

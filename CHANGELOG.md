@@ -9,6 +9,14 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Changed
+
+- **Map**: on the colour-blind safe palette, the legend lists the bands without a colour of
+  their own in one row ("other bands: 160m, 12m, 6m") instead of a grey swatch each.
+- The README and the user guide are revised: highlights and screenshots of the main windows
+  and the Map, a quick tour, and the Map in its own section of the guide.
+  `tools/docs-screenshots.sh` refreshes the screenshots from the test suite.
+
 ## [1.1.0] - 2026-10-11
 
 ### Added
