@@ -5,6 +5,7 @@
 #import "ToolWindow.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_geo.h"
+#include "adif_palette.h"
 #include "adif_projection.h"
 #include "adif_spec.h"
 #include "adif_world.h"
@@ -72,47 +73,9 @@ NSColor *rgb(unsigned hex, CGFloat a = 1) {
     return [NSColor colorWithSRGBRed:((hex >> 16) & 0xFF) / 255.0 green:((hex >> 8) & 0xFF) / 255.0 blue:(hex & 0xFF) / 255.0 alpha:a];
 }
 
-// Viridis, matplotlib's perceptually uniform colour map, readable with colour-vision deficiencies.
-NSColor *viridis(double t) {
-    static const unsigned stops[] = {0x440154, 0x46327E, 0x365C8D, 0x277F8E, 0x1FA187, 0x4AC16D, 0xA0DA39, 0xFDE725};
-    t = std::clamp(t, 0.0, 1.0) * 7;
-    int i = std::min(6, (int)t);
-    double f = t - i;
-    auto ch = [&](int shift) { return (((stops[i] >> shift) & 0xFF) * (1 - f) + ((stops[i + 1] >> shift) & 0xFF) * f) / 255.0; };
-    return [NSColor colorWithSRGBRed:ch(16) green:ch(8) blue:ch(0) alpha:1];
-}
-
-struct MapPalette {
-    unsigned background, ocean, land, river, border;
-    bool dark;  // light ink (labels, grid lines) on a dark map
-    NSColor *confirmed, *worked, *dxccConfirmed, *dxccWorked, *park, *me;
-    std::vector<NSColor *> qualitative;  // modes and programs
-    double rampFrom;                     // dark maps skip viridis's darkest blues
-    bool viridisBands;                   // bands along viridis (colour-blind safe) or the hue wheel
-};
-
-const MapPalette &paletteAt(int i) {
-    static std::vector<MapPalette> all;
-    if (all.empty()) {
-        // Tableau 10 (plus two), a common qualitative set.
-        std::vector<NSColor *> tableau = {rgb(0x4E79A7), rgb(0xF28E2B), rgb(0xE15759), rgb(0x76B7B2), rgb(0x59A14F), rgb(0xEDC948),
-                                          rgb(0xB07AA1), rgb(0xFF9DA7), rgb(0x9C755F), rgb(0xBAB0AC), rgb(0x86BCB6), rgb(0xD37295)};
-        // Okabe and Ito, "Color Universal Design" (2008): told apart with every common colour-vision deficiency.
-        std::vector<NSColor *> okabe = {rgb(0xE69F00), rgb(0x56B4E9), rgb(0x009E73), rgb(0xF0E442), rgb(0x0072B2), rgb(0xD55E00), rgb(0xCC79A7)};
-        std::vector<NSColor *> bright = {rgb(0x00E5FF), rgb(0xFFD400), rgb(0xFF2D95), rgb(0x00FF66), rgb(0xFF7A00), rgb(0xB388FF),
-                                         rgb(0xFFFFFF), rgb(0x76FF03), rgb(0xFF5252), rgb(0x40C4FF)};
-        MapPalette standard{0x17202B, 0x21334A, 0x546154, 0x5C85B3, 0xCCD1C2, true, NSColor.systemGreenColor, NSColor.systemOrangeColor,
-                            NSColor.systemTealColor, NSColor.systemBlueColor, NSColor.systemPurpleColor, NSColor.systemRedColor, tableau, 0.2, false};
-        MapPalette safe{0x17202B, 0x21334A, 0x546154, 0x5C85B3, 0xCCD1C2, true, rgb(0x56B4E9), rgb(0xE69F00), rgb(0x009E73),
-                        rgb(0xD55E00), rgb(0xCC79A7), rgb(0xF0E442), okabe, 0.2, true};
-        MapPalette contrast{0x000000, 0x0A1A2F, 0x3C3C3C, 0x4FA3FF, 0xFFFFFF, true, rgb(0x00FF66), rgb(0xFF2D95), rgb(0x00E5FF),
-                            rgb(0xFFD400), rgb(0xB388FF), rgb(0xFF3B30), bright, 0.3, false};
-        MapPalette light{0xFFFFFF, 0xDCE9F5, 0xF2EFE6, 0x7FA7D0, 0x8A8A8A, false, rgb(0x1A9850), rgb(0xF46D43), rgb(0x2C7BB6),
-                         rgb(0x8C510A), rgb(0x762A83), rgb(0xD7191C), tableau, 0.0, false};
-        all = {standard, safe, contrast, light};
-    }
-    return all[(size_t)std::clamp(i, 0, (int)all.size() - 1)];
-}
+// The palettes and band colours live in adif_palette (the tests check them).
+using adif::MapPalette;
+const MapPalette &paletteAt(int i) { return adif::mapPalette(i); }
 
 void setFill(CGContextRef ctx, unsigned hex, CGFloat a = 1) {
     CGContextSetRGBFillColor(ctx, ((hex >> 16) & 0xFF) / 255.0, ((hex >> 8) & 0xFF) / 255.0, (hex & 0xFF) / 255.0, a);
@@ -121,39 +84,7 @@ void setStroke(CGContextRef ctx, unsigned hex, CGFloat a = 1) {
     CGContextSetRGBStrokeColor(ctx, ((hex >> 16) & 0xFF) / 255.0, ((hex >> 8) & 0xFF) / 255.0, (hex & 0xFF) / 255.0, a);
 }
 
-// The bands in frequency order (ADIF's names), each with the colour PSKReporter's map gives
-// it by default (https://pskreporter.info/mc_ol.js, its colormapper, read 2026-10-10), so
-// the map reads like the one hams know. PSKReporter's "2200m", "600m", "2.4Ghz", "5.8Ghz",
-// "10Ghz", "24Ghz", "47Ghz" and "76Ghz" are ADIF's 2190m, 630m, 13cm, 6cm, 3cm, 1.25cm, 6mm
-// and 4mm; a band it has no colour for gets its "unknown" grey.
-struct BandColour {
-    const char *band;
-    unsigned rgb;
-};
-constexpr unsigned kUnknownBand = 0x808080;
-const BandColour kBands[] = {
-    {"2190m", 0xFF4500}, {"630m", 0x1E90FF},  {"560m", kUnknownBand}, {"160m", 0x7CFC00},  {"80m", 0xE550E5},    {"60m", 0x00008B},
-    {"40m", 0x5959FF},   {"30m", 0x62D962},   {"20m", 0xF2C40C},      {"17m", 0xF2F261},   {"15m", 0xCCA166},    {"12m", 0xB22222},
-    {"10m", 0xFF69B4},   {"8m", 0x7F00F1},    {"6m", 0xFF0000},       {"5m", 0xE0E0E0},    {"4m", 0xCC0044},     {"2m", 0xFF1493},
-    {"1.25m", 0xCCFF00}, {"70cm", 0x999900},  {"33cm", kUnknownBand}, {"23cm", 0x5AB8C7},  {"13cm", 0xFF7F50},   {"9cm", kUnknownBand},
-    {"6cm", 0xCC0099},   {"3cm", 0x696969},   {"1.25cm", 0xF3EDC6},   {"6mm", 0xFFE786},   {"4mm", 0xBAF9D8},    {"2.5mm", kUnknownBand},
-    {"2mm", kUnknownBand}, {"1mm", kUnknownBand}, {"submm", kUnknownBand}};
-constexpr size_t kBandCount = sizeof(kBands) / sizeof(kBands[0]);
-
-int bandIndex(const std::string &band) {
-    for (size_t i = 0; i < kBandCount; ++i)
-        if (adif::equalsNoCase(band, kBands[i].band)) return (int)i;
-    return -1;
-}
-
-// By band: PSKReporter's colours; on the colour-blind safe palette, viridis from 160m to 70cm.
-NSColor *bandColor(const std::string &band, const MapPalette &p) {
-    int i = bandIndex(band);
-    if (!p.viridisBands) return rgb(i < 0 ? kUnknownBand : kBands[i].rgb);
-    if (i < 0) return [NSColor colorWithCalibratedWhite:0.6 alpha:1];
-    double from = bandIndex("160m"), to = bandIndex("70cm");
-    return viridis((i - from) / (to - from));
-}
+int bandIndex(const std::string &band) { return adif::bandOrder(band); }
 
 // Whether a marker in this colour needs a light edge to show on a dark map (60m's navy).
 bool darkColour(NSColor *c) {
@@ -161,7 +92,9 @@ bool darkColour(NSColor *c) {
     return s && 0.2126 * s.redComponent + 0.7152 * s.greenComponent + 0.0722 * s.blueComponent < 0.22;
 }
 
-NSColor *ramp(double t, const MapPalette &p) { return viridis(p.rampFrom + std::clamp(t, 0.0, 1.0) * (1 - p.rampFrom) * (p.dark ? 1 : 0.9)); }
+NSColor *ramp(double t, const MapPalette &p) {
+    return rgb(adif::viridisColour(p.rampFrom + std::clamp(t, 0.0, 1.0) * (1 - p.rampFrom) * (p.dark ? 1 : 0.9)));
+}
 
 // QSO counts in five steps: 1, 2-4, 5-9, 10-24, 25 and more.
 int countBucket(size_t n) { return n <= 1 ? 0 : n <= 4 ? 1 : n <= 9 ? 2 : n <= 24 ? 3 : 4; }
@@ -235,6 +168,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 @interface ADIFMapView : NSView
 @property(nonatomic) BOOL showSquares, showEntities, showParks, showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
+@property(nonatomic) std::map<std::string, size_t> qsosPerBand;  // over the whole log, for the colour-blind safe band colours
 @property(nonatomic) ADIFMapStyle style;
 @property(nonatomic, readonly) double zoom;
 @property(nonatomic, copy) void (^onHover)(const ADIFMapHit &hit);
@@ -627,14 +561,32 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 // ── Colours of things ──
 
+// By band: PSKReporter's colours, or on the colour-blind safe palette its own set, given to
+// the log's most used bands.
+- (NSColor *)bandColor:(const std::string &)band {
+    const MapPalette &p = paletteAt(_style.palette);
+    if (!p.safeBands) return rgb(adif::pskReporterBandColour(band));
+    static std::map<std::string, size_t> countedFor;
+    static std::map<std::string, unsigned> colours;
+    if (countedFor != _qsosPerBand) countedFor = _qsosPerBand, colours = adif::colourBlindBandColours(_qsosPerBand);
+    for (const auto &kv : colours)
+        if (adif::equalsNoCase(kv.first, band)) return rgb(kv.second);
+    return rgb(adif::kUnknownBandColour);
+}
+
+- (void)setQsosPerBand:(std::map<std::string, size_t>)counts {
+    _qsosPerBand = counts;
+    self.needsDisplay = YES;
+}
+
 - (NSColor *)colorFor:(const ADIFMapAgg &)a entity:(BOOL)entity {
     const MapPalette &p = paletteAt(_style.palette);
     switch (_style.colorBy) {
-        case 1: return bandColor(a.band, p);
-        case 2: return p.qualitative[(size_t)std::clamp(a.mode, 0, 2) % p.qualitative.size()];
+        case 1: return [self bandColor:a.band];
+        case 2: return rgb(p.qualitative[(size_t)std::clamp(a.mode, 0, 2) % p.qualitative.size()]);
         case 3: return ramp(countBucket(a.count) / 4.0, p);
         case 4: return ramp(_maxYear > _minYear && a.year ? (double)(a.year - _minYear) / (_maxYear - _minYear) : 1.0, p);
-        default: return entity ? (a.confirmed ? p.dxccConfirmed : p.dxccWorked) : (a.confirmed ? p.confirmed : p.worked);
+        default: return rgb(entity ? (a.confirmed ? p.dxccConfirmed : p.dxccWorked) : (a.confirmed ? p.confirmed : p.worked));
     }
 }
 
@@ -648,7 +600,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         for (char c : program) h = h * 31 + (unsigned char)c;
         i = h;
     }
-    return p.qualitative[i % p.qualitative.size()];
+    return rgb(p.qualitative[i % p.qualitative.size()]);
 }
 
 // A marker centred on p: kind 0 dot, 1 triangle, 2 diamond, 3 star, 4 pin (its point at p),
@@ -1111,7 +1063,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         NSPoint p = [self viewPointForLon:lon lat:lat];
         if (!NSPointInRect(p, NSInsetRect(b, -10, -10))) continue;
         NSBezierPath *m = [self marker:pk.park() ? 1 : 2 at:p size:(pk.park() ? 5.5 : 5) * _style.marker];
-        [(pk.park() ? pal.park : [self programColor:pk.program]) setFill];
+        [(pk.park() ? rgb(pal.park) : [self programColor:pk.program]) setFill];
         [m fill];
         bool lit = (_hover.kind == ADIFMapHit::Park && _hover.index == i) || (_selected.kind == ADIFMapHit::Park && _selected.index == i);
         [[NSColor colorWithCalibratedWhite:ink alpha:lit ? 1 : 0.35] setStroke];
@@ -1125,7 +1077,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             double lat = 0, lon = 0;
             if (!adif::gridToLatLon(g, &lat, &lon)) continue;
             NSBezierPath *star = [self marker:3 at:[self viewPointForLon:lon lat:lat] size:7.5 * _style.marker];
-            [pal.me setFill];
+            [rgb(pal.me) setFill];
             [star fill];
             [[NSColor colorWithCalibratedWhite:ink alpha:1] setStroke];
             [star stroke];
@@ -1165,10 +1117,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         rows.push_back({7, nil, kBy[std::clamp(_style.colorBy, 0, 4)]});
         switch (_style.colorBy) {
             case 1:
-                for (size_t i = 0; i < _bands.size() && i < 14; ++i) rows.push_back({0, bandColor(_bands[i], pal), _bands[i]});
+                for (size_t i = 0; i < _bands.size() && i < 14; ++i) rows.push_back({0, [self bandColor:_bands[i]], _bands[i]});
                 break;
             case 2:
-                for (int m = 0; m < 3; ++m) rows.push_back({0, pal.qualitative[(size_t)m % pal.qualitative.size()], kModeLabels[m]});
+                for (int m = 0; m < 3; ++m) rows.push_back({0, rgb(pal.qualitative[(size_t)m % pal.qualitative.size()]), kModeLabels[m]});
                 break;
             case 3:
                 for (int k = 0; k < 5; ++k) rows.push_back({0, ramp(k / 4.0, pal), kCountLabels[k]});
@@ -1184,8 +1136,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     }
                 break;
             default:
-                if (_showSquares || contacts) rows.push_back({0, pal.confirmed, "confirmed"}), rows.push_back({0, pal.worked, "worked"});
-                if (_showEntities) rows.push_back({1, pal.dxccConfirmed, "DXCC confirmed"}), rows.push_back({1, pal.dxccWorked, "DXCC worked"});
+                if (_showSquares || contacts) rows.push_back({0, rgb(pal.confirmed), "confirmed"}), rows.push_back({0, rgb(pal.worked), "worked"});
+                if (_showEntities) rows.push_back({1, rgb(pal.dxccConfirmed), "DXCC confirmed"}), rows.push_back({1, rgb(pal.dxccWorked), "DXCC worked"});
                 break;
         }
     }
@@ -1195,9 +1147,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         if ([self programShown:pk]) pk.park() ? (void)(parks = true) : (void)programs.insert(pk.program);
     if (contacts || parks || !programs.empty()) rows.push_back({7, nil, "Markers"});
     if (contacts) rows.push_back({6, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], "contacts (exact place)"});
-    if (parks) rows.push_back({2, pal.park, "parks (POTA, WWFF)"});
+    if (parks) rows.push_back({2, rgb(pal.park), "parks (POTA, WWFF)"});
     for (const std::string &p : programs) rows.push_back({3, [self programColor:p], p});
-    if (_style.mine && !_data.mine.empty()) rows.push_back({4, pal.me, "my station"});
+    if (_style.mine && !_data.mine.empty()) rows.push_back({4, rgb(pal.me), "my station"});
     if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], "lines to contacts"});
     if (rows.empty()) return;
 
@@ -1762,8 +1714,9 @@ void refresh() {
         mw.target.stringValue = [@"Log: " stringByAppendingString:ADIFString(documentName())];
         // The bands, modes and years in the log, for the filters.
         std::set<std::string> bands, modes, years;
+        std::map<std::string, size_t> qsosPerBand;
         for (const adif::Record &rec : adif::records(text, r.model)) {
-            if (std::string b = adif::effectiveBand(rec); !b.empty()) bands.insert(b);
+            if (std::string b = adif::effectiveBand(rec); !b.empty()) bands.insert(b), ++qsosPerBand[b];
             if (std::string m = rec.get("MODE"); !m.empty()) modes.insert(m);
             if (std::string d = rec.get("QSO_DATE"); d.size() == 8) years.insert(d.substr(0, 4));
         }
@@ -1823,6 +1776,7 @@ void refresh() {
         mw.view.showEntities = mw.entities.state == NSControlStateValueOn;
         mw.view.showParks = mw.parks.state == NSControlStateValueOn;
         mw.view.showContacts = mw.contacts.state == NSControlStateValueOn;
+        mw.view.qsosPerBand = qsosPerBand;
         mw.home = homeGrid();
         applyStyle();
         applyProjection();

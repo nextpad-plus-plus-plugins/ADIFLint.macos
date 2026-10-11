@@ -52,6 +52,7 @@ add_library(adif_core STATIC
     src/core/adif_world.cpp
     src/core/adif_world_data.cpp
     src/core/adif_overlays_data.cpp
+    src/core/adif_palette.cpp
     src/core/adif_projection.cpp)
 target_include_directories(adif_core PUBLIC src/core)
 target_compile_options(adif_core PRIVATE ${WARNINGS})

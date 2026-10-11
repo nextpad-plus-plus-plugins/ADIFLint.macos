@@ -26,7 +26,10 @@ Versions before 0.8.0 were development builds and were not published.
 - **Map projections**: Equirectangular, Mercator, Equal Earth (every area at its true size)
   and the Globe.
 - **Map → Colour by** confirmation, band (in PSKReporter's band colours), mode, QSO count or
-  year first worked, with a legend (in the PNG too).
+  year first worked, with a legend (in the PNG too). The **Colour-blind safe** palette has
+  its own seven band colours, from Tol's, Okabe and Ito's and Petroff's colour-blind safe
+  sets, chosen to stay apart under simulated protan, deutan and tritan vision on the dark map
+  (tested: CIEDE2000 14.9 or more between any two; viridis, tried first, fell to 5.3).
 - **Map → Options**: palettes (Standard, Colour-blind safe, High contrast, Light for
   printing), marker size and shape, contact markers, worked squares solid, see-through or
   outlined, **Lines to contacts** (great circles from your station to each contact's

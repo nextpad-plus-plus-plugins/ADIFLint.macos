@@ -3767,9 +3767,10 @@ int main(int argc, char **argv) {
             [findButton(mapw.contentView, @"World") performClick:nil];
             CHECK(homeAtMiddle(), "World comes home from the far side");
             // Region: the globe turns to face Africa and zooms to it; on a flat map, Europe fills the view.
-            auto regionMiddle = [&](double lon, double lat) {
-                NSPoint p = pointFor(lon, lat);
-                return std::hypot(p.x - middle.x, p.y - middle.y);
+            auto regionMiddle = [&](double lon, double lat) {  // from the map's middle now (the status line can change its height)
+                [mapw.contentView layoutSubtreeIfNeeded];
+                NSPoint p = pointFor(lon, lat), m = [mapView convertPoint:NSMakePoint(NSMidX(mapView.bounds), NSMidY(mapView.bounds)) toView:nil];
+                return std::hypot(p.x - m.x, p.y - m.y);
             };
             CHECK(menuAction(regionMenu, @"Africa") && regionMiddle(16.5, 1) < 3 && std::atof(zoomShown().c_str()) > 1.2,
                   "Region → Africa turns the globe to face it (%.1f px off, %s)", regionMiddle(16.5, 1), zoomShown().c_str());
@@ -3786,6 +3787,15 @@ int main(int argc, char **argv) {
             snapshot(mapw, "map-globe-zones");
             [findButton(mapw.contentView, @"World") performClick:nil];
             pick(colour, @"Colour by band");
+            {  // the colour-blind safe palette by band, with contacts
+                NSButton *cb = findButton(mapw.contentView, @"Contacts");
+                cb.state = NSControlStateValueOn;
+                [cb sendAction:cb.action to:cb.target];
+                CHECK(menuAction(styleMenu, @"Colour-blind safe") && menuState(styleMenu, @"Colour-blind safe"), "the colour-blind safe palette");
+                snapshot(mapw, "map-colour-blind-bands");
+                cb.state = NSControlStateValueOff;
+                [cb sendAction:cb.action to:cb.target];
+            }
             CHECK(menuAction(styleMenu, @"Light (for printing)") && menuState(styleMenu, @"Light (for printing)"), "the light palette");
             pick(proj, @"Equirectangular");
             CHECK(menuAction(regionMenu, @"Europe") && regionMiddle(10, 53) < 3 && std::atof(zoomShown().c_str()) > 2,

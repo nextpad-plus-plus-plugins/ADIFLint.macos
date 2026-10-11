@@ -514,8 +514,7 @@ The **projection**:
   centred on home it gives the beam heading. The legend says where it is centred. Coasts,
   borders, the grid and lines to contacts stop at the horizon.
 
-**Options**: colours (**Standard**, **Colour-blind safe** with the Okabe-Ito colours, and
-viridis from 160m to 70cm in place of PSKReporter's band colours, **High contrast**,
+**Options**: colours (**Standard**; **Colour-blind safe**, below; **High contrast**;
 **Light** for printing), marker size, markers by layer (dots, triangles, diamonds) or all
 circles or squares, **Contacts** as pins, dots or crosshairs, worked squares solid,
 see-through or as outlines, **Lines to contacts** (a great-circle line from your station,
@@ -524,6 +523,16 @@ full precision, else its DXCC entity's centre; coloured as the map colours; each
 solid, dashed or dotted and thin, medium or thick, the **Legend**, and **Distance rings**
 from your grid (2,500 km apart for the whole world, closer as you zoom in; with bearings
 every 30° when the globe is centred on home).
+
+**Colour-blind safe** keeps markers apart for red-green (protan, deutan) and blue-yellow
+(tritan) colour blindness on the dark map. By band it has seven colours of its own, chosen
+from Paul Tol's, Okabe and Ito's and Petroff's colour-blind safe sets as the seven that stay
+furthest apart, from each other and from the ocean and land, when those kinds of colour
+vision are simulated (Machado et al., 2009). The log's seven most used bands get them, in
+frequency order, counted over the whole log so the filters don't change them; any other band
+is grey. Confirmed and worked squares are sky blue and orange (Okabe and Ito), DXCC dots
+white and vermilion, parks reddish purple, your station yellow. Colour by band still names
+each band in the legend; there is room for about seven colours that everyone can tell apart.
 
 Moving around:
 

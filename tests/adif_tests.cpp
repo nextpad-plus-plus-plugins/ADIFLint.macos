@@ -15,6 +15,7 @@
 #include "adif_labels.h"
 #include "adif_world.h"
 #include "adif_projection.h"
+#include "adif_palette.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -2740,6 +2741,86 @@ static void testProjections() {
           "destination 2500 km at 45 degrees");
 }
 
+// The Map's colours. CIEDE2000 against Sharma, Wu and Dalal's (2005) published test data
+// (hajim.rochester.edu/ece/sites/gsharma/ciede2000/dataNprograms/ciede2000testdata.txt, read
+// 2026-10-10); the colour-blind safe palette under simulated colour-vision deficiency, on the
+// dark map it is drawn on. The thresholds hold what the palette reaches, so a change that
+// makes it worse fails; there is no agreed minimum (Tol and Petroff use their own measures).
+static void testPalettes() {
+    static const double sharma[][7] = {
+        {50, 2.6772, -79.7751, 50, 0, -82.7485, 2.0425},        {50, 3.1571, -77.2803, 50, 0, -82.7485, 2.8615},
+        {50, 2.8361, -74.0200, 50, 0, -82.7485, 3.4412},        {50, -1.3802, -84.2814, 50, 0, -82.7485, 1.0000},
+        {50, -1.1848, -84.8006, 50, 0, -82.7485, 1.0000},       {50, -0.9009, -85.5211, 50, 0, -82.7485, 1.0000},
+        {50, 0, 0, 50, -1, 2, 2.3669},                          {50, -1, 2, 50, 0, 0, 2.3669},
+        {50, 2.49, -0.001, 50, -2.49, 0.0009, 7.1792},          {50, 2.49, -0.001, 50, -2.49, 0.0010, 7.1792},
+        {50, 2.49, -0.001, 50, -2.49, 0.0011, 7.2195},          {50, 2.49, -0.001, 50, -2.49, 0.0012, 7.2195},
+        {50, -0.001, 2.49, 50, 0.0009, -2.49, 4.8045},          {50, -0.001, 2.49, 50, 0.0010, -2.49, 4.8045},
+        {50, -0.001, 2.49, 50, 0.0011, -2.49, 4.7461},          {50, 2.5, 0, 50, 0, -2.5, 4.3065},
+        {50, 2.5, 0, 73, 25, -18, 27.1492},                     {50, 2.5, 0, 61, -5, 29, 22.8977},
+        {50, 2.5, 0, 56, -27, -3, 31.9030},                     {50, 2.5, 0, 58, 24, 15, 19.4535},
+        {50, 2.5, 0, 50, 3.1736, 0.5854, 1.0000},               {50, 2.5, 0, 50, 3.2972, 0, 1.0000},
+        {50, 2.5, 0, 50, 1.8634, 0.5757, 1.0000},               {50, 2.5, 0, 50, 3.2592, 0.3350, 1.0000},
+        {60.2574, -34.0099, 36.2677, 60.4626, -34.1751, 39.4387, 1.2644},
+        {63.0109, -31.0961, -5.8663, 62.8187, -29.7946, -4.0864, 1.2630},
+        {61.2901, 3.7196, -5.3901, 61.4292, 2.2480, -4.9620, 1.8731},
+        {35.0831, -44.1164, 3.7933, 35.0232, -40.0716, 1.5901, 1.8645},
+        {22.7233, 20.0904, -46.6940, 23.0331, 14.9730, -42.5619, 2.0373},
+        {36.4612, 47.8580, 18.3852, 36.2715, 50.5065, 21.2231, 1.4146},
+        {90.8027, -2.0831, 1.4410, 91.1528, -1.6435, 0.0447, 1.4441},
+        {90.9257, -0.5406, -0.9208, 88.6381, -0.8985, -0.7239, 1.5381},
+        {6.7747, -0.2908, -2.4247, 5.8714, -0.0985, -2.2286, 0.6377},
+        {2.0776, 0.0795, -1.1350, 0.9033, -0.0636, -0.5514, 0.9082}};
+    double worst = 0;
+    for (const auto &r : sharma) worst = std::max(worst, std::fabs(deltaE2000Lab(r[0], r[1], r[2], r[3], r[4], r[5]) - r[6]));
+    CHECK(worst < 1e-4, "CIEDE2000 matches Sharma's 34 test pairs (worst %.6f)", worst);
+    const Vision visions[] = {Vision::Normal, Vision::Protan, Vision::Deutan, Vision::Tritan};
+    bool neutral = true;
+    for (Vision v : visions) neutral &= simulateVision(0xFFFFFF, v) == 0xFFFFFF && simulateVision(0x000000, v) == 0;
+    CHECK(neutral && simulateVision(0xFF0000, Vision::Protan) != 0xFF0000 && simulateVision(0x00FF00, Vision::Deutan) != 0x00FF00,
+          "simulated vision keeps white and black, changes red and green");
+    // The smallest difference between two colours, or a colour and the map, in any vision.
+    auto apart = [&](unsigned a, unsigned b) {
+        double d = 1e9;
+        for (Vision v : visions) d = std::min(d, deltaE2000(simulateVision(a, v), simulateVision(b, v)));
+        return d;
+    };
+    const MapPalette &safe = mapPalette(1);
+    const unsigned map[] = {safe.ocean, safe.land, safe.background};
+    auto fromMap = [&](unsigned c) {
+        double d = 1e9;
+        for (unsigned m : map) d = std::min(d, apart(c, m));
+        return d;
+    };
+    std::vector<unsigned> bands = colourBlindBandSet();
+    bands.push_back(kUnknownBandColour);  // the other bands' grey
+    double pairs = 1e9, edge = 1e9;
+    for (size_t i = 0; i < bands.size(); ++i) {
+        for (size_t j = i + 1; j < bands.size(); ++j) pairs = std::min(pairs, apart(bands[i], bands[j]));
+        if (bands[i] != kUnknownBandColour) edge = std::min(edge, fromMap(bands[i]));
+    }
+    CHECK(std::string(safe.name) == "Colour-blind safe" && safe.safeBands && pairs >= 14.5 && edge >= 22,
+          "colour-blind safe bands: every two %.1f apart, %.1f from the map, in normal, protan, deutan and tritan vision", pairs, edge);
+    double viridisPairs = 1e9;
+    for (int i = 0; i < 7; ++i) viridisPairs = std::min(viridisPairs, apart(viridisColour(i / 7.0), viridisColour((i + 1) / 7.0)));
+    CHECK(viridisPairs < 10, "viridis's neighbouring steps, used for bands before, are only %.1f apart", viridisPairs);
+    double three = std::min({apart(safe.qualitative[0], safe.qualitative[1]), apart(safe.qualitative[0], safe.qualitative[2]),
+                             apart(safe.qualitative[1], safe.qualitative[2])});
+    double marks = 1e9;
+    for (unsigned c : {safe.confirmed, safe.worked, safe.dxccConfirmed, safe.dxccWorked, safe.park, safe.me}) marks = std::min(marks, fromMap(c));
+    CHECK(three >= 19.5 && marks >= 20 && apart(safe.confirmed, safe.worked) >= 30 && apart(safe.dxccConfirmed, safe.dxccWorked) >= 30 &&
+              fromMap(viridisColour(safe.rampFrom)) >= 14,
+          "colour-blind safe modes %.1f apart; markers %.1f from the map; counts start %.1f from it", three, marks,
+          fromMap(viridisColour(safe.rampFrom)));
+    // Given out to the most used bands, in frequency order; the rest grey.
+    std::map<std::string, size_t> counts = {{"40m", 500}, {"20m", 900}, {"80m", 30}, {"15m", 200}, {"10m", 150}, {"17m", 90},
+                                            {"30m", 120}, {"6m", 60},   {"2m", 5}};
+    std::map<std::string, unsigned> given = colourBlindBandColours(counts);
+    const std::vector<unsigned> &set = colourBlindBandSet();
+    CHECK(given.size() == 7 && !given.count("80m") && !given.count("2m") && given["40m"] == set[0] && given["30m"] == set[1] &&
+              given["20m"] == set[2] && given["6m"] == set[6] && pskReporterBandColour("20m") == 0xF2C40C && bandOrder("160m") < bandOrder("2m"),
+          "the seven most used bands get the set in frequency order (%zu given)", given.size());
+}
+
 static void testWorld() {
     size_t rings = layerShapeCount(MapLayer::Land110), points = 0;
     double minLat = 90, maxLat = -90;
@@ -2967,6 +3048,7 @@ int main(int argc, char **argv) {
     testLabels();
     testWorld();
     testProjections();
+    testPalettes();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);
