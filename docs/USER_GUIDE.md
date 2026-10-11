@@ -467,8 +467,9 @@ in), country borders, and state and province lines from 2.5×. Every choice is r
   **Hide All**). IOTA starts hidden: a callbook such as QRZ.com fills it in for every island
   station;
 - **My station**: a star at each MY_GRIDSQUARE;
-- **Paths**: great-circle paths from your grid (each QSO's MY_GRIDSQUARE, else home) to each
-  square worked.
+- **Lines to contacts**: a great-circle line from your station (the QSO's MY_GRIDSQUARE, else
+  home) to each contact (its GRIDSQUARE at full precision, else its DXCC entity's centre),
+  coloured as the map colours; each pair once.
 
 **Only** these QSOs: a band, a mode, a time (the last 30 days, the last 12 months, this
 year, or a year in the log), and all, confirmed or not confirmed QSOs (confirmed: QSL_RCVD,
@@ -486,7 +487,9 @@ The **projection**:
 - **Equal Earth**: every area at its true size (Šavrič, Patterson and Jenny, 2018);
 - **Azimuthal from your grid**: distance and bearing from home are true, so a straight line
   from the centre is the beam heading. Home is Settings → Your Station's grid, else the
-  grid the log uses most in MY_GRIDSQUARE.
+  grid the log uses most in MY_GRIDSQUARE. **Drag** (or scroll on a trackpad, or the arrow
+  keys) to turn the globe in any direction, zoom in for detail (zooming turns toward the
+  pointer), and **World** turns it back to home. The legend says where it is centred.
 
 **Style**: colours (**Standard**, **Colour-blind safe** with the Okabe-Ito colours and
 viridis, **High contrast**, **Light** for printing), marker size, markers by layer (dots,
@@ -499,7 +502,8 @@ Moving around:
 - **Zoom** with a pinch, the mouse wheel, Option and a two-finger scroll, a double-click,
   the **+** and **−** buttons or keys; **Fit Log** zooms to the log's QSOs and **World** (or
   the 0 key) shows the whole world.
-- **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys.
+- **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys (on the azimuthal
+  map these turn the globe).
 - **Point** at a square, DXCC dot or park to read what it is, its QSOs, and (for a square)
   how far it is from home and at what bearing. **Click** it to list its QSOs under the map,
   and double-click one to go to its record in the log.

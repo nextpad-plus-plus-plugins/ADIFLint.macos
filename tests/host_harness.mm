@@ -3631,7 +3631,7 @@ int main(int argc, char **argv) {
             NSPopUpButton *colour = findPopupWith(mapw.contentView, @"Colour by band");
             NSPopUpButton *styleMenu = findPopupWith(mapw.contentView, @"Legend");
             NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
-            NSButton *pathsBox = findButton(mapw.contentView, @"Paths");
+            NSButton *pathsBox = findButton(mapw.contentView, @"Lines to contacts");
             CHECK(proj && colour && styleMenu && programsMenu && pathsBox && [proj itemAtIndex:3].enabled &&
                       [[proj itemAtIndex:3].title isEqualToString:@"Azimuthal from EN52WA"],
                   "projection, colour, Style and Other programs controls; azimuthal from the log's grid: %s",
@@ -3669,11 +3669,41 @@ int main(int argc, char **argv) {
             pathsBox.state = NSControlStateValueOn;
             [pathsBox sendAction:pathsBox.action to:pathsBox.target];
             CHECK(menuAction(styleMenu, @"Distance rings") && menuState(styleMenu, @"Distance rings"), "distance rings on");
-            CHECK(clickFn31(), "azimuthal: a click on FN31 lists K1AB");
+            // Fit Log fits the farthest QSO around home, where FN20's park sits beside FN31: zoom in on
+            // FN31 first (double-clicks turn the globe toward the pointer, keeping FN31 under it).
+            [findButton(mapw.contentView, @"Fit Log") performClick:nil];
+            for (int i = 0; i < 2; ++i) {
+                NSPoint at = pointFor(-73, 41.5);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 2)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 2)];
+            }
+            NSPoint fn31Now = pointFor(-73, 41.5);
+            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, fn31Now, 1)];
+            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, fn31Now, 1)];
+            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"K1AB"],
+                  "azimuthal: zoomed in on FN31, a click lists K1AB");
             CHECK([labelContaining(mapw.contentView, @"FN31:") containsString:@"from EN52WA"], "the status gives distance and bearing from home: %s",
                   labelContaining(mapw.contentView, @"FN31:").UTF8String);
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-azimuthal");
+            // The azimuthal map turns: the arrow keys (as a drag) move the centre off home; World brings it back.
+            NSPoint middle = [mapView convertPoint:NSMakePoint(NSMidX(mapView.bounds), NSMidY(mapView.bounds)) toView:nil];
+            auto homeAtMiddle = [&]() {
+                NSPoint h = pointFor(-89.5, 42.95);  // EN52WA, the log's MY_GRIDSQUARE
+                return std::hypot(h.x - middle.x, h.y - middle.y) < 3;
+            };
+            NSString *right = [NSString stringWithFormat:@"%C", (unichar)NSRightArrowFunctionKey];
+            NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:mapw.windowNumber
+                                             context:nil characters:right charactersIgnoringModifiers:right isARepeat:NO keyCode:124];
+            CHECK(homeAtMiddle(), "the azimuthal map starts on home");
+            for (int i = 0; i < 6; ++i) [mapView keyDown:key];
+            CHECK(!homeAtMiddle() && zoomShown() == "1.0×", "turned: home is no longer the centre");
+            [findButton(mapw.contentView, @"+") performClick:nil];
+            [findButton(mapw.contentView, @"+") performClick:nil];
+            [mapw.contentView layoutSubtreeIfNeeded];
+            snapshot(mapw, "map-azimuthal-turned");
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            CHECK(homeAtMiddle(), "World turns the globe back to home");
             pick(colour, @"Colour by band");
             CHECK(menuAction(styleMenu, @"Light (for printing)") && menuState(styleMenu, @"Light (for printing)"), "the light palette");
             pick(proj, @"Equirectangular");

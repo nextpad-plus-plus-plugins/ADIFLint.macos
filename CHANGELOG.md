@@ -17,10 +17,12 @@ Versions before 0.8.0 were development builds and were not published.
   Colour-blind safe, High contrast, Light for printing); marker size and shape, solid,
   see-through or outlined squares; Maidenhead grid and Labels each on or off; Other
   programs as a list of common programs with a colour and a count each (SOTA, IOTA, GMA,
-  WWBOTA, HEMA, SiOTA, WCA, ILLW, ARLHS, MOTA, ZLOTA, WOTA and any other SIG); great-circle
-  paths and distance rings from your grid; filters for dates (last 30 days, 12 months, this
-  year, a year) and confirmation; the distance and bearing from home of the square under the
-  pointer. Every choice is remembered.
+  WWBOTA, HEMA, SiOTA, WCA, ILLW, ARLHS, MOTA, ZLOTA, WOTA and any other SIG); lines to
+  contacts (great circles from your station to each contact's grid, else its DXCC entity)
+  and distance rings from your grid; filters for dates (last 30 days, 12 months, this year,
+  a year) and confirmation; the distance and bearing from home of the square under the
+  pointer. The azimuthal map turns like a globe: drag in any direction, zoom for detail,
+  World to come home. Every choice is remembered.
 
 ## [1.0.1] - 2026-10-10
 
