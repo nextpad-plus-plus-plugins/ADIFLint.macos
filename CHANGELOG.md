@@ -9,6 +9,19 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Map**: projections (Equirectangular, Mercator, Equal Earth, and Azimuthal from your grid,
+  where distance and bearing from home are true); colour by confirmation, band, mode, QSO
+  count or year first worked, with a legend (in the PNG too); palettes (Standard,
+  Colour-blind safe, High contrast, Light for printing); marker size and shape, solid,
+  see-through or outlined squares; Maidenhead grid and Labels each on or off; Other
+  programs as a list of common programs with a colour and a count each (SOTA, IOTA, GMA,
+  WWBOTA, HEMA, SiOTA, WCA, ILLW, ARLHS, MOTA, ZLOTA, WOTA and any other SIG); great-circle
+  paths and distance rings from your grid; filters for dates (last 30 days, 12 months, this
+  year, a year) and confirmation; the distance and bearing from home of the square under the
+  pointer. Every choice is remembered.
+
 ## [1.0.1] - 2026-10-10
 
 ### Added

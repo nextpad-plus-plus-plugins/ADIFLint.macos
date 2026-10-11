@@ -50,7 +50,8 @@ add_library(adif_core STATIC
     src/core/adif_contest.cpp
     src/core/adif_labels.cpp
     src/core/adif_world.cpp
-    src/core/adif_world_data.cpp)
+    src/core/adif_world_data.cpp
+    src/core/adif_projection.cpp)
 target_include_directories(adif_core PUBLIC src/core)
 target_compile_options(adif_core PRIVATE ${WARNINGS})
 set_target_properties(adif_core PROPERTIES POSITION_INDEPENDENT_CODE ON)

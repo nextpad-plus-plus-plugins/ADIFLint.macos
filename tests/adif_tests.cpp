@@ -14,6 +14,7 @@
 #include "adif_contest.h"
 #include "adif_labels.h"
 #include "adif_world.h"
+#include "adif_projection.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -2629,6 +2630,61 @@ static void testLabels() {
           "marked sent:\n%s", marked.c_str());
 }
 
+// Projections: known values, round trips, and the azimuthal projection's distance and
+// bearing checked against adif_geo (an independent calculation).
+static void testProjections() {
+    const double kDeg = 180.0 / M_PI;
+    double x = 0, y = 0, lon = 0, lat = 0;
+    Projector merc(Projection::Mercator);
+    merc.forward(10, 45, &x, &y);
+    CHECK(std::fabs(x - 10) < 1e-12 && std::fabs(y - std::log(std::tan(M_PI / 4 + M_PI / 8)) * kDeg) < 1e-9, "Mercator y(45) = %f", y);
+    merc.forward(0, 89, &x, &y);
+    CHECK(std::fabs(y - 180) < 1e-6, "Mercator is cut where the map is square: %f", y);
+    // Equal Earth: x at (180, 0) is pi / (M * A1); y at the pole is l(A1 + A2 l^2 + l^6 (A3 + A4 l^2)), l = pi/3.
+    Projector ee(Projection::EqualEarth);
+    const double M = std::sqrt(3.0) / 2, A1 = 1.340264, A2 = -0.081106, A3 = 0.000893, A4 = 0.003796, l = M_PI / 3;
+    ee.forward(180, 0, &x, &y);
+    CHECK(std::fabs(x - M_PI / (M * A1) * kDeg) < 1e-9 && std::fabs(y) < 1e-12, "Equal Earth equator edge: %f", x);
+    ee.forward(0, 90, &x, &y);
+    double pole = l * (A1 + A2 * l * l + std::pow(l, 6) * (A3 + A4 * l * l)) * kDeg;
+    CHECK(std::fabs(y - pole) < 1e-9, "Equal Earth pole: %f vs %f", y, pole);
+    for (Projection p : {Projection::Equirectangular, Projection::Mercator, Projection::EqualEarth, Projection::Azimuthal}) {
+        Projector pr(p, 39.0, -98.0);
+        bool ok = true;
+        for (double la : {-60.0, -12.5, 0.0, 33.3, 71.0})
+            for (double lo : {-179.0, -98.0, -40.5, 0.0, 77.7, 179.0}) {
+                if (!pr.forward(lo, la, &x, &y) || !pr.inverse(x, y, &lon, &lat)) {
+                    ok = false;
+                    continue;
+                }
+                ok &= std::fabs(lat - la) < 1e-6 && std::fabs(std::remainder(lon - lo, 360.0)) < 1e-6;
+            }
+        CHECK(ok, "projection %d: forward then inverse returns the point", (int)p);
+    }
+    // Azimuthal from Kansas (39 N, 98 W): the radius is the arc to the point, the angle its bearing.
+    Projector az(Projection::Azimuthal, 39.0, -98.0);
+    struct { double lat, lon; } targets[] = {{51.5, -0.1}, {-33.9, 151.2}, {35.7, 139.7}, {-34.6, -58.4}};
+    for (auto t : targets) {
+        az.forward(t.lon, t.lat, &x, &y);
+        double arc = greatCircleKm(39.0, -98.0, t.lat, t.lon) / 6371.0 * kDeg;
+        double bearing = std::fmod(std::atan2(x, y) * kDeg + 360.0, 360.0);
+        CHECK(std::fabs(std::hypot(x, y) - arc) < 1e-6 && std::fabs(std::remainder(bearing - initialBearing(39.0, -98.0, t.lat, t.lon), 360.0)) < 1e-6,
+              "azimuthal: %f deg at %f (geo: %f at %f)", std::hypot(x, y), bearing, arc, initialBearing(39.0, -98.0, t.lat, t.lon));
+    }
+    az.forward(-98.0, 39.0, &x, &y);
+    CHECK(x == 0 && y == 0 && !az.forward(82.0, -39.0, &x, &y) && !az.inverse(200, 0, &lon, &lat), "azimuthal centre, antipode, outside");
+    // Great circles and destinations.
+    std::vector<std::pair<double, double>> path = greatCirclePath(39.0, -98.0, 51.5, -0.1, 2);
+    double mid = greatCircleKm(39.0, -98.0, path[path.size() / 2].second, path[path.size() / 2].first);
+    CHECK(path.size() > 30 && path.front().first == -98.0 && std::fabs(path.back().first + 0.1) < 1e-9 &&
+              std::fabs(mid - greatCircleKm(39.0, -98.0, 51.5, -0.1) / 2) < 120,
+          "great-circle path: %zu points, midpoint %f km", path.size(), mid);
+    double la2 = 0, lo2 = 0;
+    destinationPoint(39.0, -98.0, 45, 2500, &la2, &lo2);
+    CHECK(std::fabs(greatCircleKm(39.0, -98.0, la2, lo2) - 2500) < 1e-6 && std::fabs(initialBearing(39.0, -98.0, la2, lo2) - 45) < 1e-6,
+          "destination 2500 km at 45 degrees");
+}
+
 static void testWorld() {
     size_t rings = layerShapeCount(MapLayer::Land110), points = 0;
     double minLat = 90, maxLat = -90;
@@ -2673,6 +2729,30 @@ static void testWorld() {
               all.calls.size() == 4,
           "map data: %zu squares, %zu parks", all.squares.size(), all.parks.size());
     CHECK(twenty.records == 2 && twenty.squares.size() == 1 && twenty.squares[0].qsos == 1, "band and mode filters");
+    {
+        std::string dated = std::string(kHeader) +
+                            "<CALL:4>K1AB <QSO_DATE:8>20241231 <TIME_ON:4>1200 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>FN31 <QSL_RCVD:1>Y <EOR>\n"
+                            "<CALL:4>K2CD <QSO_DATE:8>20250601 <TIME_ON:4>1200 <BAND:3>40m <MODE:2>CW <GRIDSQUARE:4>FN20 <MY_GRIDSQUARE:4>EN52 <EOR>\n"
+                            "<CALL:4>K3EF <TIME_ON:4>1200 <BAND:3>20m <MODE:3>FT8 <GRIDSQUARE:4>FM19 <EOR>\n";
+        LintResult dr = lintModel(dated);
+        MapFilter f;
+        f.from = "20250101", f.to = "20251231";
+        MapData y2025 = mapData(dated, dr.model, f);
+        f = MapFilter();
+        f.from = "20250101";
+        MapData since = mapData(dated, dr.model, f);
+        f = MapFilter();
+        f.confirmed = 1;
+        MapData confirmedOnly = mapData(dated, dr.model, f);
+        f.confirmed = 2;
+        MapData unconfirmed = mapData(dated, dr.model, f);
+        CHECK(y2025.records == 1 && y2025.qsos[0].call == "K2CD" && y2025.qsos[0].myGrid == "EN52" && y2025.qsos[0].modeGroup == 0 &&
+                  y2025.qsos[0].date8 == "20250601" && since.records == 1,
+              "date range: %zu in 2025, %zu since (a record without QSO_DATE is in no range)", y2025.records, since.records);
+        CHECK(confirmedOnly.records == 1 && confirmedOnly.qsos[0].call == "K1AB" && confirmedOnly.qsos[0].modeGroup == 1 &&
+                  unconfirmed.records == 2,
+              "confirmed and not confirmed");
+    }
     {
         std::string islands = std::string(kHeader) +
                               "<CALL:5>G4ABC <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:4>IO91 <IOTA:6>EU-005 <EOR>\n"
@@ -2733,6 +2813,7 @@ int main(int argc, char **argv) {
     testContestAndSpothole();
     testLabels();
     testWorld();
+    testProjections();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

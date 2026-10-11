@@ -450,19 +450,49 @@ couple of minutes.
 **Map (Grids, DXCC, Parks)…** draws the open log on a world map, offline, over
 [Natural Earth](https://www.naturalearthdata.com)'s maps (public domain; 1:110m for the whole
 world, 1:50m zoomed in): land, lakes, rivers (the largest at first, smaller ones as you zoom
-in), country borders, and state and province lines from 2.5× (US states, Canadian
-provinces, Australian states...). On it:
+in), country borders, and state and province lines from 2.5×. Every choice is remembered.
 
-- **Grid squares** worked, from GRIDSQUARE and VUCC_GRIDS, in orange, or green once a QSO in
-  the square is confirmed (QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V);
-- **DXCC**: each DXCC entity worked, from the call's prefix in the country data, as a dot
-  at its centre (teal when confirmed);
-- **Parks** you hunted (POTA and WWFF), placed at the QSO's GRIDSQUARE, since there is no
-  offline list of where parks are;
-- **Other programs** (off at first): other references the other station gave, such as IOTA
-  islands, SOTA summits, GMA or bunkers, as yellow diamonds. A callbook such as QRZ.com
-  often fills IOTA in for every island station, so a log can hold many of these;
-- your **MY_GRIDSQUARE** as a red star.
+**Show** what to draw:
+
+- **Worked squares**, from GRIDSQUARE and VUCC_GRIDS;
+- **Maidenhead grid**: the fields' lines (20 × 10 degrees), and the squares' (2 × 1) when
+  zoomed in; **Labels**: their names (`FN`, then `FN31`);
+- **DXCC**: each entity worked, from the call's prefix in the country data, as a dot at its
+  centre, bigger with more QSOs;
+- **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE, since
+  there is no offline list of where parks are;
+- **Other programs**, a list with a colour and a count for each: SOTA summits, IOTA islands,
+  GMA, WWBOTA bunkers, HEMA, SiOTA silos, WCA castles, ILLW and ARLHS lighthouses, MOTA
+  mills, ZLOTA, WOTA, and any other SIG in the log. Tick the ones to show (**Show All**,
+  **Hide All**). IOTA starts hidden: a callbook such as QRZ.com fills it in for every island
+  station;
+- **My station**: a star at each MY_GRIDSQUARE;
+- **Paths**: great-circle paths from your grid (each QSO's MY_GRIDSQUARE, else home) to each
+  square worked.
+
+**Only** these QSOs: a band, a mode, a time (the last 30 days, the last 12 months, this
+year, or a year in the log), and all, confirmed or not confirmed QSOs (confirmed: QSL_RCVD,
+LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V).
+
+**Colour by**: confirmation (confirmed or only worked), band (the band with the most QSOs
+in the square), mode (CW, phone or data), QSO count (1, 2-4, 5-9, 10-24, 25 and more) or
+the year a square was first worked. The **legend** in the corner says what each colour and
+marker means.
+
+The **projection**:
+
+- **Equirectangular**: the grid as rectangles, the usual Maidenhead map;
+- **Mercator**: familiar shapes, but the far north and south grow;
+- **Equal Earth**: every area at its true size (Šavrič, Patterson and Jenny, 2018);
+- **Azimuthal from your grid**: distance and bearing from home are true, so a straight line
+  from the centre is the beam heading. Home is Settings → Your Station's grid, else the
+  grid the log uses most in MY_GRIDSQUARE.
+
+**Style**: colours (**Standard**, **Colour-blind safe** with the Okabe-Ito colours and
+viridis, **High contrast**, **Light** for printing), marker size, markers by layer (dots,
+triangles, diamonds) or all circles or squares, worked squares solid, see-through or as
+outlines, the **Legend**, and **Distance rings** from your grid (2,500 km apart for the
+whole world, closer as you zoom in; with bearings on the azimuthal map).
 
 Moving around:
 
@@ -470,13 +500,11 @@ Moving around:
   the **+** and **−** buttons or keys; **Fit Log** zooms to the log's QSOs and **World** (or
   the 0 key) shows the whole world.
 - **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys.
-- Zoomed in, the Maidenhead field names (`FN`) appear, then the squares' (`FN31`) with
-  their lines.
-- **Point** at a square, DXCC dot or park to read what it is and its QSOs on the bottom
-  line. **Click** it to list its QSOs under the map, and double-click one to go to its
-  record in the log.
+- **Point** at a square, DXCC dot or park to read what it is, its QSOs, and (for a square)
+  how far it is from home and at what bearing. **Click** it to list its QSOs under the map,
+  and double-click one to go to its record in the log.
 
-Choose a band or mode to see only those QSOs; **Export PNG…** saves the map as it is shown.
+**Export PNG…** saves the map as it is shown, legend included, at twice the screen's size.
 QSOs without GRIDSQUARE count for DXCC but not for squares.
 
 ## Activations: POTA, WWFF and SOTA

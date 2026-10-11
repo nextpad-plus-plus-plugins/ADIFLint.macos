@@ -28,6 +28,9 @@ bool isConfirmed(const Record &r);
 struct MapQso {
     int group = -1, record = 0;  // DocModel group, 1-based record number
     std::string call, date, time, band, mode, grid;
+    std::string date8;   // QSO_DATE as written (YYYYMMDD)
+    std::string myGrid;  // MY_GRIDSQUARE
+    int modeGroup = 2;   // 0 CW, 1 phone, 2 data (from MODE, as modeGroup() in adif_enrich.h)
     bool confirmed = false;
 };
 struct MapSquare {
@@ -51,6 +54,13 @@ struct MapData {
     std::vector<MapQso> qsos;                         // the records shown, in log order (calls[i] is qsos[i]'s)
     size_t records = 0, withoutGrid = 0;
 };
+// Which records the map shows: empty strings mean any.
+struct MapFilter {
+    std::string band, mode;      // mode matches MODE or SUBMODE
+    std::string from, to;        // QSO_DATE range, YYYYMMDD, both included
+    int confirmed = 0;           // 0 all, 1 confirmed only, 2 not confirmed
+};
+MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filter);
 // The log's records on `band` and `mode` (empty: all; mode matches MODE or SUBMODE).
 MapData mapData(std::string_view text, const DocModel &m, std::string_view band, std::string_view mode);
 

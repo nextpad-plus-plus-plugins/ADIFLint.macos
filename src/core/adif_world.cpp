@@ -1,5 +1,6 @@
 #include "adif_world.h"
 
+#include "adif_enrich.h"
 #include "adif_programs.h"
 #include "adif_spec.h"
 
@@ -57,15 +58,26 @@ std::string squareAt(double lon, double lat) {
 }
 
 MapData mapData(std::string_view text, const DocModel &m, std::string_view band, std::string_view mode) {
+    MapFilter f;
+    f.band = std::string(band), f.mode = std::string(mode);
+    return mapData(text, m, f);
+}
+
+MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filter) {
     MapData out;
     std::map<std::string, size_t> squareIndex;
     std::vector<std::string> mine;
+    const std::string &band = filter.band, &mode = filter.mode;
     for (const Record &r : records(text, m)) {
         if (r.fields.empty()) continue;
         if (!band.empty() && !equalsNoCase(effectiveBand(r), band)) continue;
         if (!mode.empty() && !equalsNoCase(trimmed(r.get("MODE")), mode) && !equalsNoCase(trimmed(r.get("SUBMODE")), mode)) continue;
-        ++out.records;
+        std::string date8 = trimmed(r.get("QSO_DATE"));
+        if (!filter.from.empty() && date8 < filter.from) continue;
+        if (!filter.to.empty() && (date8.empty() || date8 > filter.to)) continue;
         bool confirmed = isConfirmed(r);
+        if ((filter.confirmed == 1 && !confirmed) || (filter.confirmed == 2 && confirmed)) continue;
+        ++out.records;
         std::string call = upper(trimmed(r.get("CALL")));
         size_t index = out.qsos.size();
         {
@@ -79,6 +91,9 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
             std::string sub = trimmed(r.get("SUBMODE"));
             q.mode = sub.empty() ? trimmed(r.get("MODE")) : sub;
             q.grid = trimmed(r.get("GRIDSQUARE"));
+            q.date8 = date8;
+            q.myGrid = upper(trimmed(r.get("MY_GRIDSQUARE")));
+            q.modeGroup = modeGroup(trimmed(r.get("MODE")));
             q.confirmed = confirmed;
             out.qsos.push_back(std::move(q));
             out.calls.emplace_back(call, confirmed);

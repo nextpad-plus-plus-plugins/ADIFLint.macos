@@ -3625,6 +3625,71 @@ int main(int argc, char **argv) {
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 2)];
             }
             if (mapw) snapshot(mapw, "map-great-lakes");
+
+            // Projections, colours and styles: each draws, and a click still finds its square.
+            NSPopUpButton *proj = findPopupWith(mapw.contentView, @"Equal Earth");
+            NSPopUpButton *colour = findPopupWith(mapw.contentView, @"Colour by band");
+            NSPopUpButton *styleMenu = findPopupWith(mapw.contentView, @"Legend");
+            NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
+            NSButton *pathsBox = findButton(mapw.contentView, @"Paths");
+            CHECK(proj && colour && styleMenu && programsMenu && pathsBox && [proj itemAtIndex:3].enabled &&
+                      [[proj itemAtIndex:3].title isEqualToString:@"Azimuthal from EN52WA"],
+                  "projection, colour, Style and Other programs controls; azimuthal from the log's grid: %s",
+                  proj ? [proj itemAtIndex:3].title.UTF8String : "");
+            auto pick = [&](NSPopUpButton *p, NSString *title) {
+                [p selectItemWithTitle:title];
+                [p sendAction:p.action to:p.target];
+            };
+            auto menuAction = [&](NSPopUpButton *p, NSString *prefix) {
+                for (NSMenuItem *i in p.menu.itemArray)
+                    if ([i.title hasPrefix:prefix] && i.action) return (bool)[NSApp sendAction:i.action to:i.target from:i];
+                return false;
+            };
+            auto menuState = [&](NSPopUpButton *p, NSString *prefix) {
+                for (NSMenuItem *i in p.menu.itemArray)
+                    if ([i.title hasPrefix:prefix]) return i.state == NSControlStateValueOn;
+                return false;
+            };
+            auto clickFn31 = [&]() {
+                [findButton(mapw.contentView, @"Fit Log") performClick:nil];
+                NSPoint at = pointFor(-73, 41.5);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 1)];
+                return [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"K1AB"];
+            };
+            pick(proj, @"Equal Earth");
+            CHECK(clickFn31(), "Equal Earth: a click on FN31 lists K1AB");
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            snapshot(mapw, "map-equal-earth");
+            pick(proj, @"Mercator");
+            CHECK(clickFn31(), "Mercator: a click on FN31 lists K1AB");
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            snapshot(mapw, "map-mercator");
+            pick(proj, [proj itemAtIndex:3].title);
+            pathsBox.state = NSControlStateValueOn;
+            [pathsBox sendAction:pathsBox.action to:pathsBox.target];
+            CHECK(menuAction(styleMenu, @"Distance rings") && menuState(styleMenu, @"Distance rings"), "distance rings on");
+            CHECK(clickFn31(), "azimuthal: a click on FN31 lists K1AB");
+            CHECK([labelContaining(mapw.contentView, @"FN31:") containsString:@"from EN52WA"], "the status gives distance and bearing from home: %s",
+                  labelContaining(mapw.contentView, @"FN31:").UTF8String);
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            snapshot(mapw, "map-azimuthal");
+            pick(colour, @"Colour by band");
+            CHECK(menuAction(styleMenu, @"Light (for printing)") && menuState(styleMenu, @"Light (for printing)"), "the light palette");
+            pick(proj, @"Equirectangular");
+            snapshot(mapw, "map-light-band");
+            CHECK(!menuState(programsMenu, @"IOTA (islands): 1") && menuAction(programsMenu, @"IOTA (islands)") &&
+                      menuState(programsMenu, @"IOTA (islands): 1") && menuState(programsMenu, @"SOTA (summits): none"),
+                  "Other programs: IOTA starts hidden and can be shown; the common programs are listed");
+            [mapw.contentView layoutSubtreeIfNeeded];
+            CHECK(overlaps(mapw.contentView) == 0, "the map's controls do not overlap (%d)", overlaps(mapw.contentView));
+            // Back to the defaults for any later run with this config.
+            menuAction(styleMenu, @"Standard");
+            menuAction(styleMenu, @"Distance rings");
+            menuAction(programsMenu, @"IOTA (islands)");
+            pick(colour, @"Colour by confirmation");
+            pathsBox.state = NSControlStateValueOff;
+            [pathsBox sendAction:pathsBox.action to:pathsBox.target];
             [mapw orderOut:nil];
         }
 
