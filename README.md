@@ -33,8 +33,9 @@ offline map, and QSL sync with LoTW, QRZ.com, Club Log and eQSL.
 - **Captures QSOs from your other programs.** **Monitor** adds what WSJT-X, JTDX, JS8Call,
   N1MM Logger+, GridTracker and other loggers log, as they log it. It only listens.
 - **Maps your log, offline.** A globe or a flat map with worked squares, contacts at their
-  exact place, DXCC, parks, lines to contacts, distance rings, and overlays for countries,
-  US states, and CQ and ITU zones. Colour by band in PSKReporter's colours, mode,
+  exact place, each DXCC entity's own land, parks, lines to contacts arching over the globe,
+  distance rings, and overlays for countries, US states and counties, cities, CQ and ITU
+  zones, and IOTA groups; zoom in to city level. Colour by band in PSKReporter's colours, mode,
   confirmation, count or year, with a palette tested for colour blindness.
 - **Keeps QSL services in sync.** Import your QSOs and confirmations from LoTW, QRZ.com
   Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL. Every window
@@ -244,6 +245,7 @@ HTTPS.
 | Spothole | `spothole.app` | The Spots window (More programs), every 2 minutes while it is open | The programs asked for (never a login) |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
 | LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |
+| IOTA group list | `www.iota-world.org` | Settings → IOTA Groups → Download | Nothing but the request |
 
 - **Credentials** are stored only in your macOS Keychain ("ADIF Lint: …" items), never in
   a file, and a saved password is never shown again. HamQTH's sign-in, LoTW's report API
@@ -256,6 +258,8 @@ HTTPS.
   to its queue file in the plugin config folder.
 - **Settings** are kept in `ADIFLint.ini` in Nextpad++'s plugin config folder
   (`~/Library/Application Support/Nextpad++/plugins/Config/`).
+- **Map → Apple Maps** opens a place in Apple's Maps app, which goes online itself; ADIF
+  Lint sends nothing.
 
 See [SECURITY.md](SECURITY.md) to report a security problem.
 
@@ -319,11 +323,15 @@ Nextpad++ and its plugins.
 - `data/cty.csv` is Jim Reisert AD1C's [Big CTY](https://www.country-files.com/) country
   file, under the MIT licence ([`data/cty-copyright.txt`](data/cty-copyright.txt)).
 - The Map draws [Natural Earth](https://www.naturalearthdata.com)'s land, lakes, rivers,
-  borders, countries and US states (public domain), and CQ and ITU zones from HB9HIL's
+  borders, countries, map subunits, US states and counties, urban areas and cities (public
+  domain), and CQ and ITU zones from HB9HIL's
   [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) under the MIT
   licence ([`data/zones-license.txt`](data/zones-license.txt)); see
   [`data/SOURCE.md`](data/SOURCE.md). Colour by band uses
   [PSKReporter](https://pskreporter.info)'s band colours.
+- IOTA's group list is © RSGB and IOTA Ltd and is not included: Settings downloads it from
+  [iota-world.org](https://www.iota-world.org), when you ask, for your own use. IOTA is a
+  registered trade mark of the RSGB.
 - `third_party/` holds the Nextpad++ plugin header (GPL v3) and the Scintilla headers
   (Scintilla licence); see [`third_party/README.md`](third_party/README.md).
 - HamQTH data is credited in the Enrich window, as HamQTH asks.

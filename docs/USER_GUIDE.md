@@ -491,8 +491,9 @@ couple of minutes.
 
 **Map (Grids, DXCC, Parks)…** draws the open log on a world map, offline, over
 [Natural Earth](https://www.naturalearthdata.com)'s maps (public domain; 1:110m for the whole
-world, 1:50m zoomed in): land, lakes, rivers (the largest at first, smaller ones as you zoom
-in), country borders, and state and province lines from 2.5×. Every choice is remembered.
+world, 1:50m zoomed in, and 1:10m from 12× down to city level): land, lakes, rivers (the
+largest at first, smaller ones as you zoom in), country borders, state and province lines
+from 2.5×, and towns' built-up areas at 1:10m. Every choice is remembered.
 
 The rows at the top choose what to draw (**Show**), what to lay over the map (**Overlays**),
 which QSOs (**Only**) and how to colour them (**Colour by**); the next row zooms, jumps to a
@@ -507,11 +508,11 @@ QSOs of whatever you click, and the status line says what is under the pointer.
   DXCC but not for squares.
 - **DXCC**: each entity worked, from the call's prefix in the country data, its own land
   shaded: Alaska and Hawaii apart from the United States, Sardinia apart from Italy, the
-  Canaries apart from Spain. Which land is whose is worked out from the country file's name
-  and place for each entity. England, Scotland and Wales share Great Britain, and European
-  and Asiatic Russia share Russia, at this scale. An entity with no land at this scale, or
-  too small on screen to see (Jamaica on the whole world, the Vatican), is a dot, bigger
-  with more QSOs.
+  Canaries apart from Spain, England, Scotland, Wales and Northern Ireland each their own,
+  and European Russia apart from Asiatic Russia. Which land is whose is worked out from the
+  country file's name and place for each entity, over Natural Earth's map subunits. An
+  entity with no land at this scale, or too small on screen to see (Jamaica on the whole
+  world, the Vatican), is a dot, bigger with more QSOs.
 - **Contacts**: a marker at each contact's own place (see
   [contacts and their places](#contacts-and-their-places)).
 - **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE, since
@@ -560,6 +561,16 @@ the LAT/LON left out. The grids AA00 and JJ00 are placeholders too, and are draw
   its name where the name fits inside it on screen. The faint land borders are always drawn.
 - **US states**: state lines (Natural Earth), labelled with postal codes where a state is
   big enough on screen.
+- **US counties**: county lines (Natural Earth) from 2.5×, labelled with names where they
+  fit.
+- **Cities**: 7,300 cities and towns (Natural Earth), the largest first and more as you zoom
+  in, labelled with names where they don't run into each other. With counties labelled too,
+  a city's name goes first and a county's name only where it is clear of the cities.
+- **IOTA**: IOTA's island groups, each the box of latitude and longitude IOTA gives it. The
+  groups in the log's IOTA field are filled in (more strongly when a QSO is confirmed), the
+  rest dashed; labels give each group's reference, and its name where the box is wide
+  enough. Point at a box for its name and QSOs, click it to list them. The group list isn't
+  included with ADIF Lint: download it first in Settings → IOTA Groups.
 
 The CQ and ITU zones come from HB9HIL's
 [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) (MIT; the files
@@ -569,6 +580,8 @@ disagree in places; the zone a QSO counts for is the one in its CQZ or ITUZ fiel
 | Worked squares and CQ zones (Equal Earth) | Worked squares and US states |
 |---|---|
 | ![The world in the Equal Earth projection, worked squares coloured by band, and the CQ zones numbered](images/map-zones.png) | ![North America with US state lines and postal codes, worked squares coloured confirmed or worked](images/map-states.png) |
+
+![Zoomed in from Madison to Chicago: county lines and names, cities and towns, and a pin at each contact](images/map-city.png)
 
 ### Colours
 
@@ -615,13 +628,14 @@ On the globe:
 ### Moving around
 
 - **Zoom** with a pinch, the mouse wheel, Option and a two-finger scroll, a double-click,
-  or the **+** and **−** buttons or keys. **Fit Log** zooms to the log's QSOs, **World** (or
-  the 0 key) shows the whole world, and **Region** zooms to a continent (Africa, Antarctica,
-  Asia, Europe, North America, Oceania, South America; the globe turns to face it).
+  or the **+** and **−** buttons or keys, up to 1,024×, where a kilometre is some 30 points
+  across. **Fit Log** zooms to the log's QSOs, **World** (or the 0 key) shows the whole
+  world, and **Region** zooms to a continent (Africa, Antarctica, Asia, Europe, North
+  America, Oceania, South America; the globe turns to face it).
 - **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys (on the globe
   these turn it).
-- **Point** at a square, DXCC dot, contact or park to read what it is, its QSOs, and (for a
-  square or contact) how far it is from home and at what bearing. **Click** it to list its
+- **Point** at a square, DXCC entity, contact, park or IOTA group to read what it is, its
+  QSOs, and (for a square or contact) how far it is from home and at what bearing. **Click** it to list its
   QSOs under the map, and double-click one to go to its record in the log.
 
 ### Options and export
@@ -645,6 +659,10 @@ On the globe:
   closer as you zoom in, with bearings every 30° when the globe is centred on home.
 
 **Export PNG…** saves the map as it is shown, legend included, at twice the screen's size.
+
+**Apple Maps** opens what you clicked (a contact, square, park, DXCC entity or IOTA group),
+or the middle of the map, in Apple's Maps app, for streets and satellite views. Maps goes
+online; ADIF Lint itself sends nothing.
 
 ## Activations: POTA, WWFF and SOTA
 
@@ -966,6 +984,10 @@ Rules for every source:
   downloaded again when a week old, and used in New QSO's lookup line, the Spots window's
   LoTW column and the Log Table's optional LoTW column. No terms of use for the list were
   found; it is only fetched while on.
+- **IOTA Groups:** **Download** fetches IOTA's list of island groups (`iota-world.org`,
+  about 290 KB) for the Map's IOTA overlay; download again to update it. The list is
+  © RSGB and IOTA Ltd, who allow downloading it for personal non-commercial use, so it
+  isn't included with ADIF Lint and is only fetched when you press Download.
 - **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
   and New QSO's lookup); LoTW (your LoTW website login, for Import); QRZ.com Logbook (API
   key); Club Log (email and Application Password) and Club
@@ -981,10 +1003,11 @@ Where things are kept:
   the last time zone and program) in `ADIFLint.ini`, in Nextpad++'s plugin config folder
   (`~/Library/Application Support/Nextpad++/plugins/Config/`). Beside it: station profiles
   (`ADIFLint-profiles.adi`), the Monitor's queue (`ADIFLint-queue.adi`), a downloaded
-  country file (`ADIFLint-cty.csv`) and the LoTW user list (`ADIFLint-lotw-users.csv`).
+  country file (`ADIFLint-cty.csv`), the LoTW user list (`ADIFLint-lotw-users.csv`) and IOTA's
+  group list (`ADIFLint-iota-groups.json`).
   They survive plugin updates.
-- **The installed country file** beside the plugin, in
-  `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
+- **The installed country file** and the Map's 1:10m detail (`map-detail.bin`) beside the
+  plugin, in `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
 
 All requests use HTTPS. The QRZ.com sign-in is sent as a POST, so the password isn't in
 a URL. HamQTH's sign-in, LoTW's report API and eQSL's DownloadInBox take the login as

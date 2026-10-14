@@ -29,6 +29,7 @@ docs-map-zones map-zones
 docs-map-europe map-europe
 docs-map-states map-states
 docs-map-colour-blind map-colour-blind
+docs-map-city map-city
 docs-log-table log-table
 check-log check-log
 new-qso-lookup new-qso-lookup

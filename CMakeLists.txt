@@ -53,6 +53,7 @@ add_library(adif_core STATIC
     src/core/adif_world_data.cpp
     src/core/adif_overlays_data.cpp
     src/core/adif_palette.cpp
+    src/core/adif_detail.cpp
     src/core/adif_projection.cpp)
 target_include_directories(adif_core PUBLIC src/core)
 target_compile_options(adif_core PRIVATE ${WARNINGS})
@@ -81,7 +82,7 @@ set(OFFICIAL_ADI ${CMAKE_SOURCE_DIR}/tests/fixtures/ADIF_317_test_QSOs_2026_03_2
 add_executable(adif_tests tests/adif_tests.cpp)
 target_link_libraries(adif_tests PRIVATE adif_core)
 target_compile_options(adif_tests PRIVATE ${WARNINGS})
-add_test(NAME adif_tests COMMAND adif_tests ${OFFICIAL_ADI} ${CMAKE_SOURCE_DIR}/data/cty.csv)
+add_test(NAME adif_tests COMMAND adif_tests ${OFFICIAL_ADI} ${CMAKE_SOURCE_DIR}/data/cty.csv ${CMAKE_SOURCE_DIR}/data/map-detail.bin)
 
 add_executable(fuzz_smoke tests/fuzz_smoke.cpp)
 target_link_libraries(fuzz_smoke PRIVATE adif_core)
@@ -96,7 +97,7 @@ add_test(NAME adiflint_tools COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli_tools.sh $
 if(NOT ADIF_SANITIZE)
     add_library(ADIFLint SHARED src/plugin/ADIFLint.mm src/plugin/RecordPanel.mm src/plugin/NewQsoPanel.mm
         src/plugin/EnrichPanel.mm src/plugin/Lookup.mm src/plugin/SettingsPanel.mm src/plugin/QsoFieldsPanel.mm
-        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/Map.mm
+        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/IotaGroups.mm src/plugin/Map.mm
         src/plugin/Uploads.mm src/plugin/Imports.mm src/plugin/Country.mm)
     target_include_directories(ADIFLint PRIVATE
         third_party/nextpad
@@ -110,7 +111,8 @@ if(NOT ADIF_SANITIZE)
     target_link_options(ADIFLint PRIVATE "-Wl,-current_version,${PROJECT_VERSION}")
     # The country file sits next to the dylib, installed or built (the harness loads the built one).
     add_custom_command(TARGET ADIFLint POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/cty.csv $<TARGET_FILE_DIR:ADIFLint>/cty.csv)
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/cty.csv $<TARGET_FILE_DIR:ADIFLint>/cty.csv
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/map-detail.bin $<TARGET_FILE_DIR:ADIFLint>/map-detail.bin)
 
     set(PLUGIN_INSTALL_DIR "$ENV{HOME}/Library/Application Support/Nextpad++/plugins/ADIFLint"
         CACHE PATH "Where 'cmake --install' puts the plugin")
@@ -128,7 +130,7 @@ if(NOT ADIF_SANITIZE)
         endif()
         execute_process(COMMAND codesign --force --sign - \"\${dir}/ADIFLint.dylib.new\")
         file(RENAME \"\${dir}/ADIFLint.dylib.new\" \"\${dir}/ADIFLint.dylib\")
-        file(COPY \"${CMAKE_SOURCE_DIR}/data/cty.csv\" \"${CMAKE_SOURCE_DIR}/data/cty-copyright.txt\" \"${CMAKE_SOURCE_DIR}/data/zones-license.txt\" DESTINATION \"\${dir}\")
+        file(COPY \"${CMAKE_SOURCE_DIR}/data/cty.csv\" \"${CMAKE_SOURCE_DIR}/data/cty-copyright.txt\" \"${CMAKE_SOURCE_DIR}/data/zones-license.txt\" \"${CMAKE_SOURCE_DIR}/data/map-detail.bin\" DESTINATION \"\${dir}\")
         file(GLOB icons \"${CMAKE_SOURCE_DIR}/data/toolbar/*.png\")
         file(COPY \${icons} DESTINATION \"\${dir}\")
         message(STATUS \"Installed \${dir}/ADIFLint.dylib; restart Nextpad++ to load it\")

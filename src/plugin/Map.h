@@ -7,5 +7,6 @@ namespace worldmap {
 
 void cmdMap();
 void documentChanged();  // the log changed or another became active
+void iotaGroupsChanged();  // IOTA's group list was downloaded (Settings)
 
 }  // namespace worldmap

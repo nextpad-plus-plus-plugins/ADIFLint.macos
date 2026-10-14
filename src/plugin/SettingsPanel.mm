@@ -18,7 +18,8 @@
     NSMutableArray<NSTextField *> *_status;
     NSTextField *_countryStatus;
     NSButton *_countryUpdate, *_lotwOn, *_lotwUpdate;
-    NSTextField *_lotwStatus;
+    NSTextField *_lotwStatus, *_iotaStatus;
+    NSButton *_iotaUpdate;
     NSScrollView *_scroll;
     NSTextField *_welcome, *_stationCall, *_stationGrid, *_logsFolder, *_stationStatus;
     NSArray<NSButton *> *_editorBoxes;
@@ -74,7 +75,8 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                         NSFont.systemFontSize, NSColor.labelColor);
     _welcome.hidden = YES;
     [views addObject:_welcome];
-    for (NSView *section in @[ [self stationSection], [self editorSection], [self keyboardSection], [self countrySection], [self lotwSection] ]) {
+    for (NSView *section in @[ [self stationSection], [self editorSection], [self keyboardSection], [self countrySection], [self lotwSection],
+                                 [self iotaSection] ]) {
         [views addObject:section];
         NSBox *line = [[NSBox alloc] init];
         line.boxType = NSBoxSeparator;
@@ -280,6 +282,30 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _lotwUpdate.enabled = YES;
     _lotwStatus.stringValue = text ?: @"";
     _lotwStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+}
+
+- (NSView *)iotaSection {
+    NSTextField *help = wrapping(@"Draws IOTA's island groups on the Map (Overlays: IOTA), with the groups in your log filled in. "
+                                 @"The group list is \u00A9 RSGB and IOTA Ltd, who allow downloading it for your own personal, "
+                                 @"non-commercial use, so ADIF Lint doesn't include it: Download fetches it from iota-world.org "
+                                 @"(about 290 KB) into the plugin's settings folder on this Mac. Download again to update it.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _iotaUpdate = [NSButton buttonWithTitle:@"Download" target:self action:@selector(iotaUpdate:)];
+    _iotaStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    return sectionStack(@[ sectionTitle(@"IOTA Groups"), help, _iotaUpdate, _iotaStatus ], @"settings.iota");
+}
+
+- (void)iotaUpdate:(id)sender {
+    _iotaUpdate.enabled = NO;
+    _iotaStatus.stringValue = @"Downloading IOTA's group list...";
+    _iotaStatus.textColor = NSColor.secondaryLabelColor;
+    if (self.onIotaUpdate) self.onIotaUpdate();
+}
+
+- (void)setIotaStatus:(NSString *)text ok:(BOOL)ok {
+    _iotaUpdate.enabled = YES;
+    _iotaStatus.stringValue = text ?: @"";
+    _iotaStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
 - (void)countryUpdate:(id)sender {

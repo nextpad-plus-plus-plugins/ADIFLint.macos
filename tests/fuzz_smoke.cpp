@@ -17,6 +17,7 @@
 #include "adif_profiles.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
+#include "adif_world.h"
 
 #include <chrono>
 #include <cstdio>
@@ -363,6 +364,36 @@ int main(int argc, char **argv) {
         parseLoggerCommand(t);
         parseN1mmXml(t);
         if (gFailures) break;
+    }
+    // IOTA's group list is downloaded text: whatever its strings, a group read from them has a
+    // sane box, and its boxes stay within -180..180.
+    {
+        const std::vector<std::string> values = {"EU-005", "eu-5", "OC016", "AN-016", "-10.75", "178.25", "-175.25", "-180", "180", "90",
+                                                 "-90", "0", "179.92", "-179.92", "", "1.5"};
+        static const char kIota[] = "-.0123456789EUANOCSAF eu9";
+        for (int i = 0; i < iterations * 4; ++i) {
+            std::string f[7];
+            for (std::string &v : f) {
+                v = values[rng() % values.size()];
+                if (rng() % 3 == 0 && !v.empty()) v[rng() % v.size()] = kIota[rng() % (sizeof kIota - 1)];
+                if (rng() % 7 == 0) v.insert(rng() % (v.size() + 1), 1, kIota[rng() % (sizeof kIota - 1)]);
+            }
+            std::string ref = iotaRef(f[0]);
+            bool refOk = ref.empty() || (ref.size() == 6 && ref[2] == '-');
+            IotaGroup g;
+            bool boxOk = true;
+            if (iotaGroup(f[0], "x", f[1], f[2], f[3], f[4], f[5], &g)) {
+                boxOk = g.south <= g.north && g.south >= -90 && g.north <= 90 && g.west >= -180 && g.west <= 180 && g.west <= g.east &&
+                        g.east - g.west <= 360 && g.east <= 360;
+                for (const auto &b : iotaBoxes(g)) boxOk &= b[0] >= -180 && b[2] <= 180 && b[0] <= b[2] && b[1] <= b[3];
+            }
+            if (!refOk || !boxOk) {
+                std::printf("FAIL iota: %s %s %s %s %s %s\n", f[0].c_str(), f[2].c_str(), f[3].c_str(), f[4].c_str(), f[5].c_str(),
+                            refOk ? "box" : "ref");
+                ++gFailures;
+                break;
+            }
+        }
     }
     {
         auto t0 = std::chrono::steady_clock::now();

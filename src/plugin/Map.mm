@@ -1,9 +1,11 @@
 #import "Map.h"
 
 #import "Country.h"
+#import "IotaGroups.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#include "adif_detail.h"
 #include "adif_geo.h"
 #include "adif_palette.h"
 #include "adif_projection.h"
@@ -12,6 +14,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <dlfcn.h>
+#include <functional>
+#include <fstream>
+#include <sstream>
 #include <map>
 #include <set>
 #include <tuple>
@@ -29,9 +35,9 @@ struct ADIFMapEntity {
 
 // What the pointer is over, or what was clicked.
 struct ADIFMapHit {
-    enum Kind { None, Square, Dxcc, Park, Contact, Empty } kind = None;
+    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Empty } kind = None;
     std::string square;  // the 4-character square under the point (always set on the map)
-    size_t index = 0;    // into squares, entities, parks or contacts
+    size_t index = 0;    // into squares, entities, parks, contacts or IOTA groups (ADIFIotaGroups)
 };
 
 // How the map looks: the Options menu, the colour popup and the overlay checkboxes.
@@ -49,6 +55,8 @@ struct ADIFMapStyle {
     bool cqZones = false, ituZones = false, states = false, countries = false;  // overlays
     // Each overlay's names or numbers, shown while the overlay is (labels: the grid squares').
     bool cqLabels = true, ituLabels = true, stateLabels = true, countryLabels = true;
+    bool counties = false, countyLabels = true, cities = false, cityLabels = true;
+    bool iota = false, iotaLabels = true;  // IOTA's island groups (downloaded in Settings)
 };
 
 // QSOs at one exact place (MapQso::located), for the Contacts layer.
@@ -68,7 +76,8 @@ struct ADIFMapAgg {
 
 namespace {
 
-constexpr double kMaxZoom = 64;
+constexpr double kMaxZoom = 1024;   // city level: a kilometre is some 30 points across
+constexpr double kDetailZoom = 12;  // from here the 1:10m detail (map-detail.bin) replaces the 1:50m maps
 constexpr double kPin = 4;  // a contact pin's head radius (times Style's marker size); the head is 2.2 of these above the point
 
 // ── Colours ──
@@ -136,6 +145,48 @@ const OverlayCache &overlay(adif::Overlay o) {
     return c;
 }
 
+// The 1:10m detail, read once from map-detail.bin beside the plugin; empty without it (the
+// map then stays on the 1:50m maps).
+const adif::MapDetail &mapDetail() {
+    static adif::MapDetail detail;
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
+        Dl_info info{};
+        if (dladdr((const void *)&mapDetail, &info) && info.dli_fname) {
+            std::string path = info.dli_fname;
+            path = path.substr(0, path.find_last_of('/')) + "/map-detail.bin";
+            std::ifstream in(path, std::ios::binary);
+            std::stringstream bytes;
+            bytes << in.rdbuf();
+            detail.load(bytes.str());
+        }
+    }
+    return detail;
+}
+
+// Natural Earth's zoom levels are a web map's: the whole world is about 2 on ours at 1x.
+double webZoom(double zoom) { return std::log2(std::max(1.0, zoom)) + 2; }
+
+// A detail layer's shapes in a box of longitude and latitude, on the plane; `keep` decides by
+// a shape's rank.
+CGMutablePathRef detailPath(const adif::Projector &pr, adif::DetailLayer l, bool polygons, double west, double south, double east, double north,
+                            const std::function<bool(int)> &keep) {
+    const adif::MapDetail &detail = mapDetail();
+    CGMutablePathRef m = CGPathCreateMutable();
+    for (size_t i : detail.within(l, west, south, east, north)) {
+        const adif::DetailShape &shape = detail.shapes(l)[i];
+        if (!keep(shape.rank)) continue;
+        for (const adif::ShapePiece &piece : adif::projectShape(pr, detail.points(l, shape), polygons, false)) {
+            for (size_t k = 0; k < piece.pts.size(); ++k)
+                if (k == 0) CGPathMoveToPoint(m, nullptr, piece.pts[k].first, piece.pts[k].second);
+                else CGPathAddLineToPoint(m, nullptr, piece.pts[k].first, piece.pts[k].second);
+            if (piece.closed) CGPathCloseSubpath(m);
+        }
+    }
+    return m;
+}
+
 // A layer projected onto the plane, kept for the projection in use (and the globe's turn).
 // On the globe, shapes are cut where they go behind (adif::projectShape).
 CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRank = 99) {
@@ -186,6 +237,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)showWest:(double)w south:(double)s east:(double)e north:(double)n;  // a region
 - (NSPoint)viewPointForLon:(double)lon lat:(double)lat;
 - (const std::vector<ADIFMapContact> &)contacts;
+- (std::vector<size_t>)iotaQsos:(const std::string &)ref;  // the QSOs with this IOTA reference
+- (void)selectedPlace:(double *)lat lon:(double *)lon name:(std::string *)name;
 @end
 
 @implementation ADIFMapView {
@@ -194,6 +247,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     std::vector<ADIFMapContact> _contacts;
     std::vector<ADIFMapAgg> _squareAgg, _entityAgg, _contactAgg;
     std::vector<bool> _entityDot;  // drawn as a dot: no land at this scale, or too small on screen
+    std::map<std::string, std::vector<size_t>> _iotaQsos;  // IOTA reference -> its QSOs (into _data.qsos)
     std::vector<std::string> _bands;  // in the data, frequency order
     int _minYear, _maxYear;
     adif::Projector _pr;    // in use: the globe turned to wherever you dragged it
@@ -283,6 +337,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         _contacts[it->second].qsos.push_back(i);
     }
     for (const ADIFMapContact &c : _contacts) _contactAgg.push_back([self aggregate:c.qsos]);
+    _iotaQsos.clear();
+    for (size_t i = 0; i < _data.qsos.size(); ++i)
+        if (!_data.qsos[i].iota.empty()) _iotaQsos[_data.qsos[i].iota].push_back(i);
     std::set<std::string> bands;
     _minYear = _maxYear = 0;
     for (const adif::MapQso &q : _data.qsos) {
@@ -315,6 +372,38 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 - (const std::vector<ADIFMapContact> &)contacts {
     return _contacts;
+}
+
+- (std::vector<size_t>)iotaQsos:(const std::string &)ref {
+    auto it = _iotaQsos.find(ref);
+    return it == _iotaQsos.end() ? std::vector<size_t>() : it->second;
+}
+
+// Where the clicked thing is (a contact, square, park or DXCC entity) and what to call it;
+// with nothing clicked, the middle of the map.
+- (void)selectedPlace:(double *)lat lon:(double *)lon name:(std::string *)name {
+    const ADIFMapHit &h = _selected;
+    double la = 0, lo = 0;
+    *name = "";
+    if (h.kind == ADIFMapHit::Contact && h.index < _contacts.size()) {
+        la = _contacts[h.index].lat, lo = _contacts[h.index].lon;
+        if (!_contacts[h.index].qsos.empty() && _contacts[h.index].qsos[0] < _data.qsos.size()) *name = _data.qsos[_contacts[h.index].qsos[0]].call;
+    } else if (h.kind == ADIFMapHit::Dxcc && h.index < _entities.size()) {
+        la = _entities[h.index].lat, lo = _entities[h.index].lon, *name = _entities[h.index].name;
+    } else if (h.kind == ADIFMapHit::Park && h.index < _data.parks.size() && adif::gridToLatLon(_data.parks[h.index].grid, &la, &lo)) {
+        *name = _data.parks[h.index].program + " " + _data.parks[h.index].reference;
+    } else if (h.kind == ADIFMapHit::Iota && h.index < ADIFIotaGroups().size()) {
+        const adif::IotaGroup &g = ADIFIotaGroups()[h.index];
+        la = (g.south + g.north) / 2, lo = (g.west + g.east) / 2;
+        if (lo > 180) lo -= 360;
+        *name = g.ref + " " + g.name;
+    } else if (!h.square.empty() && adif::gridToLatLon(h.square, &la, &lo)) {
+        *name = h.square;
+    } else {
+        NSRect b = self.bounds;
+        [self lonLatAt:NSMakePoint(NSMidX(b), NSMidY(b)) lon:&lo lat:&la];
+    }
+    *lat = la, *lon = lo;
 }
 
 - (void)setShowContacts:(BOOL)on {
@@ -431,6 +520,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     for (int i = 0; i < steps; ++i) pts.emplace_back(e, s + (n - s) * i / steps);
     for (int i = 0; i < steps; ++i) pts.emplace_back(e - (e - w) * i / steps, n);
     for (int i = 0; i < steps; ++i) pts.emplace_back(w, n - (n - s) * i / steps);
+    return [self viewPath:pts close:YES wraps:NO];
+}
+
+// One box of an IOTA group (adif::iotaBoxes), its edges curved as the projection bends them.
+- (NSBezierPath *)iotaBoxPath:(const std::array<double, 4> &)box {
+    bool straight = _pr.kind() == adif::Projection::Equirectangular || _pr.kind() == adif::Projection::Mercator;
+    double w = box[0], s = box[1], e = box[2], n = box[3];
+    int sx = straight ? 1 : std::max(1, (int)std::ceil((e - w) / 2)), sy = straight ? 1 : std::max(1, (int)std::ceil((n - s) / 2));
+    std::vector<std::pair<double, double>> pts;
+    for (int i = 0; i < sx; ++i) pts.emplace_back(w + (e - w) * i / sx, s);
+    for (int i = 0; i < sy; ++i) pts.emplace_back(e, s + (n - s) * i / sy);
+    for (int i = 0; i < sx; ++i) pts.emplace_back(e - (e - w) * i / sx, n);
+    for (int i = 0; i < sy; ++i) pts.emplace_back(w, n - (n - s) * i / sy);
     return [self viewPath:pts close:YES wraps:NO];
 }
 
@@ -772,42 +874,80 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                                                                   [sea blendedColorWithFraction:0.3 ofColor:NSColor.blackColor] ]];
         [light drawFromCenter:NSMakePoint(middle.x - radius * 0.35, middle.y + radius * 0.35) radius:0 toCenter:middle radius:radius options:0];
     }
+    double west, south, east, north;  // the longitudes and latitudes in view
+    [self visibleWest:&west south:&south east:&east north:&north];
     CGContextSaveGState(ctx);
     CGContextTranslateCTM(ctx, NSMidX(b) - _cx * ppu, NSMidY(b) - _cy * ppu);
     CGContextScaleCTM(ctx, ppu, ppu);
-    bool fine = _zoom >= 3;
-    setFill(ctx, pal.land);
-    CGContextAddPath(ctx, projectedLayer(_pr, fine ? adif::MapLayer::Land50 : adif::MapLayer::Land110));
-    CGContextEOFillPath(ctx);
-    setFill(ctx, pal.ocean);  // lakes: the ocean's colour; their islands stay land
-    CGContextAddPath(ctx, projectedLayer(_pr, fine ? adif::MapLayer::Lakes50 : adif::MapLayer::Lakes110));
-    CGContextEOFillPath(ctx);
-    setStroke(ctx, pal.river, 0.85);
-    CGContextSetLineWidth(ctx, (_zoom >= 8 ? 1.0 : 0.7) / ppu);
-    CGContextSetLineJoin(ctx, kCGLineJoinRound);
-    CGContextAddPath(ctx, projectedLayer(_pr, adif::MapLayer::Rivers50, _zoom < 2 ? 2 : _zoom < 4 ? 4 : 6));
-    CGContextStrokePath(ctx);
-    if (_zoom >= 2.5) {  // states and provinces: US, Canada, Australia, Russia...
+    if (_zoom >= kDetailZoom && !mapDetail().empty()) {
+        // Zoomed in: the 1:10m detail, only the shapes in view (with a margin).
+        double w = west - 1, s = south - 1, e = east + 1, n = north + 1, web = webZoom(_zoom);
+        auto all = [](int) { return true; };
+        auto draw = [&](adif::DetailLayer l, bool polygons, const std::function<bool(int)> &keep) {
+            CGMutablePathRef path = detailPath(_pr, l, polygons, w, s, e, n, keep);
+            CGContextAddPath(ctx, path);
+            CGPathRelease(path);
+        };
+        setFill(ctx, pal.land);
+        draw(adif::DetailLayer::Land, true, all);
+        CGContextEOFillPath(ctx);
+        // Towns and cities, a little lighter than the land around them.
+        CGContextSetFillColorWithColor(ctx, [rgb(pal.land) blendedColorWithFraction:pal.dark ? 0.14 : 0.18 ofColor:pal.dark ? NSColor.whiteColor : NSColor.grayColor].CGColor);
+        draw(adif::DetailLayer::Urban, true, all);
+        CGContextFillPath(ctx);
+        setFill(ctx, pal.ocean);
+        draw(adif::DetailLayer::Lakes, true, all);
+        CGContextEOFillPath(ctx);
+        setStroke(ctx, pal.river, 0.85);
+        CGContextSetLineWidth(ctx, 1.0 / ppu);
+        CGContextSetLineJoin(ctx, kCGLineJoinRound);
+        draw(adif::DetailLayer::Rivers, false, [&](int rank) { return rank <= (web < 6 ? 6 : 12); });
+        CGContextStrokePath(ctx);
         CGFloat dash[] = {(CGFloat)(3 / ppu), (CGFloat)(2 / ppu)};
         CGContextSetLineDash(ctx, 0, dash, 2);
-        setStroke(ctx, pal.border, 0.4);
-        CGContextSetLineWidth(ctx, 0.5 / ppu);
-        CGContextAddPath(ctx, projectedLayer(_pr, adif::MapLayer::States50));
+        setStroke(ctx, pal.border, 0.45);
+        CGContextSetLineWidth(ctx, 0.6 / ppu);
+        draw(adif::DetailLayer::States, false, [&](int rank) { return rank <= (web + 1.5) * 10; });
         CGContextStrokePath(ctx);
         CGContextSetLineDash(ctx, 0, nullptr, 0);
+        setStroke(ctx, pal.border, 0.7);
+        CGContextSetLineWidth(ctx, 1.0 / ppu);
+        draw(adif::DetailLayer::Borders, false, all);
+        CGContextStrokePath(ctx);
+        CGContextRestoreGState(ctx);
+    } else {  // the 1:110m and 1:50m maps
+        bool fine = _zoom >= 3;
+        setFill(ctx, pal.land);
+        CGContextAddPath(ctx, projectedLayer(_pr, fine ? adif::MapLayer::Land50 : adif::MapLayer::Land110));
+        CGContextEOFillPath(ctx);
+        setFill(ctx, pal.ocean);  // lakes: the ocean's colour; their islands stay land
+        CGContextAddPath(ctx, projectedLayer(_pr, fine ? adif::MapLayer::Lakes50 : adif::MapLayer::Lakes110));
+        CGContextEOFillPath(ctx);
+        setStroke(ctx, pal.river, 0.85);
+        CGContextSetLineWidth(ctx, (_zoom >= 8 ? 1.0 : 0.7) / ppu);
+        CGContextSetLineJoin(ctx, kCGLineJoinRound);
+        CGContextAddPath(ctx, projectedLayer(_pr, adif::MapLayer::Rivers50, _zoom < 2 ? 2 : _zoom < 4 ? 4 : 6));
+        CGContextStrokePath(ctx);
+        if (_zoom >= 2.5) {  // states and provinces: US, Canada, Australia, Russia...
+            CGFloat dash[] = {(CGFloat)(3 / ppu), (CGFloat)(2 / ppu)};
+            CGContextSetLineDash(ctx, 0, dash, 2);
+            setStroke(ctx, pal.border, 0.4);
+            CGContextSetLineWidth(ctx, 0.5 / ppu);
+            CGContextAddPath(ctx, projectedLayer(_pr, adif::MapLayer::States50));
+            CGContextStrokePath(ctx);
+            CGContextSetLineDash(ctx, 0, nullptr, 0);
+        }
+        setStroke(ctx, pal.border, _zoom >= 2 ? 0.6 : 0.35);
+        CGContextSetLineWidth(ctx, (_zoom >= 4 ? 0.9 : 0.6) / ppu);
+        CGContextAddPath(ctx, projectedLayer(_pr, adif::MapLayer::Borders50));
+        CGContextStrokePath(ctx);
+        CGContextRestoreGState(ctx);
     }
-    setStroke(ctx, pal.border, _zoom >= 2 ? 0.6 : 0.35);
-    CGContextSetLineWidth(ctx, (_zoom >= 4 ? 0.9 : 0.6) / ppu);
-    CGContextAddPath(ctx, projectedLayer(_pr, adif::MapLayer::Borders50));
-    CGContextStrokePath(ctx);
-    CGContextRestoreGState(ctx);
     if (globe) {  // the edge turns away into shadow, so the globe looks round
         NSGradient *edge = [[NSGradient alloc] initWithColors:@[ [NSColor colorWithCalibratedWhite:0 alpha:0], [NSColor colorWithCalibratedWhite:0 alpha:pal.dark ? 0.38 : 0.18] ]];
         [edge drawFromCenter:middle radius:radius * 0.72 toCenter:middle radius:radius options:0];
     }
 
-    double west, south, east, north;
-    [self visibleWest:&west south:&south east:&east north:&north];
     double clon = 0, clat = 0;
     [self lonLatAt:NSMakePoint(NSMidX(b), NSMidY(b)) lon:&clon lat:&clat];
     double squareW = [self pixelsForLon:clon lat:clat span:2], fieldW = squareW * 10;
@@ -853,7 +993,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     // land is too small on screen to see, is a dot, drawn further down.
     _entityDot.assign(_entities.size(), true);
     if (_showEntities) {
-        const OverlayCache &land = overlay(adif::Overlay::Countries);
+        const OverlayCache &land = overlay(adif::Overlay::Subunits);
         for (size_t i = 0; i < _entities.size(); ++i) {
             const ADIFMapEntity &e = _entities[i];
             if (e.land.empty()) continue;
@@ -891,7 +1031,14 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         {_style.states, _style.stateLabels, adif::Overlay::UsStates, [NSColor colorWithCalibratedWhite:ink alpha:0.5], 0.7, 10, 26},
         {_style.ituZones, _style.ituLabels, adif::Overlay::ItuZones, pal.dark ? rgb(0x4FC3F7, 0.75) : rgb(0x0277BD, 0.8), 1.0, 12, 30},
         {_style.cqZones, _style.cqLabels, adif::Overlay::CqZones, pal.dark ? rgb(0xFFB74D, 0.8) : rgb(0xE65100, 0.8), 1.4, 14, 30},
+        // US counties from 2.5x: the whole world would be a grey mesh.
+        {_style.counties && _zoom >= 2.5, _style.countyLabels, adif::Overlay::UsCounties, [NSColor colorWithCalibratedWhite:ink alpha:0.38], 0.5, 9, 34},
     };
+    // City names come before county names (Milwaukee the city, not the county, by its dot): with
+    // both shown, the counties' names wait for the cities and go only where they're clear of them.
+    bool countiesAfterCities = _style.cities && _style.cityLabels && !mapDetail().empty();
+    std::vector<std::pair<NSString *, NSRect>> countyNames;
+    NSDictionary *countyAttrs = nil;
     for (const OverlayStyle &os : overlayStyles) {
         if (!os.on) continue;
         const OverlayCache &oc = overlay(os.which);
@@ -909,11 +1056,130 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             NSPoint p = [self viewPointForLon:a.labelLon lat:a.labelLat];
             if (!NSPointInRect(p, NSInsetRect(b, -20, -10))) continue;
             double wide = [self pixelsForLon:a.labelLon lat:a.labelLat span:std::min(oc.span[i].first, 60.0)];
-            NSString *name = ADIFString(a.name);
+            // A county is named "WI,Dane" (as CNTY writes it); its label is the name.
+            NSString *name = ADIFString(os.which == adif::Overlay::UsCounties ? a.name.substr(a.name.find(',') + 1) : a.name);
             NSSize sz = [name sizeWithAttributes:attrs];
             if (wide < std::max((double)os.minPixels, sz.width + 6)) continue;  // too small on screen for its name
-            [name drawAtPoint:NSMakePoint(p.x - sz.width / 2, p.y - sz.height / 2) withAttributes:attrs];
+            NSRect r = NSMakeRect(p.x - sz.width / 2, p.y - sz.height / 2, sz.width, sz.height);
+            if (os.which == adif::Overlay::UsCounties && countiesAfterCities) {
+                countyNames.emplace_back(name, r);
+                countyAttrs = attrs;
+                continue;
+            }
+            [name drawAtPoint:r.origin withAttributes:attrs];
         }
+    }
+
+    // IOTA: IOTA's island groups (downloaded in Settings), each the box of longitude and
+    // latitude IOTA gives it: the groups in the log filled (more strongly when confirmed), the
+    // rest dashed. Each named by its reference where there's room, the log's groups first, and
+    // with its name too where the box is wide enough.
+    if (_style.iota) {
+        const std::vector<adif::IotaGroup> &groups = ADIFIotaGroups();
+        NSColor *tint = pal.dark ? rgb(0x4DD0E1) : rgb(0x00838F);
+        NSBezierPath *unworked = [NSBezierPath bezierPath];
+        std::vector<std::pair<size_t, NSRect>> shown;  // group, where its name goes (its larger box in view): worked first
+        size_t worked = 0;
+        for (size_t i = 0; i < groups.size(); ++i) {
+            const adif::IotaGroup &g = groups[i];
+            if (g.north < south || g.south > north) continue;
+            NSBezierPath *box = [NSBezierPath bezierPath];
+            NSRect named = NSZeroRect;  // across the 180th meridian a group is two boxes, at the map's two edges
+            for (const std::array<double, 4> &piece : adif::iotaBoxes(g)) {
+                NSBezierPath *p = [self iotaBoxPath:piece];
+                if (p.isEmpty) continue;
+                [box appendBezierPath:p];
+                NSRect r = NSIntersectionRect(p.bounds, b);
+                if (r.size.width * r.size.height > named.size.width * named.size.height) named = r;
+            }
+            if (NSIsEmptyRect(named)) continue;
+            auto it = _iotaQsos.find(g.ref);
+            if (it == _iotaQsos.end()) {
+                [unworked appendBezierPath:box];
+                shown.emplace_back(i, named);
+                continue;
+            }
+            bool confirmed = false;
+            for (size_t qi : it->second) confirmed |= _data.qsos[qi].confirmed;
+            bool lit = (_hover.kind == ADIFMapHit::Iota && _hover.index == i) || (_selected.kind == ADIFMapHit::Iota && _selected.index == i);
+            [[tint colorWithAlphaComponent:(confirmed ? 0.42 : 0.22) + (lit ? 0.15 : 0)] setFill];
+            [box fill];
+            box.lineWidth = lit ? 2 : 1.2;
+            [[tint colorWithAlphaComponent:0.95] setStroke];
+            [box stroke];
+            shown.insert(shown.begin() + (long)worked++, {i, named});
+        }
+        unworked.lineWidth = 0.8;
+        CGFloat dash[] = {4, 3};
+        [unworked setLineDash:dash count:2 phase:0];
+        [[tint colorWithAlphaComponent:0.75] setStroke];
+        [unworked stroke];
+        if (_style.iotaLabels) {
+            NSShadow *halo = [[NSShadow alloc] init];
+            halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
+            halo.shadowBlurRadius = 2;
+            NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold],
+                                    NSForegroundColorAttributeName : [tint colorWithAlphaComponent:0.95], NSShadowAttributeName : halo};
+            std::vector<NSRect> taken;
+            for (size_t k = 0; k < shown.size(); ++k) {
+                const adif::IotaGroup &g = groups[shown[k].first];
+                NSRect box = shown[k].second;
+                NSString *ref = ADIFString(g.ref), *full = ADIFString(g.ref + " " + g.name);
+                NSSize sz = [full sizeWithAttributes:attrs];
+                NSString *text = sz.width + 6 <= box.size.width ? full : ref;
+                sz = [text sizeWithAttributes:attrs];
+                if (k >= worked && sz.width + 6 > box.size.width) continue;  // an unworked group too small on screen for its name
+                NSRect r = NSMakeRect(NSMidX(box) - sz.width / 2, NSMidY(box) - sz.height / 2, sz.width, sz.height);
+                bool clear = true;
+                for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -3, -1), r);
+                if (!clear) continue;
+                [text drawAtPoint:r.origin withAttributes:attrs];
+                taken.push_back(r);
+            }
+        }
+    }
+
+    // Cities: Natural Earth's 7,300, more as you zoom in (each from its own zoom), the most
+    // populous first, each name only where it doesn't run into another.
+    std::vector<NSRect> taken;  // city names and dots, which county names keep clear of
+    if (_style.cities && !mapDetail().empty()) {
+        double web = webZoom(_zoom);
+        NSShadow *halo = [[NSShadow alloc] init];
+        halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
+        halo.shadowBlurRadius = 2.5;
+        NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10.5 weight:NSFontWeightMedium],
+                                NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:ink alpha:0.92], NSShadowAttributeName : halo};
+        size_t shown = 0;
+        for (const adif::DetailCity &c : mapDetail().cities()) {
+            if (c.minZoom > web + 0.5 || c.lat < south - 1 || c.lat > north + 1) continue;
+            NSPoint p = [self viewPointForLon:c.lon lat:c.lat];
+            if (!NSPointInRect(p, NSInsetRect(b, -4, -4))) continue;
+            NSRect dotRect = NSMakeRect(p.x - 2.2, p.y - 2.2, 4.4, 4.4);
+            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:dotRect];
+            [[NSColor colorWithCalibratedWhite:ink alpha:0.9] setFill];
+            [dot fill];
+            [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.8] setStroke];
+            dot.lineWidth = 0.8;
+            [dot stroke];
+            if (_style.cityLabels) {
+                NSString *name = ADIFString(c.name);
+                NSSize sz = [name sizeWithAttributes:attrs];
+                NSRect r = NSMakeRect(p.x + 4, p.y - sz.height / 2, sz.width, sz.height);
+                bool clear = true;
+                for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
+                if (clear) {
+                    [name drawAtPoint:r.origin withAttributes:attrs];
+                    taken.push_back(r);
+                }
+            }
+            if (countiesAfterCities) taken.push_back(dotRect);
+            if (++shown > 800) break;
+        }
+    }
+    for (const auto &[name, r] : countyNames) {
+        bool clear = true;
+        for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
+        if (clear) [name drawAtPoint:r.origin withAttributes:countyAttrs];
     }
 
     // Lines to contacts: from your station (the QSO's MY_GRIDSQUARE, else home) to the contact
@@ -1161,7 +1427,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)drawLegend {
     const MapPalette &pal = paletteAt(_style.palette);
     struct Entry {
-        int kind;  // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text
+        int kind;  // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text, 9 dashed box
         NSColor *color;
         std::string text;
     };
@@ -1221,6 +1487,13 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     for (const std::string &p : programs) rows.push_back({3, [self programColor:p], p});
     if (_style.mine && !_data.mine.empty()) rows.push_back({4, rgb(pal.me), "my station"});
     if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], "lines to contacts"});
+    if (_style.iota && !ADIFIotaGroups().empty()) {
+        NSColor *tint = pal.dark ? rgb(0x4DD0E1) : rgb(0x00838F);
+        rows.push_back({7, nil, "IOTA groups"});
+        rows.push_back({0, [tint colorWithAlphaComponent:0.42], "confirmed"});
+        rows.push_back({0, [tint colorWithAlphaComponent:0.22], "worked"});
+        rows.push_back({9, [tint colorWithAlphaComponent:0.75], "not worked"});
+    }
     if (rows.empty()) return;
 
     NSDictionary *text = @{NSFontAttributeName : [NSFont systemFontOfSize:11],
@@ -1228,7 +1501,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:11],
                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9]};
     CGFloat width = 0, lineH = 16;
-    for (const Entry &e : rows) width = std::max(width, [ADIFString(e.text) sizeWithAttributes:e.kind == 7 ? head : text].width + (e.kind >= 7 ? 0 : 20));
+    for (const Entry &e : rows)
+        width = std::max(width, [ADIFString(e.text) sizeWithAttributes:e.kind == 7 ? head : text].width + (e.kind == 7 || e.kind == 8 ? 0 : 20));
     NSRect box = NSMakeRect(NSMinX(self.bounds) + 8, NSMinY(self.bounds) + 8, width + 16, rows.size() * lineH + 10);
     NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
     [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.62] setFill];
@@ -1236,7 +1510,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGFloat y = NSMaxY(box) - 5 - lineH;
     for (const Entry &e : rows) {
         NSPoint at = NSMakePoint(NSMinX(box) + 8, y);
-        if (e.kind >= 7) {
+        if (e.kind == 7 || e.kind == 8) {
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x, y + 1) withAttributes:e.kind == 7 ? head : text];
         } else {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
@@ -1248,6 +1522,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 case 3: m = [self marker:2 at:c size:5]; break;
                 case 4: m = [self marker:3 at:c size:6]; break;
                 case 6: m = [self contactMarkerAt:NSMakePoint(c.x, _style.contact == 0 ? c.y - 5 : c.y)]; break;
+                case 9: {
+                    m = [NSBezierPath bezierPathWithRect:NSMakeRect(c.x - 5, c.y - 5, 10, 10)];
+                    CGFloat dash[] = {3, 2};
+                    [m setLineDash:dash count:2 phase:0];
+                    break;
+                }
                 case 5:
                     m = [NSBezierPath bezierPath];
                     [m moveToPoint:NSMakePoint(c.x - 6, c.y)];
@@ -1260,7 +1540,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     [m lineToPoint:NSMakePoint(c.x + 6, c.y)];
                     break;
             }
-            if (e.kind == 5 || (e.kind == 6 && _style.contact == 2)) {
+            if (e.kind == 5 || e.kind == 9 || (e.kind == 6 && _style.contact == 2)) {
                 if (e.kind == 6) m.lineWidth = 1.5;
                 [e.color setStroke];
                 [m stroke];
@@ -1306,7 +1586,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         for (size_t i = 0; i < _data.squares.size(); ++i)
             if (_data.squares[i].grid == h.square) return h.kind = ADIFMapHit::Square, h.index = i, h;
     if (_showEntities) {  // a shaded entity: the point is inside an odd number of its rings
-        const OverlayCache &land = overlay(adif::Overlay::Countries);
+        const OverlayCache &land = overlay(adif::Overlay::Subunits);
         for (size_t i = 0; i < _entities.size(); ++i) {
             if (i >= _entityDot.size() || _entityDot[i]) continue;
             bool in = false;
@@ -1319,6 +1599,16 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             }
             if (in) return h.kind = ADIFMapHit::Dxcc, h.index = i, h;
         }
+    }
+    if (_style.iota) {  // the smallest IOTA box the point is in
+        const std::vector<adif::IotaGroup> &groups = ADIFIotaGroups();
+        double best = 1e9;
+        for (size_t i = 0; i < groups.size(); ++i)
+            for (const std::array<double, 4> &box : adif::iotaBoxes(groups[i])) {
+                double size = (groups[i].east - groups[i].west) * (groups[i].north - groups[i].south);
+                if (lon >= box[0] && lon <= box[2] && lat >= box[1] && lat <= box[3] && size < best) best = size, h.kind = ADIFMapHit::Iota, h.index = i;
+            }
+        if (h.kind == ADIFMapHit::Iota) return h;
     }
     h.kind = ADIFMapHit::Empty;
     return h;
@@ -1448,7 +1738,8 @@ struct {
     NSTableView *table = nil;
     NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *contacts = nil, *parks = nil, *mine = nil;
     NSButton *cqZones = nil, *ituZones = nil, *states = nil, *countries = nil;
-    NSButton *cqLabels = nil, *ituLabels = nil, *stateLabels = nil, *countryLabels = nil;  // labels: the grid squares' 
+    NSButton *cqLabels = nil, *ituLabels = nil, *stateLabels = nil, *countryLabels = nil;  // labels: the grid squares'
+    NSButton *counties = nil, *countyLabels = nil, *cities = nil, *cityLabels = nil, *iota = nil, *iotaLabels = nil;
     NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil, *region = nil;
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
@@ -1511,6 +1802,12 @@ ADIFMapStyle savedStyle() {
     s.ituLabels = flag("mapItuLabels", true);
     s.countryLabels = flag("mapCountryLabels", true);
     s.stateLabels = flag("mapStateLabels", true);
+    s.counties = flag("mapCounties", false);
+    s.countyLabels = flag("mapCountyLabels", true);
+    s.cities = flag("mapCities", false);
+    s.cityLabels = flag("mapCityLabels", true);
+    s.iota = flag("mapIota", false);
+    s.iotaLabels = flag("mapIotaLabels", true);
     s.legend = flag("mapLegend", true);
     s.rings = flag("mapRings", false);
     s.paths = flag("mapPaths", false);
@@ -1571,6 +1868,15 @@ std::string describe(const ADIFMapHit &h) {
             }
             return callsOf(c.qsos) + ": " + plural(c.qsos.size(), "QSO") + " at " + at + " (from " + q.locatedBy + ")." + from;
         }
+        case ADIFMapHit::Iota: {
+            if (h.index >= ADIFIotaGroups().size()) break;
+            const adif::IotaGroup &g = ADIFIotaGroups()[h.index];
+            std::vector<size_t> qsos = [mw.view iotaQsos:g.ref];
+            bool confirmed = false;
+            for (size_t qi : qsos) confirmed |= qi < mw.data.qsos.size() && mw.data.qsos[qi].confirmed;
+            return "IOTA " + g.ref + " " + g.name + ": " +
+                   (qsos.empty() ? "not worked" : plural(qsos.size(), "QSO") + (confirmed ? ", confirmed" : "") + " (" + callsOf(qsos) + ")") + "." + where;
+        }
         case ADIFMapHit::Empty: return h.square + ": no QSOs." + where;
         case ADIFMapHit::None: break;
     }
@@ -1594,6 +1900,7 @@ void selected(const ADIFMapHit &h) {
     if (h.kind == ADIFMapHit::Square) qsos = mw.data.squares[h.index].qsoIndex;
     else if (h.kind == ADIFMapHit::Dxcc) qsos = mw.dxcc[h.index].qsos;
     else if (h.kind == ADIFMapHit::Contact) qsos = mw.view.contacts[h.index].qsos;
+    else if (h.kind == ADIFMapHit::Iota && h.index < ADIFIotaGroups().size()) qsos = [mw.view iotaQsos:ADIFIotaGroups()[h.index].ref];
     else if (h.kind == ADIFMapHit::Park)
         for (const adif::MapPark &p : mw.data.parks)
             if (p.reference == mw.data.parks[h.index].reference && p.program == mw.data.parks[h.index].program) qsos.push_back(p.qso);
@@ -1966,6 +2273,25 @@ void exportPng() {
     setStatus("Saved " + ADIFStd(ADIFString(path).lastPathComponent) + ". " + mw.summary);
 }
 
+// Apple's unified map URL for a place card (developer.apple.com/documentation/mapkit/
+// unified-map-urls, read 2026-10-13): the Maps app opens there. Under the tests, the URL is
+// written to a file instead.
+void openInAppleMaps() {
+    double lat = 0, lon = 0;
+    std::string name;
+    [mw.view selectedPlace:&lat lon:&lon name:&name];
+    NSURLComponents *url = [NSURLComponents componentsWithString:@"https://maps.apple.com/place"];
+    NSMutableArray *query = [NSMutableArray arrayWithObject:[NSURLQueryItem queryItemWithName:@"coordinate"
+                                                                                       value:[NSString stringWithFormat:@"%.5f,%.5f", lat, lon]]];
+    if (!name.empty()) [query addObject:[NSURLQueryItem queryItemWithName:@"name" value:ADIFString(name)]];
+    url.queryItems = query;
+    if (const char *dir = getenv("ADIFLINT_TEST_SAVE_DIR")) {
+        [url.URL.absoluteString writeToFile:[@(dir) stringByAppendingPathComponent:@"apple-maps-url.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        return;
+    }
+    if (url.URL) [[NSWorkspace sharedWorkspace] openURL:url.URL];
+}
+
 NSButton *smallButton(NSString *title, NSString *tip, void (^action)(void)) {
     NSButton *b = [NSButton buttonWithTitle:title target:nil action:nil];
     b.toolTip = tip;
@@ -2010,6 +2336,19 @@ void cmdMap() {
         mw.countryLabels.toolTip = @"Each country's name, where it fits inside the country on screen";
         mw.stateLabels = ADIFCheckbox(@"US states", flag("mapStateLabels", true));
         mw.stateLabels.toolTip = @"Each state's postal code, where it fits";
+        mw.counties = ADIFCheckbox(@"US counties", flag("mapCounties", false));
+        mw.counties.toolTip = @"County lines (Natural Earth, public domain), from 2.5x zoom";
+        mw.countyLabels = ADIFCheckbox(@"US counties", flag("mapCountyLabels", true));
+        mw.countyLabels.toolTip = @"Each county's name, where it fits";
+        mw.cities = ADIFCheckbox(@"Cities", flag("mapCities", false));
+        mw.cities.toolTip = @"7,300 cities and towns (Natural Earth, public domain), more as you zoom in";
+        mw.cityLabels = ADIFCheckbox(@"Cities", flag("mapCityLabels", true));
+        mw.cityLabels.toolTip = @"City names, where they don't run into each other";
+        mw.iota = ADIFCheckbox(@"IOTA", flag("mapIota", false));
+        mw.iota.toolTip = @"IOTA's island groups, the ones in your log filled in. The group list is downloaded in Settings (IOTA Groups)";
+        mw.iotaLabels = ADIFCheckbox(@"IOTA", flag("mapIotaLabels", true));
+        mw.iotaLabels.toolTip = @"Each group's reference (EU-005), and its name where there is room";
+        mw.countyLabels.identifier = @"map.labels.counties", mw.cityLabels.identifier = @"map.labels.cities", mw.iotaLabels.identifier = @"map.labels.iota";
         mw.labels.identifier = @"map.labels.grid", mw.cqLabels.identifier = @"map.labels.cq", mw.ituLabels.identifier = @"map.labels.itu";
         mw.countryLabels.identifier = @"map.labels.countries", mw.stateLabels.identifier = @"map.labels.states";
         mw.cqZones = ADIFCheckbox(@"CQ zones", flag("mapCqZones", false));
@@ -2021,8 +2360,8 @@ void cmdMap() {
         mw.cqZones.toolTip = @"CQ zones 1-40 (HB9HIL's hamradio-zones-geojson, MIT); approximate";
         mw.ituZones.toolTip = @"ITU zones 1-90 (HB9HIL's hamradio-zones-geojson, MIT); approximate";
         mw.entities = ADIFCheckbox(@"DXCC", flag("mapDxcc", true));
-        mw.entities.toolTip = @"Each DXCC entity worked, its own land shaded (Alaska apart from the United States, Sardinia from Italy); "
-                              @"a dot for one too small to shade. England, Scotland and Wales share Great Britain, and the two Russias Russia";
+        mw.entities.toolTip = @"Each DXCC entity worked, its own land shaded (Alaska apart from the United States, Sardinia from Italy, "
+                              @"Scotland from England); a dot for one too small to shade";
         mw.contacts = ADIFCheckbox(@"Contacts", flag("mapContacts", false));
         mw.contacts.toolTip = @"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
                               @"square is 100 km or more across: Worked squares shows those). Style chooses pins, dots or crosshairs";
@@ -2079,10 +2418,13 @@ void cmdMap() {
             mw.ituLabels.enabled = mw.ituZones.state == NSControlStateValueOn;
             mw.countryLabels.enabled = mw.countries.state == NSControlStateValueOn;
             mw.stateLabels.enabled = mw.states.state == NSControlStateValueOn;
+            mw.countyLabels.enabled = mw.counties.state == NSControlStateValueOn;
+            mw.cityLabels.enabled = mw.cities.state == NSControlStateValueOn;
+            mw.iotaLabels.enabled = mw.iota.state == NSControlStateValueOn;
         };
         labelsFollow();
         for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.cqZones, mw.ituZones, mw.states, mw.countries, mw.cqLabels, mw.ituLabels,
-                               mw.countryLabels, mw.stateLabels ])
+                               mw.countryLabels, mw.stateLabels, mw.counties, mw.countyLabels, mw.cities, mw.cityLabels, mw.iota, mw.iotaLabels ])
             ADIFOnAction(b, ^{
             saveFlag("mapGrid", mw.grid.state == NSControlStateValueOn);
             saveFlag("mapLabels", mw.labels.state == NSControlStateValueOn);
@@ -2090,6 +2432,12 @@ void cmdMap() {
             saveFlag("mapItuLabels", mw.ituLabels.state == NSControlStateValueOn);
             saveFlag("mapCountryLabels", mw.countryLabels.state == NSControlStateValueOn);
             saveFlag("mapStateLabels", mw.stateLabels.state == NSControlStateValueOn);
+            saveFlag("mapCounties", mw.counties.state == NSControlStateValueOn);
+            saveFlag("mapCountyLabels", mw.countyLabels.state == NSControlStateValueOn);
+            saveFlag("mapCities", mw.cities.state == NSControlStateValueOn);
+            saveFlag("mapCityLabels", mw.cityLabels.state == NSControlStateValueOn);
+            saveFlag("mapIota", mw.iota.state == NSControlStateValueOn);
+            saveFlag("mapIotaLabels", mw.iotaLabels.state == NSControlStateValueOn);
             labelsFollow();
             saveFlag("mapCqZones", mw.cqZones.state == NSControlStateValueOn);
             saveFlag("mapItuZones", mw.ituZones.state == NSControlStateValueOn);
@@ -2098,6 +2446,8 @@ void cmdMap() {
             saveFlag("mapMine", mw.mine.state == NSControlStateValueOn);
             applyStyle();
             fillStyle();
+            if (b == mw.iota && mw.iota.state == NSControlStateValueOn && ADIFIotaGroups().empty())
+                setStatus("IOTA: download IOTA's group list first, in Settings (IOTA Groups).");
         });
         ADIFOnAction(mw.colorBy, ^{
             setSetting("mapColorBy", std::to_string(mw.colorBy.indexOfSelectedItem));
@@ -2114,6 +2464,9 @@ void cmdMap() {
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now, with its legend", ^{ exportPng(); });
+        NSButton *apple = smallButton(@"Apple Maps", @"Open what you clicked (a contact, square, park or entity), or the middle of the map, in Apple's Maps "
+                                                      @"app: streets and satellite. Maps goes online; ADIF Lint sends nothing.",
+                                      ^{ openInAppleMaps(); });
         NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Show:"), mw.squares, mw.entities, mw.contacts, mw.parks, mw.programs, mw.mine ]];
         row.spacing = 10;
         NSStackView *row2 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Only:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.colorBy ]];
@@ -2121,13 +2474,14 @@ void cmdMap() {
         [row2 setCustomSpacing:24 afterView:mw.confirmed];
         // Overlays, and under each one the box for its labels.
         NSGridView *overlays = [NSGridView gridViewWithViews:@[
-            @[ ADIFLabel(@"Overlays:"), mw.grid, mw.cqZones, mw.ituZones, mw.countries, mw.states ],
-            @[ ADIFLabel(@"Labels:"), mw.labels, mw.cqLabels, mw.ituLabels, mw.countryLabels, mw.stateLabels ]
+            @[ ADIFLabel(@"Overlays:"), mw.grid, mw.cqZones, mw.ituZones, mw.countries, mw.states, mw.counties, mw.cities, mw.iota ],
+            @[ ADIFLabel(@"Labels:"), mw.labels, mw.cqLabels, mw.ituLabels, mw.countryLabels, mw.stateLabels, mw.countyLabels, mw.cityLabels, mw.iotaLabels ]
         ]];
         overlays.rowSpacing = 6;
         overlays.columnSpacing = 10;
         overlays.rowAlignment = NSGridRowAlignmentFirstBaseline;
-        NSStackView *row3 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, mw.style, save ]];
+        NSStackView *row3 =
+            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, mw.style, save, apple ]];
         row3.spacing = 8;
         [row3 setCustomSpacing:24 afterView:world];
         mw.view = [[ADIFMapView alloc] initWithFrame:NSZeroRect];
@@ -2198,6 +2552,10 @@ void cmdMap() {
     refresh();
     [mw.window makeKeyAndOrderFront:nil];
     [mw.window makeFirstResponder:mw.view];
+}
+
+void iotaGroupsChanged() {
+    if (mw.view) mw.view.needsDisplay = YES;
 }
 
 void documentChanged() {

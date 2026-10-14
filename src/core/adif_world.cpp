@@ -118,6 +118,7 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
             q.myGrid = upper(trimmed(r.get("MY_GRIDSQUARE")));
             q.modeGroup = modeGroup(trimmed(r.get("MODE")));
             q.confirmed = confirmed;
+            q.iota = iotaRef(r.get("IOTA"));
             bool grid = !usableSquare(q.grid).empty() && gridToLatLon(q.grid, nullptr, nullptr);
             double lat = 0, lon = 0, w, s, e, n;
             if (locationToDegrees(trimmed(r.get("LAT")), true, &lat) && locationToDegrees(trimmed(r.get("LON")), false, &lon)) {
@@ -187,16 +188,17 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
 std::map<int, std::vector<RingRef>> dxccRings(const std::vector<EntityPlace> &places) {
     using Ring = std::vector<std::pair<double, double>>;
     struct Area {
-        std::string name;
+        std::string name, country;  // the subunit's name, and the country it is part of
         double labelLon = 0, labelLat = 0;       // where the country's name goes
         std::vector<Ring> rings;
         std::vector<std::array<double, 4>> box;  // west, south, east, north of each ring
         std::vector<std::set<int>> owners;       // the entities each ring pictures
     };
-    std::vector<Area> areas(overlayCount(Overlay::Countries));
+    std::vector<Area> areas(overlayCount(Overlay::Subunits));
     for (size_t a = 0; a < areas.size(); ++a) {
-        OverlayArea area = overlayArea(Overlay::Countries, a);
-        areas[a].name = area.name, areas[a].labelLon = area.labelLon, areas[a].labelLat = area.labelLat;
+        OverlayArea area = overlayArea(Overlay::Subunits, a);
+        areas[a].name = area.name.substr(0, area.name.find('|')), areas[a].country = area.name.substr(area.name.rfind('|') + 1);
+        areas[a].labelLon = area.labelLon, areas[a].labelLat = area.labelLat;
         areas[a].rings = std::move(area.rings);
         for (const Ring &r : areas[a].rings) {
             std::array<double, 4> b{999, 999, -999, -999};
@@ -334,32 +336,41 @@ std::map<int, std::vector<RingRef>> dxccRings(const std::vector<EntityPlace> &pl
             mainland = placed.count({(size_t)(where - areas.data()), r}) && gap(*where, which, r, 1) < 0.3;
         if (!mainland) where->owners[which].insert(e->dxcc);
     }
-    // A country's other rings join the nearest land that has an entity, nearest first, so an
-    // archipelago grows outward from its own start: Maui joins Oahu's Hawaii, the Magdalen
-    // Islands join Cape Breton's Canada, Sicily joins Italy.
-    for (Area &a : areas) {
-        std::vector<size_t> owned, open;
-        for (size_t r = 0; r < a.rings.size(); ++r) (a.owners[r].empty() ? open : owned).push_back(r);
+    // A country's other rings (over all its subunits) join the nearest land that has an
+    // entity, nearest first, so an archipelago grows outward from its own start: Maui joins
+    // Oahu's Hawaii, Hokkaido joins Honshu's Japan, the Magdalen Islands join Canada.
+    std::map<std::string, std::vector<RingRef>> countries;
+    for (size_t a = 0; a < areas.size(); ++a)
+        for (size_t r = 0; r < areas[a].rings.size(); ++r) countries[areas[a].country].push_back({a, r});
+    auto ringGap = [&](RingRef x, RingRef y) {  // the nearest two rings come, sampling the first
+        const Area &ax = areas[x.area], &ay = areas[y.area];
+        const auto &bx = ax.box[x.ring], &by = ay.box[y.ring];
+        double apartLat = std::max({0.0, by[1] - bx[3], bx[1] - by[3]});
+        if (apartLat > 60) return apartLat;
+        const Ring &rx = ax.rings[x.ring], &ry = ay.rings[y.ring];
+        size_t every = std::max<size_t>(1, rx.size() / 16);
+        double least = 1e9;
+        for (size_t i = 0; i < rx.size(); i += every)
+            for (const auto &q : ry) least = std::min(least, apart(rx[i].first, rx[i].second, q.first, q.second));
+        return least;
+    };
+    for (auto &kv : countries) {
+        std::vector<RingRef> owned, open;
+        for (RingRef ref : kv.second) (areas[ref.area].owners[ref.ring].empty() ? open : owned).push_back(ref);
         if (owned.empty() || open.empty()) continue;
-        struct Near {
-            double d = 1e9;
-            size_t ring = 0;
-        };
-        std::vector<Near> near(a.rings.size());
-        auto measure = [&](size_t r, size_t to) {
-            double d = gap(a, r, to, std::max<size_t>(1, a.rings[r].size() / 16));
-            if (d < near[r].d) near[r] = {d, to};
-        };
-        for (size_t r : open)
-            for (size_t o : owned) measure(r, o);
+        std::vector<std::pair<double, RingRef>> near(open.size(), {1e9, RingRef{}});
+        for (size_t i = 0; i < open.size(); ++i)
+            for (RingRef o : owned)
+                if (double d = ringGap(open[i], o); d < near[i].first) near[i] = {d, o};
         while (!open.empty()) {
             size_t pick = 0;
             for (size_t i = 1; i < open.size(); ++i)
-                if (near[open[i]].d < near[open[pick]].d) pick = i;
-            size_t r = open[pick];
-            open.erase(open.begin() + (long)pick);
-            a.owners[r] = a.owners[near[r].ring];
-            for (size_t other : open) measure(other, r);
+                if (near[i].first < near[pick].first) pick = i;
+            RingRef r = open[pick], with = near[pick].second;
+            open.erase(open.begin() + (long)pick), near.erase(near.begin() + (long)pick);
+            areas[r.area].owners[r.ring] = areas[with.area].owners[with.ring];
+            for (size_t i = 0; i < open.size(); ++i)
+                if (double d = ringGap(open[i], r); d < near[i].first) near[i] = {d, r};
         }
     }
     std::map<int, std::vector<RingRef>> out;
@@ -367,6 +378,42 @@ std::map<int, std::vector<RingRef>> dxccRings(const std::vector<EntityPlace> &pl
         for (size_t r = 0; r < areas[a].rings.size(); ++r)
             for (int dxcc : areas[a].owners[r]) out[dxcc].push_back({a, r});
     return out;
+}
+
+std::string iotaRef(std::string_view s) {
+    std::string v = upper(trimmed(s));
+    static const char *const kContinents[] = {"AF", "AN", "AS", "EU", "NA", "OC", "SA"};
+    if (v.size() < 3 || std::none_of(std::begin(kContinents), std::end(kContinents), [&](const char *c) { return v.compare(0, 2, c) == 0; }))
+        return "";
+    std::string digits = v.substr(v[2] == '-' ? 3 : 2);
+    if (digits.empty() || digits.size() > 3 || !std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; })) return "";
+    return v.substr(0, 2) + "-" + std::string(3 - digits.size(), '0') + digits;
+}
+
+bool iotaGroup(std::string_view ref, std::string_view name, std::string_view dxcc, std::string_view latMin, std::string_view latMax,
+               std::string_view lonMin, std::string_view lonMax, IotaGroup *out) {
+    IotaGroup g;
+    g.ref = iotaRef(ref);
+    if (g.ref.empty() || g.ref != upper(trimmed(ref))) return false;  // the list's own references are written in full
+    double a, b, c, d;
+    if (!parseAdifNumber(trimmed(latMin), &a) || !parseAdifNumber(trimmed(latMax), &b) || !parseAdifNumber(trimmed(lonMin), &c) ||
+        !parseAdifNumber(trimmed(lonMax), &d))
+        return false;
+    if (std::fabs(a) > 90 || std::fabs(b) > 90 || std::fabs(c) > 180 || std::fabs(d) > 180) return false;
+    g.south = std::min(a, b), g.north = std::max(a, b);
+    g.west = std::min(c, d), g.east = std::max(c, d);
+    if (g.east - g.west >= 359) g.west = -180, g.east = 180;  // all the way round (Antarctica)
+    else if (g.east - g.west > 180) std::swap(g.west, g.east), g.east += 360;
+    g.name = trimmed(name);
+    double n = 0;
+    if (parseAdifNumber(trimmed(dxcc), &n) && n >= 0 && n < 10000) g.dxcc = (int)n;
+    if (out) *out = std::move(g);
+    return true;
+}
+
+std::vector<std::array<double, 4>> iotaBoxes(const IotaGroup &g) {
+    if (g.east <= 180) return {{g.west, g.south, g.east, g.north}};
+    return {{g.west, g.south, 180, g.north}, {-180, g.south, g.east - 360, g.north}};
 }
 
 }  // namespace adif

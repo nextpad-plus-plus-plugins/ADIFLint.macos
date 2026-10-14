@@ -22,4 +22,27 @@ lines across the sea are not exact in any source, and sources disagree in places
 domain), from https://github.com/nvkelso/natural-earth-vector commit ca96624 (downloaded
 2026-10-10).
 
-`tools/gen_map_overlays.py` turns the four files into `src/core/adif_overlays_data.cpp`.
+**US counties** and the **map subunits** the DXCC layer shades (England apart from Scotland,
+Alaska apart from the lower 48) come from Natural Earth's `ne_10m_admin_2_counties.geojson`
+and `ne_50m_admin_0_map_subunits.geojson` (public domain), same commit ca96624 (downloaded
+2026-10-13).
+
+`tools/gen_map_overlays.py` turns the six files into `src/core/adif_overlays_data.cpp`.
+
+# Map detail
+
+`map-detail.bin`, the 1:10m detail the Map draws from 12× (land, lakes, rivers, country
+borders, state and province lines, urban areas and 7,342 cities), comes from Natural Earth's
+`ne_10m_land`, `ne_10m_lakes`, `ne_10m_rivers_lake_centerlines`,
+`ne_10m_admin_0_boundary_lines_land`, `ne_10m_admin_1_states_provinces_lines`,
+`ne_10m_urban_areas` and `ne_10m_populated_places_simple` (.geojson, public domain), commit
+ca96624 (downloaded 2026-10-13). `tools/gen_map_detail.py` writes it and describes its format;
+the plugin installs it next to `ADIFLint.dylib`.
+
+# Not included
+
+IOTA's group list (`groups.json`) is © RSGB and IOTA Ltd, who allow downloading it for
+personal non-commercial use (iota-world.org, read 2026-10-13). It is not in this repository
+or in a release: **Settings → IOTA Groups → Download** fetches it into the plugin config
+folder, on the user's request. `tests/fixtures/lookup/iota/groups.json` is made-up test data
+in the same layout.

@@ -28,7 +28,7 @@ cmake --build "$build" --target ADIFLint -j > /dev/null
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir "$stage/ADIFLint"
-cp "$build/ADIFLint.dylib" "$root/data/cty.csv" "$root/data/cty-copyright.txt" "$root/data/zones-license.txt" "$root"/data/toolbar/*.png "$stage/ADIFLint/"
+cp "$build/ADIFLint.dylib" "$root/data/cty.csv" "$root/data/cty-copyright.txt" "$root/data/zones-license.txt" "$root/data/map-detail.bin" "$root"/data/toolbar/*.png "$stage/ADIFLint/"
 dylib="$stage/ADIFLint/ADIFLint.dylib"
 # Ad-hoc, as the install step signs it (Nextpad++ disables library validation).
 codesign --force --sign - "$dylib"

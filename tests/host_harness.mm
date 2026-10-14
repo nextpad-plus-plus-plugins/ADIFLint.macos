@@ -3907,6 +3907,83 @@ int main(int argc, char **argv) {
             snapshot(mapw, "map-countries");
             countriesBox.state = NSControlStateValueOff;
             [countriesBox sendAction:countriesBox.action to:countriesBox.target];
+            auto setBox = [&](NSButton *bx, bool on) {
+                bx.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+                [bx sendAction:bx.action to:bx.target];
+            };
+            // US counties and cities, down to city level (the 1:10m detail): Madison, Wisconsin.
+            NSButton *countiesBox = findButton(mapw.contentView, @"US counties"), *citiesBox = findButton(mapw.contentView, @"Cities");
+            NSButton *countyLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.counties");
+            NSButton *cityLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.cities");
+            CHECK(countiesBox && citiesBox && countyLabels && cityLabels && countiesBox != countyLabels && citiesBox != cityLabels &&
+                      countiesBox.state == NSControlStateValueOff && citiesBox.state == NSControlStateValueOff && !countyLabels.enabled && !cityLabels.enabled,
+                  "US counties and Cities start off, and their Labels boxes with them");
+            setBox(countiesBox, true), setBox(citiesBox, true);
+            CHECK(countyLabels.enabled && cityLabels.enabled, "US counties and Cities on: their Labels boxes work");
+            CHECK(menuAction(regionMenu, @"North America"), "Region → North America for counties");
+            snapshot(mapw, "map-counties-cities");
+            for (int i = 0; i < 8 && std::atof(zoomShown().c_str()) < 30; ++i) {
+                NSPoint at = pointFor(-89.40, 43.07);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 2)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 2)];
+            }
+            CHECK(std::atof(zoomShown().c_str()) >= 12, "zoomed in to city level, where the 1:10m detail draws: %s", zoomShown().c_str());
+            snapshot(mapw, "map-city-detail");
+            // Apple Maps opens what was clicked: here an empty square, EN53.
+            NSPoint madison = pointFor(-89.40, 43.07);
+            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, madison, 1)];
+            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, madison, 1)];
+            setenv("ADIFLINT_TEST_SAVE_DIR", mapDir.UTF8String, 1);
+            [findButton(mapw.contentView, @"Apple Maps") performClick:nil];
+            unsetenv("ADIFLINT_TEST_SAVE_DIR");
+            NSString *appleUrl = [NSString stringWithContentsOfFile:[mapDir stringByAppendingPathComponent:@"apple-maps-url.txt"] encoding:NSUTF8StringEncoding
+                                                              error:nil];
+            CHECK([appleUrl isEqualToString:@"https://maps.apple.com/place?coordinate=43.50000,-89.00000&name=EN53"], "Apple Maps: %s", appleUrl.UTF8String);
+            setBox(countiesBox, false), setBox(citiesBox, false);
+
+            // IOTA: the overlay needs IOTA's group list, which Settings downloads when asked.
+            NSButton *iotaBox = findButton(mapw.contentView, @"IOTA");
+            NSButton *iotaLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.iota");
+            CHECK(iotaBox && iotaLabels && iotaBox != iotaLabels && iotaBox.state == NSControlStateValueOff && !iotaLabels.enabled,
+                  "the IOTA overlay starts off, its Labels box with it");
+            setBox(iotaBox, true);
+            CHECK(iotaLabels.enabled && [labelContaining(mapw.contentView, @"IOTA:") hasPrefix:@"IOTA: download IOTA's group list first"],
+                  "IOTA without the group list says where to get it: %s", labelContaining(mapw.contentView, @"IOTA").UTF8String);
+            run("Settings...");
+            NSWindow *isw = windowTitled(@"ADIF Lint Settings");
+            NSView *iotaSection = isw ? viewWithIdentifier(isw.contentView, @"settings.iota") : nil;
+            CHECK(iotaSection && [labelContaining(iotaSection, @"Not downloaded") length] && [labelContaining(iotaSection, @"RSGB and IOTA Ltd") length],
+                  "Settings: IOTA Groups, not downloaded, with IOTA's terms");
+            [findButton(iotaSection, @"Download") performClick:nil];
+            for (int i = 0; i < 30 && ![labelContaining(iotaSection, @"groups,") length]; ++i) pump(0.05);
+            CHECK([labelContaining(iotaSection, @"4 groups, downloaded") length] > 0 &&
+                      [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"ADIFLint-iota-groups.json"]],
+                  "IOTA's group list downloaded (the 4 good groups of the test file) into the config folder: %s",
+                  labelContaining(iotaSection, @"group").UTF8String);
+            [isw orderOut:nil];
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(1.5, 58.0), 0)];  // the North Sea, in EU-005's box
+            CHECK([labelContaining(mapw.contentView, @"EU-005") hasPrefix:@"IOTA EU-005 Test Group Atlantic: 1 QSO (G4ABC)."],
+                  "hovering a worked IOTA group: %s", labelContaining(mapw.contentView, @"IOTA").UTF8String);
+            NSPoint northSea = pointFor(1.5, 58.0);
+            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, northSea, 1)];
+            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, northSea, 1)];
+            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"G4ABC"],
+                  "a click on the IOTA group lists its QSO");
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-84.0, 20.5), 0)];  // the sea south of Cuba, in NA-046's box
+            CHECK([labelContaining(mapw.contentView, @"NA-046") hasPrefix:@"IOTA NA-046 Test Group Caribbean: not worked."],
+                  "hovering an IOTA group not worked: %s", labelContaining(mapw.contentView, @"IOTA").UTF8String);
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(179.0, -17.0), 0)];  // OC-016, across the 180th meridian
+            NSString *west = labelContaining(mapw.contentView, @"OC-016");
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-179.9, -17.0), 0)];
+            CHECK([west hasPrefix:@"IOTA OC-016"] && [labelContaining(mapw.contentView, @"OC-016") hasPrefix:@"IOTA OC-016"],
+                  "an IOTA group across the 180th meridian, on both sides");
+            snapshot(mapw, "map-iota");
+            pick(proj, [proj itemAtIndex:3].title);
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            snapshot(mapw, "map-iota-globe");
+            pick(proj, @"Equirectangular");
+            setBox(iotaBox, false);
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-light-band");
             CHECK(!menuState(programsMenu, @"IOTA (islands): 1") && menuAction(programsMenu, @"IOTA (islands)") &&
@@ -3969,8 +4046,24 @@ int main(int argc, char **argv) {
                 snapshot(mapw, "docs-map-dxcc");
                 pick(proj, [proj itemAtIndex:3].title);
                 snapshot(mapw, "docs-map-dxcc-globe");
-                box(@"DXCC", false), box(@"Contacts", true);
+                // City level, Madison to Chicago: the 1:10m detail, counties and cities, a pin at each contact.
+                box(@"DXCC", false), box(@"Contacts", true), box(@"US counties", true), box(@"Cities", true);
                 pick(colour, @"Colour by band");
+                pick(proj, @"Equirectangular");
+                {
+                    double w = -90.6, s = 42.3, e = -87.4, n = 43.9;
+                    SEL sel = NSSelectorFromString(@"showWest:south:east:north:");
+                    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:[mapView methodSignatureForSelector:sel]];
+                    inv.target = mapView;
+                    inv.selector = sel;
+                    [inv setArgument:&w atIndex:2];
+                    [inv setArgument:&s atIndex:3];
+                    [inv setArgument:&e atIndex:4];
+                    [inv setArgument:&n atIndex:5];
+                    [inv invoke];
+                }
+                snapshot(mapw, "docs-map-city");
+                box(@"US counties", false), box(@"Cities", false);
                 menuAction(styleMenu, @"Colour-blind safe");
                 pick(proj, @"Equal Earth");
                 [findButton(mapw.contentView, @"World") performClick:nil];

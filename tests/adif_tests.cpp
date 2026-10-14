@@ -16,6 +16,7 @@
 #include "adif_world.h"
 #include "adif_projection.h"
 #include "adif_palette.h"
+#include "adif_detail.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -2854,6 +2855,42 @@ static void testPalettes() {
           "the seven most used bands get the set in frequency order (%zu given)", given.size());
 }
 
+// The 1:10m detail file, as built (data/map-detail.bin): every layer there, cities with
+// names, a damaged copy refused.
+static void testDetail(const char *path) {
+    std::ifstream in(path, std::ios::binary);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string bytes = ss.str();
+    MapDetail detail;
+    std::string why;
+    CHECK(detail.load(bytes, &why), "map-detail.bin loads: %s", why.c_str());
+    size_t landPoints = 0;
+    for (const DetailShape &s : detail.shapes(DetailLayer::Land)) landPoints += s.count;
+    CHECK(landPoints > 200000 && detail.shapes(DetailLayer::Lakes).size() > 1000 && detail.shapes(DetailLayer::Rivers).size() > 1000 &&
+              detail.shapes(DetailLayer::Borders).size() > 1000 && detail.shapes(DetailLayer::States).size() > 10000 &&
+              detail.shapes(DetailLayer::Urban).size() > 5000 && detail.cities().size() > 7000,
+          "detail layers: %zu land points, %zu cities", landPoints, detail.cities().size());
+    const DetailCity *chicago = nullptr;
+    for (const DetailCity &c : detail.cities())
+        if (c.name == "Chicago") chicago = &c;
+    CHECK(chicago && std::fabs(chicago->lat - 41.88) < 0.2 && std::fabs(chicago->lon + 87.63) < 0.2 && chicago->population > 1000000 &&
+              detail.cities()[0].population >= detail.cities()[1].population,
+          "cities: Chicago where it is, the most populous first");
+    // Lake Michigan near Chicago: a lake shape there, and Lake Michigan's points in its box.
+    std::vector<size_t> lakes = detail.within(DetailLayer::Lakes, -87.8, 41.8, -87.5, 42.0);
+    bool ok = !lakes.empty();
+    for (size_t i : lakes) {
+        const DetailShape &s = detail.shapes(DetailLayer::Lakes)[i];
+        for (const auto &p : detail.points(DetailLayer::Lakes, s)) ok &= p.first >= s.west - 0.011 && p.first <= s.east + 0.011 && p.second >= s.south - 0.011 && p.second <= s.north + 0.011;
+    }
+    CHECK(ok && detail.within(DetailLayer::Urban, -87.8, 41.8, -87.5, 42.0).size() > 0, "shapes in a box: Lake Michigan and Chicago's urban area");
+    MapDetail broken;
+    CHECK(!broken.load(bytes.substr(0, bytes.size() / 2)) && broken.empty() && !broken.load("ADIFMAP1") && !broken.load(bytes + "x") &&
+              !broken.load("not a map at all"),
+          "a cut, padded or wrong file is refused");
+}
+
 static void testWorld() {
     size_t rings = layerShapeCount(MapLayer::Land110), points = 0;
     double minLat = 90, maxLat = -90;
@@ -3046,7 +3083,7 @@ static void testWorld() {
         auto holds = [&](int dxcc, double lat, double lon) {
             bool in = false;
             for (const RingRef &ref : land[dxcc]) {
-                std::vector<std::pair<double, double>> r = overlayArea(Overlay::Countries, ref.area).rings[ref.ring];
+                std::vector<std::pair<double, double>> r = overlayArea(Overlay::Subunits, ref.area).rings[ref.ring];
                 for (size_t k = 0, j = r.size() - 1; k < r.size(); j = k++)
                     if ((r[k].second > lat) != (r[j].second > lat) && lon < (r[j].first - r[k].first) * (lat - r[k].second) / (r[j].second - r[k].second) + r[k].first)
                         in = !in;
@@ -3061,9 +3098,11 @@ static void testWorld() {
         CHECK(holds(248, 45.5, 9.2) && holds(248, 37.6, 14.2) && !holds(248, 40.1, 9.1) && holds(225, 40.1, 9.1) && holds(214, 42.2, 9.1) && !land.count(246) &&
                   holds(70, 22.0, -79.5) && !land.count(105),
               "Italy has Sicily, not Sardinia or Corsica; the Order of Malta and Guantanamo Bay are spots; Cuba is Cuba's");
-        CHECK(holds(223, 52.5, -1.9) && holds(279, 52.5, -1.9) && holds(294, 52.5, -1.9) && holds(265, 54.6, -6.6) && !holds(223, 54.6, -6.6) &&
-                  holds(279, 60.3, -1.3) && holds(54, 55.0, 83.0) && holds(15, 55.75, 37.6),
-              "England, Scotland and Wales share Great Britain, not Northern Ireland; the two Russias share Russia");
+        // Birmingham, Edinburgh, Cardiff, Belfast, Shetland, Moscow, Novosibirsk.
+        CHECK(holds(223, 52.5, -1.9) && !holds(279, 52.5, -1.9) && holds(279, 55.95, -3.2) && !holds(223, 55.95, -3.2) && holds(294, 51.5, -3.2) &&
+                  !holds(223, 51.5, -3.2) && holds(265, 54.6, -6.0) && !holds(223, 54.6, -6.0) && holds(279, 60.3, -1.3) && holds(54, 55.75, 37.6) &&
+                  !holds(15, 55.75, 37.6) && holds(15, 55.0, 83.0) && !holds(54, 55.0, 83.0),
+              "England, Scotland, Wales and Northern Ireland each their own; European and Asiatic Russia each theirs");
         CHECK(holds(281, 40.4, -3.7) && !holds(281, 28.1, -15.4) && holds(29, 28.0, -15.6) && holds(339, 43.2, 142.8) && holds(462, -26.2, 28.0) &&
                   !holds(462, -29.5, 28.2) && holds(432, -29.5, 28.2),
               "Spain without the Canaries; Japan has Hokkaido; Lesotho is a hole in South Africa");
@@ -3071,6 +3110,32 @@ static void testWorld() {
         CHECK(isPlaceholderGrid("jj00aa") && isPlaceholderGrid("AA00") && !isPlaceholderGrid("JJ00ab") && !isPlaceholderGrid("AA01") &&
                   isPlaceholderPlace(0, 0) && !isPlaceholderPlace(0, 0.001),
               "placeholder grids and places");
+    }
+    {  // IOTA: references as logs write them, and group boxes as IOTA's list writes them
+        CHECK(iotaRef("EU-005") == "EU-005" && iotaRef(" eu-5 ") == "EU-005" && iotaRef("OC001") == "OC-001" && iotaRef("na-18") == "NA-018" &&
+                  iotaRef("XX-001").empty() && iotaRef("EU-").empty() && iotaRef("EU-0005").empty() && iotaRef("EU-00A").empty() && iotaRef("").empty(),
+              "IOTA references as the list writes them");
+        IotaGroup g;
+        CHECK(iotaGroup("AF-001", "Test Islands", "4", "-10.00", "-10.75", "56.5", "56.75", &g) && g.ref == "AF-001" && g.dxcc == 4 &&
+                  g.south == -10.75 && g.north == -10.0 && g.west == 56.5 && g.east == 56.75 && iotaBoxes(g).size() == 1,
+              "an IOTA box with its latitudes the other way round is sorted");
+        CHECK(iotaGroup("AS-027", "Test", "15", "70.5", "71.5", "178.25", "-175.25", &g) && g.west == 178.25 && g.east == 184.75 &&
+                  iotaBoxes(g).size() == 2 && iotaBoxes(g)[0][2] == 180 && iotaBoxes(g)[1][0] == -180 && std::fabs(iotaBoxes(g)[1][2] + 175.25) < 1e-9,
+              "an IOTA box across the 180th meridian (%g to %g)", g.west, g.east);
+        CHECK(iotaGroup("OC-016", "Test", "176", "-17", "-16", "-179.65", "177.17", &g) && g.west == 177.17 && std::fabs(g.east - 180.35) < 1e-9,
+              "the same, written the other way round");
+        CHECK(iotaGroup("AN-016", "Test", "", "-90", "-60", "-180", "180", &g) && g.west == -180 && g.east == 180 && g.dxcc == 0 &&
+                  iotaGroup("AN-020", "Test", "", "-70", "-60", "-179.92", "179.92", &g) && g.west == -180 && g.east == 180,
+              "an IOTA box all the way round");
+        CHECK(!iotaGroup("eu-5", "x", "1", "1", "2", "3", "4", nullptr) && !iotaGroup("EU-005", "x", "1", "91", "2", "3", "4", nullptr) &&
+                  !iotaGroup("EU-005", "x", "1", "1", "2", "3", "181", nullptr) && !iotaGroup("EU-005", "x", "1", "1", "", "3", "4", nullptr) &&
+                  !iotaGroup("EU-005", "x", "1", "1", "2", "3e1", "4", nullptr),
+              "bad IOTA groups are skipped");
+        std::string log = "<CALL:4>G3AB<QSO_DATE:8>20260101<TIME_ON:4>1200<BAND:3>20m<MODE:3>SSB<IOTA:5>eu-5<EOR>\n"
+                          "<CALL:4>G3AC<QSO_DATE:8>20260101<TIME_ON:4>1300<BAND:3>20m<MODE:3>SSB<IOTA:3>bad<EOR>\n";
+        LintResult lr = lintModel(log);
+        MapData d = mapData(log, lr.model, "", "");
+        CHECK(d.qsos.size() == 2 && d.qsos[0].iota == "EU-005" && d.qsos[1].iota.empty(), "the map reads a QSO's IOTA reference");
     }
 }
 
@@ -3121,6 +3186,8 @@ int main(int argc, char **argv) {
     testWorld();
     testProjections();
     testPalettes();
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]).size() > 4 && std::string(argv[i]).substr(std::string(argv[i]).size() - 4) == ".bin") testDetail(argv[i]);
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

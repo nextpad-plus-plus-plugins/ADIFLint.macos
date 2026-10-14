@@ -7,6 +7,7 @@
 #include "adif_lint.h"
 #include "adif_tools.h"
 
+#include <array>
 #include <cstddef>
 #include <map>
 #include <string>
@@ -23,10 +24,12 @@ size_t layerShapeCount(MapLayer l);
 std::vector<std::pair<double, double>> layerShape(MapLayer l, size_t i);
 int layerShapeRank(MapLayer l, size_t i);  // rivers: Natural Earth's scalerank, 1 (major) to 6; else 0
 
-// Overlays: US states, CQ zones, ITU zones and countries, each an area with a name (a postal
-// code, a zone number, a country's short name) and a place to write it; adif_overlays_data.cpp,
-// by tools/gen_map_overlays.py.
-enum class Overlay { UsStates, CqZones, ItuZones, Countries };
+// Overlays: US states, CQ zones, ITU zones, countries and US counties, each an area with a
+// name (a postal code, a zone number, a country's short name, "WI,Dane" as CNTY writes a
+// county) and a place to write it; and the map subunits DXCC entities are drawn on
+// ("NAME|SU_A3|ADMIN": England, Alaska, Sardinia...). adif_overlays_data.cpp, by
+// tools/gen_map_overlays.py.
+enum class Overlay { UsStates, CqZones, ItuZones, Countries, UsCounties, Subunits };
 struct OverlayArea {
     std::string name;
     double labelLon = 0, labelLat = 0;
@@ -35,18 +38,21 @@ struct OverlayArea {
 size_t overlayCount(Overlay o);
 OverlayArea overlayArea(Overlay o, size_t i);
 
-// The land that pictures each DXCC entity, as rings of the Countries overlay, worked out from
-// the country file's name and place for each entity (several places for one entity where
-// the file lists its parts, as Sicily under Italy):
+// The land that pictures each DXCC entity, as rings of the map subunits (England apart from
+// Scotland, Alaska from the lower 48), worked out from the country file's name and place for
+// each entity (several places for one entity where the file lists its parts, as Sicily under
+// Italy):
 //   - an entity has the ring its place is in; a place just offshore counts as in the
 //     country it names (the file puts Cuba in the sea south of Cuba);
 //   - of several entities in one ring, the land is the one's the country is named for, else
 //     the one nearest where the country's name goes. The others are spots inside a larger
 //     country (the Vatican, Mount Athos, Guantanamo Bay) and have no land at this scale.
-//     Parts of one land share it: England, Scotland and Wales; European and Asiatic Russia;
-//   - a country's other rings go with the nearest of those (Sicily with Italy's mainland),
-//     or with an island entity placed nearer to them than that (Maui with Hawaii, the
-//     Aleutians with Alaska, the Canaries with the Canary Islands, not with Spain).
+//     Parts of one land placed in one ring share it (England, Scotland and Wales; European
+//     and Asiatic Russia), though the subunits mostly keep them apart;
+//   - a country's other rings, over all its subunits, go with the nearest of those, nearest
+//     first (Sicily with Italy's mainland), or with an island entity placed nearer to them
+//     than that (Maui with Hawaii, the Aleutians with Alaska, the Canaries with the Canary
+//     Islands, not with Spain).
 // An entity with no land here (small islands, the spots above) has none: the Map draws it
 // as a dot.
 struct EntityPlace {
@@ -55,7 +61,7 @@ struct EntityPlace {
     std::string name;  // the country file's ("United States", "Cuba")
 };
 struct RingRef {
-    size_t area = 0, ring = 0;  // overlayArea(Overlay::Countries, area).rings[ring]
+    size_t area = 0, ring = 0;  // overlayArea(Overlay::Subunits, area).rings[ring]
 };
 std::map<int, std::vector<RingRef>> dxccRings(const std::vector<EntityPlace> &places);
 
@@ -78,6 +84,7 @@ struct MapQso {
     bool located = false;
     double lat = 0, lon = 0;
     std::string locatedBy;  // "LAT/LON", or the grid
+    std::string iota;       // IOTA, as iotaRef() writes it ("EU-005"); "" when none or not a reference
 };
 struct MapSquare {
     std::string grid;  // 4 characters, upper case ("FN31")
@@ -116,6 +123,32 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
 // 0, 0 or at the centre of AA00aa or JJ00aa. The map draws no square, park or contact there.
 bool isPlaceholderGrid(std::string_view grid);
 bool isPlaceholderPlace(double lat, double lon);
+
+// An IOTA island group, from IOTA's groups.json. The list is © RSGB and IOTA Ltd, who allow
+// downloading it for personal non-commercial use (iota-world.org, read 2026-10-13): the user
+// downloads it from Settings and nothing of it ships with the plugin. Its fields, read from
+// the file 2026-10-13, are all strings: refno, name, dxcc_num, latitude_min, latitude_max,
+// longitude_min, longitude_max (and grp_region, whitelist, pc_credited, comment, unused).
+struct IotaGroup {
+    std::string ref, name;  // "EU-005", the group's name
+    int dxcc = 0;
+    // Its box, in degrees. east passes 180 when the box crosses the 180th meridian (AS-027:
+    // 178.25 to 184.75, which is 175.25 W); -180 to 180 when it goes all the way round.
+    double west = 0, south = 0, east = 0, north = 0;
+};
+// One group from the file's strings; false when the reference isn't one or a coordinate isn't
+// a number in range. The file's "min" and "max" are not always in that order (AF-001's
+// latitude_max is the smaller), so each pair is sorted; a box then wider than 180 degrees of
+// longitude crosses the 180th meridian (no group is that wide), unless it is all but the whole
+// way round (AN-016, -180 to 180).
+bool iotaGroup(std::string_view ref, std::string_view name, std::string_view dxcc, std::string_view latMin, std::string_view latMax,
+               std::string_view lonMin, std::string_view lonMax, IotaGroup *out);
+// An IOTA reference in the list's form, from how a log writes it: "eu-5", "EU005" and
+// "EU-005" are "EU-005"; "" when it isn't one (a continent's two letters, then 1 to 3 digits).
+std::string iotaRef(std::string_view s);
+// A group's box as one or two boxes within -180..180 (two when it crosses the 180th meridian):
+// west, south, east, north each.
+std::vector<std::array<double, 4>> iotaBoxes(const IotaGroup &g);
 
 // A 4-character square's corners: west, south, east, north (degrees); false when not a grid.
 bool squareBounds(std::string_view grid, double *west, double *south, double *east, double *north);

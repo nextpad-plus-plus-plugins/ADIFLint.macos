@@ -15,14 +15,26 @@ Versions before 0.8.0 were development builds and were not published.
   arch over it, rising with the distance and leaning to one side, and show over the horizon
   for contacts on the far side.
 - **Map → DXCC** shades each worked entity's own land, worked out from the country file's
-  names and places (Alaska and Hawaii apart from the United States, Sardinia apart from
-  Italy); an entity with no land at this scale, or too small on screen, stays a dot.
+  names and places over Natural Earth's map subunits (Alaska and Hawaii apart from the
+  United States, Sardinia apart from Italy, England, Scotland, Wales and Northern Ireland
+  each their own); an entity with no land at this scale, or too small on screen, stays a dot.
+- **Map, zoomed in**: from 12× the map draws Natural Earth's 1:10m detail (coasts, lakes,
+  rivers, borders, state lines and towns' built-up areas, in `map-detail.bin` beside the
+  plugin), down to city level at up to 1,024×.
+- **Map → Overlays → US counties** (from 2.5×) and **Cities** (7,300 cities and towns, more
+  as you zoom in), each with its names in the Labels row.
+- **Map → Overlays → IOTA**: IOTA's island groups, the ones in the log filled in, with their
+  references (and names where there is room) as labels; point at one for its QSOs. The
+  group list is © RSGB and IOTA Ltd and isn't included: **Settings → IOTA Groups →
+  Download** fetches it from iota-world.org for your own use.
+- **Map → Apple Maps** opens what you clicked, or the middle of the map, in Apple's Maps app
+  for streets and satellite views.
 
 ### Changed
 
 - **Map**: the Overlays row lists **Grid squares** (was Maidenhead grid), CQ zones, ITU
-  zones, Countries and US states, and a **Labels** row under it turns each one's names or
-  numbers on and off.
+  zones, Countries, US states, US counties, Cities and IOTA, and a **Labels** row under it
+  turns each one's names or numbers on and off.
 
 - **Map**: on the colour-blind safe palette, the legend lists the bands without a colour of
   their own in one row ("other bands: 160m, 12m, 6m") instead of a grey swatch each.

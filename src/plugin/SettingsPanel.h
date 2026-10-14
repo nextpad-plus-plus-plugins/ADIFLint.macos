@@ -21,6 +21,10 @@
 @property(nonatomic, copy) void (^onLotwUsersUpdate)(void);
 - (void)setLotwUsersOn:(BOOL)on status:(NSString *)text ok:(BOOL)ok;
 
+// IOTA Groups: Download fetches IOTA's group list for the Map's IOTA overlay, and a status line.
+@property(nonatomic, copy) void (^onIotaUpdate)(void);
+- (void)setIotaStatus:(NSString *)text ok:(BOOL)ok;
+
 // Your station: the callsign and grid New QSO and the exports use when a log has none,
 // and the folder of logs Worked Before searches.
 @property(nonatomic, copy) void (^onStationSave)(NSString *call, NSString *grid);

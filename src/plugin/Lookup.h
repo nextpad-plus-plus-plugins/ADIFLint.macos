@@ -104,6 +104,9 @@ void ADIFFetchSpotholeSpots(NSString *agent, NSString *programs, void (^done)(NS
 // ARRL's LoTW user activity list, https://lotw.arrl.org/lotw-user-activity.csv (about 6 MB).
 // Test mode: <fake dir>/lotw/lotw-user-activity.csv.
 void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error));
+// IOTA's island groups, https://www.iota-world.org/islands-on-the-air/downloads/download-file.html?path=groups.json
+// (about 290 KB), only when the user asks (Settings). Test mode: <fake dir>/iota/groups.json.
+void ADIFDownloadIotaGroups(NSString *agent, void (^done)(NSData *body, NSString *error));
 // The newest Big CTY cty.csv from www.country-files.com: the release list's first
 // bigcty-*.zip, unzipped. `release` is its name ("bigcty-20260915").
 // Test mode: <fake dir>/cty/cty.csv.

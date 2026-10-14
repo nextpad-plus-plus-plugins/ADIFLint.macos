@@ -1,0 +1,6 @@
+[{"refno":"EU-005","name":"Test Group Atlantic","dxcc_num":"223","latitude_max":"49.80","latitude_min":"58.80","longitude_max":"2.00","longitude_min":"-6.50","grp_region":"Test","whitelist":"0","pc_credited":"0.0","comment":""},
+{"refno":"NA-046","name":"Test Group Caribbean","dxcc_num":"70","latitude_max":"23.30","latitude_min":"19.80","longitude_max":"-74.10","longitude_min":"-85.00","grp_region":"Test","whitelist":"0","pc_credited":"0.0","comment":""},
+{"refno":"OC-016","name":"Test Group Date Line","dxcc_num":"176","latitude_max":"-15.70","latitude_min":"-19.20","longitude_max":"-179.65","longitude_min":"177.17","grp_region":"Test","whitelist":"0","pc_credited":"0.0","comment":""},
+{"refno":"AN-016","name":"Test Group Polar","dxcc_num":"13","latitude_max":"-60.00","latitude_min":"-90.00","longitude_max":"180.00","longitude_min":"-180.00","grp_region":"Test","whitelist":"0","pc_credited":"0.0","comment":""},
+{"refno":"bad","name":"Not a group","dxcc_num":"1","latitude_max":"1","latitude_min":"2","longitude_max":"3","longitude_min":"4"},
+"not an object"]

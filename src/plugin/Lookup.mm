@@ -938,6 +938,18 @@ void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString 
     httpSend(r, done);
 }
 
+void ADIFDownloadIotaGroups(NSString *agent, void (^done)(NSData *body, NSString *error)) {
+    if (NSString *dir = fakeDir()) {
+        NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"iota/groups.json"]];
+        dispatch_async(dispatch_get_main_queue(), ^{ done(d, d ? nil : @"no test IOTA group list"); });
+        return;
+    }
+    NSURL *url = [NSURL URLWithString:@"https://www.iota-world.org/islands-on-the-air/downloads/download-file.html?path=groups.json"];
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:url];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    httpSend(r, done);
+}
+
 // ── Country data ────────────────────────────────────────────────────────────
 
 void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSString *release, NSString *error)) {
