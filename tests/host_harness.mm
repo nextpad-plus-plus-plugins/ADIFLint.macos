@@ -3787,8 +3787,9 @@ int main(int argc, char **argv) {
             };
             CHECK(!menuEnabled(styleMenu, @"Dashed line") && menuAction(styleMenu, @"Lines to contacts") && menuState(styleMenu, @"Lines to contacts") &&
                       menuEnabled(styleMenu, @"Dashed line") && menuAction(styleMenu, @"Dashed line") && menuState(styleMenu, @"Dashed line") &&
-                      menuAction(styleMenu, @"Thick line") && menuState(styleMenu, @"Thick line") && !menuState(styleMenu, @"Solid line"),
-                  "Options: lines to contacts, then their style and width");
+                      menuAction(styleMenu, @"Thick line") && menuState(styleMenu, @"Thick line") && !menuState(styleMenu, @"Solid line") &&
+                      menuEnabled(styleMenu, @"Arch over the globe") && menuState(styleMenu, @"Arch over the globe"),
+                  "Options: lines to contacts, then their style and width; arching over the globe starts on");
             CHECK(menuAction(styleMenu, @"Distance rings") && menuState(styleMenu, @"Distance rings"), "distance rings on");
             // Fit Log fits the farthest QSO around home, where FN20's park sits beside FN31: zoom in on
             // FN31 first (double-clicks turn the globe toward the pointer, keeping FN31 under it).
@@ -3857,10 +3858,19 @@ int main(int argc, char **argv) {
             NSButton *cqBox = findButton(mapw.contentView, @"CQ zones"), *ituBox = findButton(mapw.contentView, @"ITU zones"),
                      *statesBox = findButton(mapw.contentView, @"US states");
             CHECK(cqBox && ituBox && statesBox && cqBox.state == NSControlStateValueOff, "the overlay boxes, off at first");
+            // Labels: a box under each overlay for its names or numbers, working while the overlay shows.
+            NSButton *gridBox = findButton(mapw.contentView, @"Grid squares");
+            NSButton *gridLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.grid");
+            NSButton *cqLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.cq");
+            CHECK(gridBox && gridLabels && cqLabels && gridBox != gridLabels && gridLabels.enabled && !cqLabels.enabled &&
+                      cqLabels.state == NSControlStateValueOn && !findButton(mapw.contentView, @"Maidenhead grid") && !findButton(mapw.contentView, @"Labels") &&
+                      std::fabs(NSMinX(gridBox.frame) - NSMinX(gridLabels.frame)) < 1 && std::fabs(NSMinX(cqBox.frame) - NSMinX(cqLabels.frame)) < 1,
+                  "Overlays and Labels rows: Grid squares first, each label box under its overlay, off while the overlay is");
             for (NSButton *bx in @[ cqBox, ituBox ]) {
                 bx.state = NSControlStateValueOn;
                 [bx sendAction:bx.action to:bx.target];
             }
+            CHECK(cqLabels.enabled, "CQ zones on: its Labels box works");
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-globe-zones");
             [findButton(mapw.contentView, @"World") performClick:nil];
@@ -3931,7 +3941,7 @@ int main(int argc, char **argv) {
                 auto lines = [&](bool on) {
                     if (menuState(styleMenu, @"Lines to contacts") != on) menuAction(styleMenu, @"Lines to contacts");
                 };
-                for (NSString *t in @[ @"Worked squares", @"DXCC", @"Parks", @"Maidenhead grid", @"Labels", @"Countries", @"US states", @"CQ zones", @"ITU zones" ])
+                for (NSString *t in @[ @"Worked squares", @"DXCC", @"Parks", @"Grid squares", @"Countries", @"US states", @"CQ zones", @"ITU zones" ])
                     box(t, false);
                 box(@"Contacts", true), box(@"My station", true);
                 pick(colour, @"Colour by band");
@@ -3954,7 +3964,12 @@ int main(int argc, char **argv) {
                 pick(proj, @"Equirectangular");
                 menuAction(regionMenu, @"North America");
                 snapshot(mapw, "docs-map-states");
-                box(@"US states", false), box(@"Worked squares", false), box(@"Contacts", true);
+                box(@"US states", false), box(@"Worked squares", false), box(@"DXCC", true);
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                snapshot(mapw, "docs-map-dxcc");
+                pick(proj, [proj itemAtIndex:3].title);
+                snapshot(mapw, "docs-map-dxcc-globe");
+                box(@"DXCC", false), box(@"Contacts", true);
                 pick(colour, @"Colour by band");
                 menuAction(styleMenu, @"Colour-blind safe");
                 pick(proj, @"Equal Earth");
@@ -3966,7 +3981,7 @@ int main(int argc, char **argv) {
                 pick(colour, @"Colour by confirmation");
                 pick(proj, @"Equirectangular");
                 box(@"Contacts", false);
-                for (NSString *t in @[ @"Worked squares", @"DXCC", @"Parks", @"Maidenhead grid", @"Labels" ]) box(t, true);
+                for (NSString *t in @[ @"Worked squares", @"DXCC", @"Parks", @"Grid squares" ]) box(t, true);
                 [mapw orderOut:nil];
                 run("Log Table...");
                 if (NSWindow *ltw = windowTitled(@"Log Table")) {

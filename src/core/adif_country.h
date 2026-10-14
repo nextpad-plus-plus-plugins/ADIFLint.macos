@@ -30,6 +30,9 @@ public:
     bool load(std::string_view ctyCsv, std::string *error = nullptr);
     bool empty() const { return entities_.empty(); }
     size_t entities() const { return entities_.size(); }
+    // Every entity in the file, the WAE and CQ-only ones too (Sicily, Shetland... under their
+    // ARRL entity's number), each with where the file puts it.
+    const std::vector<CountryInfo> &all() const { return entities_; }
     // The entity for a callsign: an exact "=CALL" entry first, else the longest
     // matching prefix. In a portable call the location prefix decides
     // (VE3/K1ABC is Canada); /P, /M, /QRP... are ignored; /MM and /AM are no entity.

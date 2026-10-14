@@ -505,8 +505,13 @@ QSOs of whatever you click, and the status line says what is under the pointer.
 
 - **Worked squares**, from GRIDSQUARE and VUCC_GRIDS. QSOs without GRIDSQUARE count for
   DXCC but not for squares.
-- **DXCC**: each entity worked, from the call's prefix in the country data, as a dot at its
-  centre, bigger with more QSOs.
+- **DXCC**: each entity worked, from the call's prefix in the country data, its own land
+  shaded: Alaska and Hawaii apart from the United States, Sardinia apart from Italy, the
+  Canaries apart from Spain. Which land is whose is worked out from the country file's name
+  and place for each entity. England, Scotland and Wales share Great Britain, and European
+  and Asiatic Russia share Russia, at this scale. An entity with no land at this scale, or
+  too small on screen to see (Jamaica on the whole world, the Vatican), is a dot, bigger
+  with more QSOs.
 - **Contacts**: a marker at each contact's own place (see
   [contacts and their places](#contacts-and-their-places)).
 - **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE, since
@@ -545,18 +550,21 @@ the LAT/LON left out. The grids AA00 and JJ00 are placeholders too, and are draw
 
 ### Overlays
 
-**Overlays** on the map:
+**Overlays** on the map, and under each one in the **Labels** row, its names or numbers
+(each works while its overlay shows):
 
-- **Maidenhead grid**: the fields' lines (20 × 10 degrees), and the squares' (2 × 1) when
-  zoomed in; **Labels**: their names (`FN`, then `FN31`).
-- **Countries**: every country outlined, coasts and borders, with its name where the name
-  fits inside it on screen (Natural Earth). The faint land borders are always drawn.
-- **US states**: state lines and postal codes (Natural Earth), a code where the state is
-  big enough on screen to hold it.
-- **CQ zones** (orange) and **ITU zones** (blue), each with its number, from HB9HIL's
-  [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) (MIT; the files
-  Wavelog uses). Zone lines are approximate, across the sea in particular, and sources
-  disagree in places; the zone a QSO counts for is the one in its CQZ or ITUZ field.
+- **Grid squares**: the Maidenhead grid's fields (20 × 10 degrees), and its squares (2 × 1)
+  when zoomed in; labels `FN`, then `FN31`.
+- **CQ zones** (orange) and **ITU zones** (blue), labelled with their numbers (see below).
+- **Countries**: every country outlined, coasts and borders (Natural Earth), labelled with
+  its name where the name fits inside it on screen. The faint land borders are always drawn.
+- **US states**: state lines (Natural Earth), labelled with postal codes where a state is
+  big enough on screen.
+
+The CQ and ITU zones come from HB9HIL's
+[hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) (MIT; the files
+Wavelog uses). Zone lines are approximate, across the sea in particular, and sources
+disagree in places; the zone a QSO counts for is the one in its CQZ or ITUZ field.
 
 | Worked squares and CQ zones (Equal Earth) | Worked squares and US states |
 |---|---|
@@ -628,7 +636,11 @@ On the globe:
 - **Lines to contacts**: a great-circle line from your station (the QSO's MY_GRIDSQUARE,
   else home) to each contact (its LAT and LON, else its GRIDSQUARE at full precision, else
   its DXCC entity's centre), coloured as the map colours, each pair once; **solid**,
-  **dashed** or **dotted**, and **thin**, **medium** or **thick**.
+  **dashed** or **dotted**, and **thin**, **medium** or **thick**. **Arch over the globe**
+  (on at first) draws them on the globe as arches rising over it, higher the further they
+  go and leaning to one side so they read as arches from above your station too, and over
+  the horizon for contacts on the far side. They are for looks: the true path, and the beam
+  heading, is the straight line you get with it off.
 - The **Legend**, and **Distance rings** from your grid: 2,500 km apart for the whole world,
   closer as you zoom in, with bearings every 30° when the globe is centred on home.
 

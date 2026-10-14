@@ -24,6 +24,7 @@ struct ADIFMapEntity {
     std::vector<size_t> qsos;  // into MapData::qsos
     bool confirmed = false;
     std::string name;
+    std::vector<adif::RingRef> land;  // the entity's own land (adif::dxccRings); empty: a dot
 };
 
 // What the pointer is over, or what was clicked.
@@ -44,7 +45,10 @@ struct ADIFMapStyle {
     int lineWidth = 1;  // 0 thin, 1 medium, 2 thick
     double marker = 1;  // marker size factor
     bool grid = true, labels = true, legend = true, rings = false, paths = false, mine = true;
+    bool arcs = true;  // on the globe, lines to contacts arch over it
     bool cqZones = false, ituZones = false, states = false, countries = false;  // overlays
+    // Each overlay's names or numbers, shown while the overlay is (labels: the grid squares').
+    bool cqLabels = true, ituLabels = true, stateLabels = true, countryLabels = true;
 };
 
 // QSOs at one exact place (MapQso::located), for the Contacts layer.
@@ -189,6 +193,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     std::vector<ADIFMapEntity> _entities;
     std::vector<ADIFMapContact> _contacts;
     std::vector<ADIFMapAgg> _squareAgg, _entityAgg, _contactAgg;
+    std::vector<bool> _entityDot;  // drawn as a dot: no land at this scale, or too small on screen
     std::vector<std::string> _bands;  // in the data, frequency order
     int _minYear, _maxYear;
     adif::Projector _pr;    // in use: the globe turned to wherever you dragged it
@@ -843,19 +848,49 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     }
 
-    // Overlays: countries, US states, ITU zones and CQ zones, outlined, each named where its
-    // name fits inside it on screen.
+    // DXCC: each worked entity's own land, shaded (Alaska and Hawaii apart from the United
+    // States, Sardinia from Italy: adif::dxccRings). One with no land at this scale, or whose
+    // land is too small on screen to see, is a dot, drawn further down.
+    _entityDot.assign(_entities.size(), true);
+    if (_showEntities) {
+        const OverlayCache &land = overlay(adif::Overlay::Countries);
+        for (size_t i = 0; i < _entities.size(); ++i) {
+            const ADIFMapEntity &e = _entities[i];
+            if (e.land.empty()) continue;
+            NSBezierPath *region = [NSBezierPath bezierPath];
+            for (const adif::RingRef &ref : e.land)
+                if (ref.area < land.areas.size() && ref.ring < land.areas[ref.area].rings.size())
+                    [region appendBezierPath:[self viewPath:land.areas[ref.area].rings[ref.ring] close:YES wraps:NO]];
+            if (region.isEmpty) continue;  // behind the globe
+            NSRect r = region.bounds;
+            if (std::max(r.size.width, r.size.height) < 9) continue;  // a speck: the dot shows it
+            _entityDot[i] = false;
+            if (!NSIntersectsRect(r, b)) continue;
+            NSColor *c = [self colorFor:_entityAgg[i] entity:YES];
+            bool lit = (_hover.kind == ADIFMapHit::Dxcc && _hover.index == i) || (_selected.kind == ADIFMapHit::Dxcc && _selected.index == i);
+            region.windingRule = NSWindingRuleEvenOdd;  // a country inside another (Lesotho) stays out
+            [[c colorWithAlphaComponent:lit ? 0.6 : 0.42] setFill];
+            [region fill];
+            region.lineWidth = lit ? 2 : 1;
+            region.lineJoinStyle = NSLineJoinStyleRound;
+            [[c colorWithAlphaComponent:0.95] setStroke];
+            [region stroke];
+        }
+    }
+
+    // Overlays: countries, US states, ITU zones and CQ zones, outlined, each named (when its
+    // Labels box is ticked) where its name fits inside it on screen.
     struct OverlayStyle {
-        bool on;
+        bool on, names;
         adif::Overlay which;
         NSColor *color;
         CGFloat width, labelSize, minPixels;
     };
     const OverlayStyle overlayStyles[] = {
-        {_style.countries, adif::Overlay::Countries, [NSColor colorWithCalibratedWhite:ink alpha:0.6], 0.8, 10, 24},
-        {_style.states, adif::Overlay::UsStates, [NSColor colorWithCalibratedWhite:ink alpha:0.5], 0.7, 10, 26},
-        {_style.ituZones, adif::Overlay::ItuZones, pal.dark ? rgb(0x4FC3F7, 0.75) : rgb(0x0277BD, 0.8), 1.0, 12, 30},
-        {_style.cqZones, adif::Overlay::CqZones, pal.dark ? rgb(0xFFB74D, 0.8) : rgb(0xE65100, 0.8), 1.4, 14, 30},
+        {_style.countries, _style.countryLabels, adif::Overlay::Countries, [NSColor colorWithCalibratedWhite:ink alpha:0.6], 0.8, 10, 24},
+        {_style.states, _style.stateLabels, adif::Overlay::UsStates, [NSColor colorWithCalibratedWhite:ink alpha:0.5], 0.7, 10, 26},
+        {_style.ituZones, _style.ituLabels, adif::Overlay::ItuZones, pal.dark ? rgb(0x4FC3F7, 0.75) : rgb(0x0277BD, 0.8), 1.0, 12, 30},
+        {_style.cqZones, _style.cqLabels, adif::Overlay::CqZones, pal.dark ? rgb(0xFFB74D, 0.8) : rgb(0xE65100, 0.8), 1.4, 14, 30},
     };
     for (const OverlayStyle &os : overlayStyles) {
         if (!os.on) continue;
@@ -866,6 +901,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         lines.lineJoinStyle = NSLineJoinStyleRound;
         [os.color setStroke];
         [lines stroke];
+        if (!os.names) continue;
         NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:os.labelSize weight:NSFontWeightSemibold],
                                 NSForegroundColorAttributeName : [os.color colorWithAlphaComponent:0.95]};
         for (size_t i = 0; i < oc.areas.size(); ++i) {
@@ -882,7 +918,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
     // Lines to contacts: from your station (the QSO's MY_GRIDSQUARE, else home) to the contact
     // (its LAT and LON, else its GRIDSQUARE, else its DXCC entity's centre), along great
-    // circles; each pair once, coloured as the map colours.
+    // circles; each pair once, coloured as the map colours. On the globe they can arch over
+    // it: an arch rises with the distance and leans to one side, so it reads as an arch from
+    // above your station too, where a great circle is a straight line. Arches show past the
+    // globe's edge, so they are drawn outside the world's clip.
+    bool arched = globe && _style.arcs;
+    if (_style.paths && arched) CGContextRestoreGState(ctx);
     if (_style.paths) {
         std::map<size_t, size_t> entityOf, squareOf;  // QSO -> entity, QSO -> square
         for (size_t e = 0; e < _entities.size(); ++e)
@@ -911,11 +952,29 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             a.year = q.date8.size() == 8 ? std::atoi(q.date8.substr(0, 4).c_str()) : 0;
             auto sq = squareOf.find(qi);
             a.count = sq != squareOf.end() ? _squareAgg[sq->second].count : 1;
-            NSBezierPath *path = [self viewPath:adif::greatCirclePath(flat, flon, tlat, tlon, 3) close:NO wraps:YES];
+            NSBezierPath *path = nil;
+            if (arched) {
+                double arc = adif::greatCircleKm(flat, flon, tlat, tlon) / 6371.0;  // radians
+                path = [NSBezierPath bezierPath];
+                for (const adif::ShapePiece &piece :
+                     adif::projectSpace(_pr, adif::archedPath(flat, flon, tlat, tlon, std::min(0.28, 0.2 * arc), 30, 2)))
+                    for (size_t k = 0; k < piece.pts.size(); ++k) {
+                        NSPoint v = [self planeToView:piece.pts[k].first y:piece.pts[k].second];
+                        if (k == 0) [path moveToPoint:v];
+                        else [path lineToPoint:v];
+                    }
+            } else {
+                path = [self viewPath:adif::greatCirclePath(flat, flon, tlat, tlon, 3) close:NO wraps:YES];
+            }
             [self styleLine:path];
-            [[[self colorFor:a entity:NO] colorWithAlphaComponent:0.5] setStroke];
+            path.lineJoinStyle = NSLineJoinStyleRound;
+            [[[self colorFor:a entity:NO] colorWithAlphaComponent:arched ? 0.65 : 0.5] setStroke];
             [path stroke];
         }
+    }
+    if (_style.paths && arched) {  // back inside the world for the rest
+        CGContextSaveGState(ctx);
+        [world addClip];
     }
 
     // Worked squares.
@@ -947,7 +1006,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
 
     // Field and square names, once there is room for them.
-    if (_style.labels) {
+    if (_style.grid && _style.labels) {
         if (fieldW >= 44 && squareW < 36)
             for (int fx = 0; fx < 18; ++fx)
                 for (int fy = 0; fy < 18; ++fy) {
@@ -1012,9 +1071,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     }
 
-    // DXCC dots.
+    // DXCC dots, for the entities whose land isn't shaded.
     if (_showEntities)
         for (size_t i = 0; i < _entities.size(); ++i) {
+            if (i < _entityDot.size() && !_entityDot[i]) continue;
             const ADIFMapEntity &e = _entities[i];
             NSPoint p = [self viewPointForLon:e.lon lat:e.lat];
             if (!NSPointInRect(p, NSInsetRect(b, -10, -10))) continue;
@@ -1237,6 +1297,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     if (_showEntities)
         for (size_t i = 0; i < _entities.size(); ++i) {
+            if (i < _entityDot.size() && !_entityDot[i]) continue;  // its land is shaded: found below, after the squares
             NSPoint q = [self viewPointForLon:_entities[i].lon lat:_entities[i].lat];
             if (std::hypot(q.x - p.x, q.y - p.y) <= [self dotRadius:_entities[i].qsos.size()] + 2)
                 return h.kind = ADIFMapHit::Dxcc, h.index = i, h;
@@ -1244,6 +1305,21 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (_showSquares)
         for (size_t i = 0; i < _data.squares.size(); ++i)
             if (_data.squares[i].grid == h.square) return h.kind = ADIFMapHit::Square, h.index = i, h;
+    if (_showEntities) {  // a shaded entity: the point is inside an odd number of its rings
+        const OverlayCache &land = overlay(adif::Overlay::Countries);
+        for (size_t i = 0; i < _entities.size(); ++i) {
+            if (i >= _entityDot.size() || _entityDot[i]) continue;
+            bool in = false;
+            for (const adif::RingRef &ref : _entities[i].land) {
+                if (ref.area >= land.areas.size() || ref.ring >= land.areas[ref.area].rings.size()) continue;
+                const auto &r = land.areas[ref.area].rings[ref.ring];
+                for (size_t k = 0, j = r.size() - 1; k < r.size(); j = k++)
+                    if ((r[k].second > lat) != (r[j].second > lat) && lon < (r[j].first - r[k].first) * (lat - r[k].second) / (r[j].second - r[k].second) + r[k].first)
+                        in = !in;
+            }
+            if (in) return h.kind = ADIFMapHit::Dxcc, h.index = i, h;
+        }
+    }
     h.kind = ADIFMapHit::Empty;
     return h;
 }
@@ -1372,6 +1448,7 @@ struct {
     NSTableView *table = nil;
     NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *contacts = nil, *parks = nil, *mine = nil;
     NSButton *cqZones = nil, *ituZones = nil, *states = nil, *countries = nil;
+    NSButton *cqLabels = nil, *ituLabels = nil, *stateLabels = nil, *countryLabels = nil;  // labels: the grid squares' 
     NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil, *region = nil;
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
@@ -1430,11 +1507,16 @@ ADIFMapStyle savedStyle() {
     s.states = flag("mapUsStates", false);
     s.countries = flag("mapCountries", false);
     s.labels = flag("mapLabels", true);
+    s.cqLabels = flag("mapCqLabels", true);
+    s.ituLabels = flag("mapItuLabels", true);
+    s.countryLabels = flag("mapCountryLabels", true);
+    s.stateLabels = flag("mapStateLabels", true);
     s.legend = flag("mapLegend", true);
     s.rings = flag("mapRings", false);
     s.paths = flag("mapPaths", false);
     s.lineStyle = number("mapLineStyle", 0, 2);
     s.lineWidth = number("mapLineWidth", 1, 2);
+    s.arcs = flag("mapArcs", true);
     s.mine = flag("mapMine", true);
     return s;
 }
@@ -1689,6 +1771,13 @@ void fillStyle() {
         item.indentationLevel = 1;
         item.enabled = s.paths;
     }
+    {
+        NSMenuItem *item = menuItem(menu, @"Arch over the globe", s.arcs, toggle("mapArcs", s.arcs));
+        item.indentationLevel = 1;
+        item.enabled = s.paths;
+        item.toolTip = @"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the "
+                       @"straight line you get with this off)";
+    }
     NSArray *lineWidths = @[ @"Thin line", @"Medium line", @"Thick line" ];
     for (NSInteger i = 0; i < 3; ++i) {
         NSMenuItem *item = menuItem(menu, lineWidths[(NSUInteger)i], s.lineWidth == i, choose("mapLineWidth", (int)i));
@@ -1775,6 +1864,17 @@ void refresh() {
             e.qsos.push_back(i);
             e.confirmed |= mw.data.qsos[i].confirmed;
         }
+        // Each entity's land, worked out once from the country file's names and places.
+        static std::map<int, std::vector<adif::RingRef>> land;
+        static size_t landFor = 0;
+        if (landFor != countries.entities()) {
+            std::vector<adif::EntityPlace> places;
+            for (const adif::CountryInfo &c : countries.all()) places.push_back({c.dxcc, c.lat, c.lon, c.name});
+            land = adif::dxccRings(places);
+            landFor = countries.entities();
+        }
+        for (auto &kv : byDxcc)
+            if (auto it = land.find(kv.first); it != land.end()) kv.second.land = it->second;
         mw.dxcc.clear();
         size_t confirmedDxcc = 0, confirmedSquares = 0;
         for (auto &kv : byDxcc) {
@@ -1897,19 +1997,32 @@ void cmdMap() {
         mw.target = ADIFLabel(@"");
         // Row 1: what to show.
         mw.squares = ADIFCheckbox(@"Worked squares", flag("mapSquares", true));
-        mw.grid = ADIFCheckbox(@"Maidenhead grid", flag("mapGrid", true));
-        mw.grid.toolTip = @"The grid's fields (20 x 10 degrees), and its squares (2 x 1) when zoomed in";
-        mw.labels = ADIFCheckbox(@"Labels", flag("mapLabels", true));
+        mw.grid = ADIFCheckbox(@"Grid squares", flag("mapGrid", true));
+        mw.grid.toolTip = @"The Maidenhead grid: its fields (20 x 10 degrees), and its squares (2 x 1) when zoomed in";
+        // The Labels row: each overlay's names or numbers, under its box in the Overlays row.
+        mw.labels = ADIFCheckbox(@"Grid squares", flag("mapLabels", true));
         mw.labels.toolTip = @"Field names (FN, EM...), and square names (FN31) when zoomed in";
+        mw.cqLabels = ADIFCheckbox(@"CQ zones", flag("mapCqLabels", true));
+        mw.cqLabels.toolTip = @"The CQ zones' numbers";
+        mw.ituLabels = ADIFCheckbox(@"ITU zones", flag("mapItuLabels", true));
+        mw.ituLabels.toolTip = @"The ITU zones' numbers";
+        mw.countryLabels = ADIFCheckbox(@"Countries", flag("mapCountryLabels", true));
+        mw.countryLabels.toolTip = @"Each country's name, where it fits inside the country on screen";
+        mw.stateLabels = ADIFCheckbox(@"US states", flag("mapStateLabels", true));
+        mw.stateLabels.toolTip = @"Each state's postal code, where it fits";
+        mw.labels.identifier = @"map.labels.grid", mw.cqLabels.identifier = @"map.labels.cq", mw.ituLabels.identifier = @"map.labels.itu";
+        mw.countryLabels.identifier = @"map.labels.countries", mw.stateLabels.identifier = @"map.labels.states";
         mw.cqZones = ADIFCheckbox(@"CQ zones", flag("mapCqZones", false));
         mw.ituZones = ADIFCheckbox(@"ITU zones", flag("mapItuZones", false));
         mw.states = ADIFCheckbox(@"US states", flag("mapUsStates", false));
-        mw.states.toolTip = @"State lines and postal codes (Natural Earth, public domain)";
+        mw.states.toolTip = @"State lines (Natural Earth, public domain)";
         mw.countries = ADIFCheckbox(@"Countries", flag("mapCountries", false));
-        mw.countries.toolTip = @"Every country outlined, coasts and borders, with its name where it fits (Natural Earth, public domain)";
-        mw.cqZones.toolTip = @"CQ zones 1-40 with their numbers (HB9HIL's hamradio-zones-geojson, MIT); approximate";
-        mw.ituZones.toolTip = @"ITU zones 1-90 with their numbers (HB9HIL's hamradio-zones-geojson, MIT); approximate";
+        mw.countries.toolTip = @"Every country outlined, coasts and borders (Natural Earth, public domain)";
+        mw.cqZones.toolTip = @"CQ zones 1-40 (HB9HIL's hamradio-zones-geojson, MIT); approximate";
+        mw.ituZones.toolTip = @"ITU zones 1-90 (HB9HIL's hamradio-zones-geojson, MIT); approximate";
         mw.entities = ADIFCheckbox(@"DXCC", flag("mapDxcc", true));
+        mw.entities.toolTip = @"Each DXCC entity worked, its own land shaded (Alaska apart from the United States, Sardinia from Italy); "
+                              @"a dot for one too small to shade. England, Scotland and Wales share Great Britain, and the two Russias Russia";
         mw.contacts = ADIFCheckbox(@"Contacts", flag("mapContacts", false));
         mw.contacts.toolTip = @"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
                               @"square is 100 km or more across: Worked squares shows those). Style chooses pins, dots or crosshairs";
@@ -1959,9 +2072,25 @@ void cmdMap() {
             saveFlag("mapParks", mw.parks.state == NSControlStateValueOn);
             refresh();
         });
-        for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.cqZones, mw.ituZones, mw.states, mw.countries ]) ADIFOnAction(b, ^{
+        // A Labels box works while its overlay is shown.
+        void (^labelsFollow)(void) = ^{
+            mw.labels.enabled = mw.grid.state == NSControlStateValueOn;
+            mw.cqLabels.enabled = mw.cqZones.state == NSControlStateValueOn;
+            mw.ituLabels.enabled = mw.ituZones.state == NSControlStateValueOn;
+            mw.countryLabels.enabled = mw.countries.state == NSControlStateValueOn;
+            mw.stateLabels.enabled = mw.states.state == NSControlStateValueOn;
+        };
+        labelsFollow();
+        for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.cqZones, mw.ituZones, mw.states, mw.countries, mw.cqLabels, mw.ituLabels,
+                               mw.countryLabels, mw.stateLabels ])
+            ADIFOnAction(b, ^{
             saveFlag("mapGrid", mw.grid.state == NSControlStateValueOn);
             saveFlag("mapLabels", mw.labels.state == NSControlStateValueOn);
+            saveFlag("mapCqLabels", mw.cqLabels.state == NSControlStateValueOn);
+            saveFlag("mapItuLabels", mw.ituLabels.state == NSControlStateValueOn);
+            saveFlag("mapCountryLabels", mw.countryLabels.state == NSControlStateValueOn);
+            saveFlag("mapStateLabels", mw.stateLabels.state == NSControlStateValueOn);
+            labelsFollow();
             saveFlag("mapCqZones", mw.cqZones.state == NSControlStateValueOn);
             saveFlag("mapItuZones", mw.ituZones.state == NSControlStateValueOn);
             saveFlag("mapUsStates", mw.states.state == NSControlStateValueOn);
@@ -1990,9 +2119,14 @@ void cmdMap() {
         NSStackView *row2 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Only:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.colorBy ]];
         row2.spacing = 8;
         [row2 setCustomSpacing:24 afterView:mw.confirmed];
-        NSStackView *overlays =
-            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Overlays:"), mw.grid, mw.labels, mw.countries, mw.states, mw.cqZones, mw.ituZones ]];
-        overlays.spacing = 10;
+        // Overlays, and under each one the box for its labels.
+        NSGridView *overlays = [NSGridView gridViewWithViews:@[
+            @[ ADIFLabel(@"Overlays:"), mw.grid, mw.cqZones, mw.ituZones, mw.countries, mw.states ],
+            @[ ADIFLabel(@"Labels:"), mw.labels, mw.cqLabels, mw.ituLabels, mw.countryLabels, mw.stateLabels ]
+        ]];
+        overlays.rowSpacing = 6;
+        overlays.columnSpacing = 10;
+        overlays.rowAlignment = NSGridRowAlignmentFirstBaseline;
         NSStackView *row3 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, mw.style, save ]];
         row3.spacing = 8;
         [row3 setCustomSpacing:24 afterView:world];

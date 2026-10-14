@@ -322,4 +322,64 @@ void destinationPoint(double lat, double lon, double bearingDeg, double km, doub
     *lon2 = normLon(l2 * kDeg);
 }
 
+std::vector<SpacePoint> archedPath(double lat1, double lon1, double lat2, double lon2, double rise, double leanDeg, double stepDeg) {
+    Vec a = unit(lon1, lat1), b = unit(lon2, lat2);
+    double d = std::acos(std::clamp(dot(a, b), -1.0, 1.0));
+    if (d < 1e-9 || kPi - d < 1e-9) return {{a.x, a.y, a.z}, {b.x, b.y, b.z}};  // the same point, or antipodes
+    // The left of travel, seen from outside: the normal of the great circle's plane.
+    Vec n{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+    double len = std::sqrt(dot(n, n)), up = std::cos(leanDeg * kRad), side = std::sin(leanDeg * kRad);
+    n = {n.x / len, n.y / len, n.z / len};
+    std::vector<SpacePoint> out;
+    int steps = std::max(2, (int)std::ceil(d * kDeg / std::max(0.1, stepDeg)));
+    for (int i = 0; i <= steps; ++i) {
+        double f = (double)i / steps, wa = std::sin((1 - f) * d) / std::sin(d), wb = std::sin(f * d) / std::sin(d);
+        double h = rise * std::sin(kPi * f), r = 1 + h * up, s = h * side;
+        out.push_back({(wa * a.x + wb * b.x) * r + n.x * s, (wa * a.y + wb * b.y) * r + n.y * s, (wa * a.z + wb * b.z) * r + n.z * s});
+    }
+    return out;
+}
+
+std::vector<ShapePiece> projectSpace(const Projector &globe, const std::vector<SpacePoint> &pts) {
+    std::vector<ShapePiece> out;
+    if (globe.kind() != Projection::Globe) return out;
+    double phi = globe.centerLat() * kRad, lam = globe.centerLon() * kRad;
+    const Vec toward = unit(globe.centerLon(), globe.centerLat());
+    const Vec east{-std::sin(lam), std::cos(lam), 0}, north{-std::sin(phi) * std::cos(lam), -std::sin(phi) * std::sin(lam), std::cos(phi)};
+    struct Seen {
+        double x, y;
+        bool hidden;
+    };
+    auto see = [&](const SpacePoint &p) {
+        Vec v{p.x, p.y, p.z};
+        Seen s{dot(v, east) * kDeg, dot(v, north) * kDeg, false};
+        s.hidden = dot(v, toward) < 0 && std::hypot(s.x, s.y) < kDeg;
+        return s;
+    };
+    // Where the step from a point that shows to a hidden one passes behind the globe's edge.
+    auto edge = [&](SpacePoint shown, SpacePoint hidden) {
+        for (int i = 0; i < 24; ++i) {
+            SpacePoint mid{(shown.x + hidden.x) / 2, (shown.y + hidden.y) / 2, (shown.z + hidden.z) / 2};
+            (see(mid).hidden ? hidden : shown) = mid;
+        }
+        Seen s = see(shown);
+        return std::pair<double, double>{s.x, s.y};
+    };
+    ShapePiece cur;
+    for (size_t i = 0; i < pts.size(); ++i) {
+        Seen s = see(pts[i]);
+        bool before = i > 0 && !see(pts[i - 1]).hidden;
+        if (!s.hidden) {
+            if (i > 0 && !before) cur.pts.push_back(edge(pts[i], pts[i - 1]));  // coming round the edge
+            cur.pts.emplace_back(s.x, s.y);
+        } else if (before) {  // going behind
+            cur.pts.push_back(edge(pts[i - 1], pts[i]));
+            if (cur.pts.size() > 1) out.push_back(cur);
+            cur = ShapePiece();
+        }
+    }
+    if (cur.pts.size() > 1) out.push_back(cur);
+    return out;
+}
+
 }  // namespace adif

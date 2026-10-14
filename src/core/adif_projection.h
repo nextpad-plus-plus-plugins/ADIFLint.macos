@@ -62,4 +62,19 @@ std::vector<std::pair<double, double>> greatCirclePath(double lat1, double lon1,
 // The point `km` from (lat, lon) on the initial bearing `bearingDeg` (sphere of 6371 km).
 void destinationPoint(double lat, double lon, double bearingDeg, double km, double *lat2, double *lon2);
 
+// A point in space, in Earth radii from the Earth's centre: x toward 0 N 0 E, y toward
+// 0 N 90 E, z toward the north pole.
+struct SpacePoint {
+    double x, y, z;
+};
+// A line arched over the globe from point 1 to point 2. It follows the great circle, rises
+// to `rise` Earth radii above the surface half-way, and leans `leanDeg` to the left of
+// travel (its plane tilts about the chord). The lean is what makes it an arch from above
+// its start: seen from there a great circle, lifted or not, is a straight line.
+std::vector<SpacePoint> archedPath(double lat1, double lon1, double lat2, double lon2, double rise, double leanDeg, double stepDeg = 2);
+// Points in space on the globe's plane (as Projector::forward draws the surface), cut into
+// the pieces that show: a point is hidden when it is on the far side and inside the globe's
+// disc, so an arch can be seen over the horizon. Empty unless `globe` is the Globe.
+std::vector<ShapePiece> projectSpace(const Projector &globe, const std::vector<SpacePoint> &pts);
+
 }  // namespace adif

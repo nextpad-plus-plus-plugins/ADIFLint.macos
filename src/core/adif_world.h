@@ -8,6 +8,7 @@
 #include "adif_tools.h"
 
 #include <cstddef>
+#include <map>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,6 +34,30 @@ struct OverlayArea {
 };
 size_t overlayCount(Overlay o);
 OverlayArea overlayArea(Overlay o, size_t i);
+
+// The land that pictures each DXCC entity, as rings of the Countries overlay, worked out from
+// the country file's name and place for each entity (several places for one entity where
+// the file lists its parts, as Sicily under Italy):
+//   - an entity has the ring its place is in; a place just offshore counts as in the
+//     country it names (the file puts Cuba in the sea south of Cuba);
+//   - of several entities in one ring, the land is the one's the country is named for, else
+//     the one nearest where the country's name goes. The others are spots inside a larger
+//     country (the Vatican, Mount Athos, Guantanamo Bay) and have no land at this scale.
+//     Parts of one land share it: England, Scotland and Wales; European and Asiatic Russia;
+//   - a country's other rings go with the nearest of those (Sicily with Italy's mainland),
+//     or with an island entity placed nearer to them than that (Maui with Hawaii, the
+//     Aleutians with Alaska, the Canaries with the Canary Islands, not with Spain).
+// An entity with no land here (small islands, the spots above) has none: the Map draws it
+// as a dot.
+struct EntityPlace {
+    int dxcc = 0;
+    double lat = 0, lon = 0;
+    std::string name;  // the country file's ("United States", "Cuba")
+};
+struct RingRef {
+    size_t area = 0, ring = 0;  // overlayArea(Overlay::Countries, area).rings[ring]
+};
+std::map<int, std::vector<RingRef>> dxccRings(const std::vector<EntityPlace> &places);
 
 // A QSO confirmed by card, LoTW or eQSL: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V.
 bool isConfirmed(const Record &r);

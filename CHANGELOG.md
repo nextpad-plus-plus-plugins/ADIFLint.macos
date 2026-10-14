@@ -9,7 +9,20 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Map → Options → Arch over the globe** (on at first): on the globe, lines to contacts
+  arch over it, rising with the distance and leaning to one side, and show over the horizon
+  for contacts on the far side.
+- **Map → DXCC** shades each worked entity's own land, worked out from the country file's
+  names and places (Alaska and Hawaii apart from the United States, Sardinia apart from
+  Italy); an entity with no land at this scale, or too small on screen, stays a dot.
+
 ### Changed
+
+- **Map**: the Overlays row lists **Grid squares** (was Maidenhead grid), CQ zones, ITU
+  zones, Countries and US states, and a **Labels** row under it turns each one's names or
+  numbers on and off.
 
 - **Map**: on the colour-blind safe palette, the legend lists the bands without a colour of
   their own in one row ("other bands: 160m, 12m, 6m") instead of a grey swatch each.

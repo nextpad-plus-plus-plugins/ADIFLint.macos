@@ -6,8 +6,10 @@
 #include "adif_spec.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
+#include <set>
 
 namespace adif {
 namespace {
@@ -179,6 +181,191 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
         if (!usableSquare(my).empty() && std::find(out.mine.begin(), out.mine.end(), my) == out.mine.end()) out.mine.push_back(my);
     }
     std::sort(out.squares.begin(), out.squares.end(), [](const MapSquare &a, const MapSquare &b) { return a.grid < b.grid; });
+    return out;
+}
+
+std::map<int, std::vector<RingRef>> dxccRings(const std::vector<EntityPlace> &places) {
+    using Ring = std::vector<std::pair<double, double>>;
+    struct Area {
+        std::string name;
+        double labelLon = 0, labelLat = 0;       // where the country's name goes
+        std::vector<Ring> rings;
+        std::vector<std::array<double, 4>> box;  // west, south, east, north of each ring
+        std::vector<std::set<int>> owners;       // the entities each ring pictures
+    };
+    std::vector<Area> areas(overlayCount(Overlay::Countries));
+    for (size_t a = 0; a < areas.size(); ++a) {
+        OverlayArea area = overlayArea(Overlay::Countries, a);
+        areas[a].name = area.name, areas[a].labelLon = area.labelLon, areas[a].labelLat = area.labelLat;
+        areas[a].rings = std::move(area.rings);
+        for (const Ring &r : areas[a].rings) {
+            std::array<double, 4> b{999, 999, -999, -999};
+            for (const auto &p : r) b = {std::min(b[0], p.first), std::min(b[1], p.second), std::max(b[2], p.first), std::max(b[3], p.second)};
+            areas[a].box.push_back(b);
+        }
+        areas[a].owners.resize(areas[a].rings.size());
+    }
+    auto inside = [](const Ring &r, double lon, double lat) {
+        bool in = false;
+        for (size_t i = 0, j = r.size() - 1; i < r.size(); j = i++)
+            if ((r[i].second > lat) != (r[j].second > lat) && lon < (r[j].first - r[i].first) * (lat - r[i].second) / (r[j].second - r[i].second) + r[i].first)
+                in = !in;
+        return in;
+    };
+    // Degrees between two places, near enough for telling islands apart.
+    auto apart = [](double lon1, double lat1, double lon2, double lat2) {
+        double dlon = std::fabs(lon1 - lon2);
+        if (dlon > 180) dlon = 360 - dlon;
+        return std::hypot(dlon * std::cos((lat1 + lat2) / 2 * 3.14159265358979323846 / 180), lat1 - lat2);
+    };
+    // The nearest a ring comes to a place, where its box says it could be within `limit`.
+    auto nearest = [&](const Area &a, size_t r, double lon, double lat, double limit) {
+        const auto &b = a.box[r];
+        if (lat < b[1] - limit || lat > b[3] + limit) return 1e9;
+        double best = 1e9;
+        for (const auto &p : a.rings[r]) best = std::min(best, apart(lon, lat, p.first, p.second));
+        return best;
+    };
+    // The country is named for the entity: "United States" and "United States of America".
+    auto named = [](const Area &a, const EntityPlace &e) {
+        std::string x = upper(a.name), y = upper(e.name);
+        return !y.empty() && (x.find(y) != std::string::npos || y.find(x) != std::string::npos);
+    };
+    // Parts of one land, which share its ring (ADIF's DXCC numbers).
+    auto together = [](int a, int b) {
+        static const std::set<int> britain = {223, 279, 294}, russia = {54, 15};
+        return (britain.count(a) && britain.count(b)) || (russia.count(a) && russia.count(b));
+    };
+
+    std::map<std::pair<size_t, size_t>, std::vector<const EntityPlace *>> placed;  // (area, ring) -> the entities in it
+    std::vector<const EntityPlace *> islands;                                      // placed at sea
+    for (const EntityPlace &e : places) {
+        if (e.dxcc <= 0) continue;
+        // The country it is in (inside an odd number of its rings: a hole is another
+        // country), and of that country's rings round it, the smallest.
+        bool found = false;
+        for (size_t a = 0; a < areas.size() && !found; ++a) {
+            int holding = -1, count = 0;
+            for (size_t r = 0; r < areas[a].rings.size(); ++r) {
+                const auto &b = areas[a].box[r];
+                if (e.lon < b[0] || e.lon > b[2] || e.lat < b[1] || e.lat > b[3] || !inside(areas[a].rings[r], e.lon, e.lat)) continue;
+                ++count;
+                auto size = [&](size_t i) { return (areas[a].box[i][2] - areas[a].box[i][0]) * (areas[a].box[i][3] - areas[a].box[i][1]); };
+                if (holding < 0 || size(r) < size((size_t)holding)) holding = (int)r;
+            }
+            if (count % 2 == 1) placed[{a, (size_t)holding}].push_back(&e), found = true;
+        }
+        if (found) continue;
+        // Just offshore of the country it names: in that country's nearest ring.
+        double best = 0.5;
+        std::pair<size_t, size_t> at{0, 0};
+        for (size_t a = 0; a < areas.size(); ++a) {
+            if (!named(areas[a], e)) continue;
+            for (size_t r = 0; r < areas[a].rings.size(); ++r)
+                if (double d = nearest(areas[a], r, e.lon, e.lat, 0.5); d < best) best = d, at = {a, r}, found = true;
+        }
+        if (found) placed[at].push_back(&e);
+        else islands.push_back(&e);
+    }
+    for (const auto &kv : placed) {
+        Area &a = areas[kv.first.first];
+        const EntityPlace *main = nullptr;
+        for (const EntityPlace *e : kv.second) {
+            if (!main) {
+                main = e;
+                continue;
+            }
+            bool mine = named(a, *e), theirs = named(a, *main);
+            if (mine != theirs ? mine : apart(e->lon, e->lat, a.labelLon, a.labelLat) < apart(main->lon, main->lat, a.labelLon, a.labelLat)) main = e;
+        }
+        for (const EntityPlace *e : kv.second)
+            if (e->dxcc == main->dxcc || together(e->dxcc, main->dxcc)) a.owners[kv.first.second].insert(e->dxcc);
+    }
+    // Land that touches the land of the entity a country is named for is that entity's too:
+    // an entity placed there is a spot on it (UN HQ on Long Island) or a small island beside
+    // it (St. Paul, placed on Cape Breton). Alaska, Sardinia and Corsica are well clear.
+    for (size_t ai = 0; ai < areas.size(); ++ai) {
+        Area &a = areas[ai];
+        std::vector<size_t> home;  // rings whose owner the country is named for
+        for (const auto &kv : placed)
+            if (kv.first.first == ai)
+                for (const EntityPlace *e : kv.second)
+                    if (a.owners[kv.first.second].count(e->dxcc) && named(a, *e)) home.push_back(kv.first.second);
+        if (home.empty()) continue;
+        for (auto it = placed.begin(); it != placed.end();) {
+            size_t r = it->first.second;
+            bool spot = it->first.first == ai && std::find(home.begin(), home.end(), r) == home.end();
+            if (spot) {
+                double gap = 1e9;
+                for (size_t h : home) {
+                    const auto &hb = a.box[h], &rb = a.box[r];
+                    if (rb[1] > hb[3] + 0.3 || rb[3] < hb[1] - 0.3) continue;
+                    for (const auto &p : a.rings[r])
+                        for (const auto &q : a.rings[h]) gap = std::min(gap, apart(p.first, p.second, q.first, q.second));
+                }
+                spot = gap < 0.3;
+            }
+            if (spot) a.owners[r].clear(), it = placed.erase(it);
+            else ++it;
+        }
+    }
+    // An island entity (placed at sea) starts from the nearest land within half a degree,
+    // unless that land touches land an entity is placed in: then it is that mainland's
+    // (Long Island beside the UN's place, Cape Breton beside St. Paul's).
+    auto gap = [&](const Area &a, size_t r1, size_t r2, size_t every) {  // the nearest two rings come, sampling the first
+        const auto &b1 = a.box[r1], &b2 = a.box[r2];
+        double least = 1e9, apartLat = std::max({0.0, b2[1] - b1[3], b1[1] - b2[3]});
+        if (apartLat > 60) return apartLat;
+        for (size_t i = 0; i < a.rings[r1].size(); i += every)
+            for (const auto &q : a.rings[r2]) least = std::min(least, apart(a.rings[r1][i].first, a.rings[r1][i].second, q.first, q.second));
+        return least;
+    };
+    for (const EntityPlace *e : islands) {
+        double best = 0.5;
+        Area *where = nullptr;
+        size_t which = 0;
+        for (Area &a : areas)
+            for (size_t r = 0; r < a.rings.size(); ++r)
+                if (a.owners[r].empty())
+                    if (double d = nearest(a, r, e->lon, e->lat, best); d < best) best = d, where = &a, which = r;
+        if (!where) continue;
+        bool mainland = false;
+        for (size_t r = 0; r < where->rings.size() && !mainland; ++r)
+            mainland = placed.count({(size_t)(where - areas.data()), r}) && gap(*where, which, r, 1) < 0.3;
+        if (!mainland) where->owners[which].insert(e->dxcc);
+    }
+    // A country's other rings join the nearest land that has an entity, nearest first, so an
+    // archipelago grows outward from its own start: Maui joins Oahu's Hawaii, the Magdalen
+    // Islands join Cape Breton's Canada, Sicily joins Italy.
+    for (Area &a : areas) {
+        std::vector<size_t> owned, open;
+        for (size_t r = 0; r < a.rings.size(); ++r) (a.owners[r].empty() ? open : owned).push_back(r);
+        if (owned.empty() || open.empty()) continue;
+        struct Near {
+            double d = 1e9;
+            size_t ring = 0;
+        };
+        std::vector<Near> near(a.rings.size());
+        auto measure = [&](size_t r, size_t to) {
+            double d = gap(a, r, to, std::max<size_t>(1, a.rings[r].size() / 16));
+            if (d < near[r].d) near[r] = {d, to};
+        };
+        for (size_t r : open)
+            for (size_t o : owned) measure(r, o);
+        while (!open.empty()) {
+            size_t pick = 0;
+            for (size_t i = 1; i < open.size(); ++i)
+                if (near[open[i]].d < near[open[pick]].d) pick = i;
+            size_t r = open[pick];
+            open.erase(open.begin() + (long)pick);
+            a.owners[r] = a.owners[near[r].ring];
+            for (size_t other : open) measure(other, r);
+        }
+    }
+    std::map<int, std::vector<RingRef>> out;
+    for (size_t a = 0; a < areas.size(); ++a)
+        for (size_t r = 0; r < areas[a].rings.size(); ++r)
+            for (int dxcc : areas[a].owners[r]) out[dxcc].push_back({a, r});
     return out;
 }
 

@@ -2729,6 +2729,39 @@ static void testProjections() {
               projectShape(flat, greatCirclePath(35.7, 139.7, 21.3, -157.9, 2), false, true).size() == 2 &&
               projectShape(flat, greatCirclePath(35.7, 139.7, 21.3, -157.9, 2), false, false).size() == 1,
           "flat maps: closed polygon, path split at the 180th meridian only when it wraps");
+    // Lines arched over the globe, Kansas to London: both ends on the surface, the middle
+    // `rise` above it. Seen from above the start, an arch that only rises is still a straight
+    // line (a great circle through the centre is one); the lean is what bends it.
+    {
+        auto radius = [](const SpacePoint &q) { return std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z); };
+        std::vector<SpacePoint> up = archedPath(39.0, -98.0, 51.5, -0.1, 0.2, 0), lean = archedPath(39.0, -98.0, 51.5, -0.1, 0.2, 35);
+        const SpacePoint &mid = up[up.size() / 2], &leanMid = lean[lean.size() / 2];  // the samples nearest half-way
+        CHECK(up.size() > 20 && std::fabs(radius(up.front()) - 1) < 1e-12 && std::fabs(radius(up.back()) - 1) < 1e-12 &&
+                  std::fabs(radius(mid) - 1.2) < 1e-3 && radius(leanMid) < 1.2 && radius(leanMid) > 1.15,
+              "an arch: ends on the surface, the middle %.3f radii out (leaning: %.3f)", radius(mid), radius(leanMid));
+        std::vector<ShapePiece> flat = projectSpace(globe, up), bent = projectSpace(globe, lean);
+        auto offLine = [&](const ShapePiece &piece) {  // the furthest a point is from the straight line between the ends
+            double ex = piece.pts.back().first - piece.pts.front().first, ey = piece.pts.back().second - piece.pts.front().second, most = 0;
+            for (const auto &q : piece.pts)
+                most = std::max(most, std::fabs(ex * (q.second - piece.pts.front().second) - ey * (q.first - piece.pts.front().first)) / std::hypot(ex, ey));
+            return most;
+        };
+        double x2 = 0, y2 = 0;
+        globe.forward(-0.1, 51.5, &x2, &y2);
+        CHECK(flat.size() == 1 && bent.size() == 1 && offLine(flat[0]) < 1e-9 && std::fabs(offLine(bent[0]) - 0.2 * std::sin(35 * M_PI / 180) * kDeg) < 0.02 &&
+                  std::hypot(bent[0].pts.front().first, bent[0].pts.front().second) < 1e-9 &&
+                  std::hypot(bent[0].pts.back().first - x2, bent[0].pts.back().second - y2) < 1e-9,
+              "from above its start: rising only stays straight (%.2g off), leaning bows %.2f; it ends at London's place",
+              offLine(flat[0]), offLine(bent[0]));
+        // To Sydney, behind the globe: the arch shows over the horizon, past the globe's edge,
+        // then goes behind it, ending on the edge.
+        std::vector<ShapePiece> far = projectSpace(globe, archedPath(39.0, -98.0, -33.9, 151.2, 0.4, 35));
+        double furthest = 0;
+        for (const auto &q : far.empty() ? std::vector<std::pair<double, double>>() : far[0].pts) furthest = std::max(furthest, std::hypot(q.first, q.second));
+        CHECK(far.size() == 1 && furthest > kDeg * 1.1 && std::fabs(std::hypot(far[0].pts.back().first, far[0].pts.back().second) - kDeg) < 1e-3 &&
+                  projectSpace(globe, {{-0.5, 0.9, -0.7}, {-0.6, 0.8, -0.75}}).empty() && projectSpace(merc, up).empty(),
+              "an arch to the far side shows %.0f past the edge and ends on it; behind the globe, and on flat maps, nothing", furthest - kDeg);
+    }
     // Great circles and destinations.
     std::vector<std::pair<double, double>> path = greatCirclePath(39.0, -98.0, 51.5, -0.1, 2);
     double mid = greatCircleKm(39.0, -98.0, path[path.size() / 2].second, path[path.size() / 2].first);
@@ -2995,6 +3028,45 @@ static void testWorld() {
                   zoneAt(Overlay::Countries, -30, 30).empty(),
               "countries: %zu; London %s, Chicago, Auckland; none in the mid-Atlantic", overlayCount(Overlay::Countries),
               zoneAt(Overlay::Countries, -0.13, 51.5).c_str());
+    }
+    // Each DXCC entity's land, from the country file's names and places (as AD1C's file gives
+    // them; its longitudes are west-positive).
+    {
+        std::vector<EntityPlace> places = {
+            {291, 37.60, -91.87, "United States"}, {6, 61.40, -148.87, "Alaska"},     {110, 21.12, -157.48, "Hawaii"},
+            {289, 40.75, -73.97, "United Nations HQ"}, {248, 42.82, 12.58, "Italy"}, {248, 37.50, 14.00, "Sicily"},
+            {225, 40.15, 9.27, "Sardinia"},        {246, 41.90, 12.43, "Sov Mil Order of Malta"}, {214, 42.00, 9.00, "Corsica"},
+            {70, 21.50, -80.00, "Cuba"},           {105, 20.00, -75.00, "Guantanamo Bay"}, {223, 52.77, -1.47, "England"},
+            {279, 56.82, -4.18, "Scotland"},       {294, 52.28, -3.73, "Wales"},      {265, 54.73, -6.68, "Northern Ireland"},
+            {54, 53.65, 41.37, "European Russia"}, {15, 55.88, 84.08, "Asiatic Russia"}, {281, 40.32, -3.43, "Spain"},
+            {29, 28.32, -15.85, "Canary Islands"}, {339, 36.40, 138.38, "Japan"},     {462, -29.07, 22.63, "South Africa"},
+            {432, -29.22, 27.88, "Lesotho"}};
+        std::map<int, std::vector<RingRef>> land = dxccRings(places);
+        // Whether an entity's land holds a place (inside an odd number of its rings).
+        auto holds = [&](int dxcc, double lat, double lon) {
+            bool in = false;
+            for (const RingRef &ref : land[dxcc]) {
+                std::vector<std::pair<double, double>> r = overlayArea(Overlay::Countries, ref.area).rings[ref.ring];
+                for (size_t k = 0, j = r.size() - 1; k < r.size(); j = k++)
+                    if ((r[k].second > lat) != (r[j].second > lat) && lon < (r[j].first - r[k].first) * (lat - r[k].second) / (r[j].second - r[k].second) + r[k].first)
+                        in = !in;
+            }
+            return in;
+        };
+        // Chicago, Long Island, Fairbanks, Kodiak, Maui and Kauai (inland points).
+        CHECK(holds(291, 41.9, -87.9) && holds(291, 40.85, -73.0) && !holds(291, 64.84, -147.72) && !holds(291, 20.75, -156.25) && holds(6, 64.84, -147.72) &&
+                  holds(6, 57.4, -153.4) && holds(110, 20.75, -156.25) && holds(110, 22.05, -159.5) && !land.count(289),
+              "United States without Alaska and Hawaii; Alaska has the Aleutians, Hawaii has Maui and Kauai; UN HQ has no land (%zu rings for the US)",
+              land[291].size());
+        CHECK(holds(248, 45.5, 9.2) && holds(248, 37.6, 14.2) && !holds(248, 40.1, 9.1) && holds(225, 40.1, 9.1) && holds(214, 42.2, 9.1) && !land.count(246) &&
+                  holds(70, 22.0, -79.5) && !land.count(105),
+              "Italy has Sicily, not Sardinia or Corsica; the Order of Malta and Guantanamo Bay are spots; Cuba is Cuba's");
+        CHECK(holds(223, 52.5, -1.9) && holds(279, 52.5, -1.9) && holds(294, 52.5, -1.9) && holds(265, 54.6, -6.6) && !holds(223, 54.6, -6.6) &&
+                  holds(279, 60.3, -1.3) && holds(54, 55.0, 83.0) && holds(15, 55.75, 37.6),
+              "England, Scotland and Wales share Great Britain, not Northern Ireland; the two Russias share Russia");
+        CHECK(holds(281, 40.4, -3.7) && !holds(281, 28.1, -15.4) && holds(29, 28.0, -15.6) && holds(339, 43.2, 142.8) && holds(462, -26.2, 28.0) &&
+                  !holds(462, -29.5, 28.2) && holds(432, -29.5, 28.2),
+              "Spain without the Canaries; Japan has Hokkaido; Lesotho is a hole in South Africa");
     }
         CHECK(isPlaceholderGrid("jj00aa") && isPlaceholderGrid("AA00") && !isPlaceholderGrid("JJ00ab") && !isPlaceholderGrid("AA01") &&
                   isPlaceholderPlace(0, 0) && !isPlaceholderPlace(0, 0.001),
