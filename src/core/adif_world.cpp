@@ -2,6 +2,7 @@
 
 #include "adif_enrich.h"
 #include "adif_geo.h"
+#include "adif_parks.h"
 #include "adif_programs.h"
 #include "adif_spec.h"
 
@@ -119,6 +120,10 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
             q.modeGroup = modeGroup(trimmed(r.get("MODE")));
             q.confirmed = confirmed;
             q.iota = iotaRef(r.get("IOTA"));
+            for (const std::string &park : theirParks(r))
+                if (std::string ref = potaListRef(park); !ref.empty()) q.potaHunted.push_back(ref);
+            for (const std::string &park : myParks(r))
+                if (std::string ref = potaListRef(park); !ref.empty()) q.potaActivated.push_back(ref);
             bool grid = !usableSquare(q.grid).empty() && gridToLatLon(q.grid, nullptr, nullptr);
             double lat = 0, lon = 0, w, s, e, n;
             if (locationToDegrees(trimmed(r.get("LAT")), true, &lat) && locationToDegrees(trimmed(r.get("LON")), false, &lon)) {

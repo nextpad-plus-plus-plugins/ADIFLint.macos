@@ -950,6 +950,17 @@ void ADIFDownloadIotaGroups(NSString *agent, void (^done)(NSData *body, NSString
     httpSend(r, done);
 }
 
+void ADIFDownloadPotaParks(NSString *agent, void (^done)(NSData *body, NSString *error)) {
+    if (NSString *dir = fakeDir()) {
+        NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"pota/all_parks_ext.csv"]];
+        dispatch_async(dispatch_get_main_queue(), ^{ done(d, d ? nil : @"no test POTA park list"); });
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://pota.app/all_parks_ext.csv"]];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    httpSend(r, done);
+}
+
 // ── Country data ────────────────────────────────────────────────────────────
 
 void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSString *release, NSString *error)) {

@@ -18,8 +18,8 @@
     NSMutableArray<NSTextField *> *_status;
     NSTextField *_countryStatus;
     NSButton *_countryUpdate, *_lotwOn, *_lotwUpdate;
-    NSTextField *_lotwStatus, *_iotaStatus;
-    NSButton *_iotaUpdate;
+    NSTextField *_lotwStatus, *_iotaStatus, *_potaStatus;
+    NSButton *_iotaUpdate, *_potaUpdate;
     NSScrollView *_scroll;
     NSTextField *_welcome, *_stationCall, *_stationGrid, *_logsFolder, *_stationStatus;
     NSArray<NSButton *> *_editorBoxes;
@@ -76,7 +76,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _welcome.hidden = YES;
     [views addObject:_welcome];
     for (NSView *section in @[ [self stationSection], [self editorSection], [self keyboardSection], [self countrySection], [self lotwSection],
-                                 [self iotaSection] ]) {
+                                 [self potaSection], [self iotaSection] ]) {
         [views addObject:section];
         NSBox *line = [[NSBox alloc] init];
         line.boxType = NSBoxSeparator;
@@ -282,6 +282,30 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _lotwUpdate.enabled = YES;
     _lotwStatus.stringValue = text ?: @"";
     _lotwStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+}
+
+- (NSView *)potaSection {
+    NSTextField *help = wrapping(@"Places POTA parks on the Map (Overlays: POTA): a pin at each park you've hunted or activated, at "
+                                 @"the park itself, and a ring at each park you haven't worked. Download fetches POTA's list of "
+                                 @"parks (pota.app, about 9.5 MB: every park's name and place) into the plugin's settings folder on "
+                                 @"this Mac; download again for new parks. ADIF Lint isn't affiliated with Parks on the Air.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _potaUpdate = [NSButton buttonWithTitle:@"Download" target:self action:@selector(potaUpdate:)];
+    _potaStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    return sectionStack(@[ sectionTitle(@"POTA Parks"), help, _potaUpdate, _potaStatus ], @"settings.pota");
+}
+
+- (void)potaUpdate:(id)sender {
+    _potaUpdate.enabled = NO;
+    _potaStatus.stringValue = @"Downloading POTA's park list...";
+    _potaStatus.textColor = NSColor.secondaryLabelColor;
+    if (self.onPotaUpdate) self.onPotaUpdate();
+}
+
+- (void)setPotaStatus:(NSString *)text ok:(BOOL)ok {
+    _potaUpdate.enabled = YES;
+    _potaStatus.stringValue = text ?: @"";
+    _potaStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
 - (NSView *)iotaSection {

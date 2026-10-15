@@ -13,6 +13,7 @@
 #include "adif_geo.h"
 #include "adif_import.h"
 #include "adif_lint.h"
+#include "adif_parks.h"
 #include "adif_programs.h"
 #include "adif_profiles.h"
 #include "adif_tools.h"
@@ -20,6 +21,7 @@
 #include "adif_world.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <random>
@@ -390,6 +392,41 @@ int main(int argc, char **argv) {
             if (!refOk || !boxOk) {
                 std::printf("FAIL iota: %s %s %s %s %s %s\n", f[0].c_str(), f[2].c_str(), f[3].c_str(), f[4].c_str(), f[5].c_str(),
                             refOk ? "box" : "ref");
+                ++gFailures;
+                break;
+            }
+        }
+    }
+    // POTA's park list is downloaded text: whatever it holds, the parks read from it are in
+    // order, each once, and placed only within the map.
+    {
+        const std::string parks = "\"reference\",\"name\",\"active\",\"entityId\",\"locationDesc\",\"latitude\",\"longitude\",\"grid\"\r\n"
+                                  "\"US-0001\",\"Acadia, \"\"East\"\"\",\"1\",\"291\",\"US-ME\",\"44.31\",\"-68.2034\",\"FN54vh\"\r\n"
+                                  "\"GB-0001\",\"Park\",\"0\",\"223\",\"GB-ENG\",\"54.7\",\"-1.47\",\"IO94\"\r\n"
+                                  "\"US-4566\",\"Trail\",\"1\",\"291\",\"US-WY,US-ID\",\"0\",\"0\",\"\"\r\n";
+        static const char kCsv[] = "\",\r\n-.0123456789USGB@ ";
+        for (int i = 0; i < iterations * 4; ++i) {
+            std::string t = parks;
+            int edits = 1 + (int)(rng() % 10);
+            for (int k = 0; k < edits && !t.empty(); ++k) {
+                size_t at = rng() % t.size();
+                char c = kCsv[rng() % (sizeof kCsv - 1)];
+                switch (rng() % 3) {
+                    case 0: t[at] = c; break;
+                    case 1: t.insert(at, 1, c); break;
+                    case 2: t.erase(at, 1 + rng() % 6); break;
+                }
+            }
+            PotaParks pp;
+            pp.load(t);
+            bool ok = pp.active() <= pp.size();
+            for (size_t k = 0; k < pp.size(); ++k) {
+                const PotaPark &p = pp.parks()[k];
+                ok &= (k == 0 || pp.parks()[k - 1].ref < p.ref) && pp.find(p.ref) == &p;
+                if (p.placed) ok &= std::fabs(p.lat) <= 90 && std::fabs(p.lon) <= 180;
+            }
+            if (!ok) {
+                std::printf("FAIL park list: %zu parks from %zu bytes\n", pp.size(), t.size());
                 ++gFailures;
                 break;
             }

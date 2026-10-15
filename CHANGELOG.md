@@ -29,11 +29,17 @@ Versions before 0.8.0 were development builds and were not published.
   Download** fetches it from iota-world.org for your own use.
 - **Map → Apple Maps** opens what you clicked, or the middle of the map, in Apple's Maps app
   for streets and satellite views.
+- **Map → Overlays → POTA**: POTA's parks at the parks themselves, from POTA's park list
+  (**Settings → POTA Parks → Download**, about 9.5 MB from pota.app, on request): a pin for
+  each park you hunted, a starred pin for each you activated, and a ring for each active
+  park you haven't worked, gathered into counts where there are thousands. Labels give the
+  references, and names when zoomed in; point at a park for its QSOs and distance. Old
+  references (K-0001) find the renamed park (US-0001) where POTA kept the numbers.
 
 ### Changed
 
 - **Map**: the Overlays row lists **Grid squares** (was Maidenhead grid), CQ zones, ITU
-  zones, Countries, US states, US counties, Cities and IOTA, and a **Labels** row under it
+  zones, Countries, US states, US counties, Cities, POTA and IOTA, and a **Labels** row under it
   turns each one's names or numbers on and off.
 
 - **Map**: on the colour-blind safe palette, the legend lists the bands without a colour of

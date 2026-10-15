@@ -42,6 +42,7 @@
 #import "Labels.h"
 #import "LotwUsers.h"
 #import "IotaGroups.h"
+#import "PotaParks.h"
 #import "Map.h"
 #import "Lookup.h"
 #import "NewQsoPanel.h"
@@ -2188,6 +2189,12 @@ static void openSettings(NSInteger source) {
         g.settings.onLotwUsersUpdate = ^{
             ADIFUpdateLotwUsers(^(BOOL ok, NSString *message) { [g.settings setLotwUsersOn:ADIFLotwUsersOn() status:message ok:ok]; });
         };
+        g.settings.onPotaUpdate = ^{
+            ADIFUpdatePotaParks(^(BOOL ok, NSString *message) {
+                [g.settings setPotaStatus:message ok:ok];
+                if (ok) worldmap::parkListChanged();
+            });
+        };
         g.settings.onIotaUpdate = ^{
             ADIFUpdateIotaGroups(^(BOOL ok, NSString *message) {
                 [g.settings setIotaStatus:message ok:ok];
@@ -2242,6 +2249,7 @@ static void openSettings(NSInteger source) {
     [g.settings setCountryStatus:ADIFCountryDataStatus() ok:YES];
     [g.settings setLotwUsersOn:ADIFLotwUsersOn() status:ADIFLotwUsersStatus() ok:YES];
     [g.settings setIotaStatus:ADIFIotaGroupsStatus() ok:YES];
+    [g.settings setPotaStatus:ADIFPotaParksStatus() ok:YES];
     [g.settings setStationCall:ADIFString(adifhost::setting("stationCall")) grid:ADIFString(adifhost::setting("stationGrid"))
                     logsFolder:ADIFString(adifhost::setting("logsFolder"))];
     refreshSettingsOptions();

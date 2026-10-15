@@ -515,8 +515,9 @@ QSOs of whatever you click, and the status line says what is under the pointer.
   world, the Vatican), is a dot, bigger with more QSOs.
 - **Contacts**: a marker at each contact's own place (see
   [contacts and their places](#contacts-and-their-places)).
-- **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE, since
-  there is no offline list of where parks are.
+- **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE. With
+  the **POTA** overlay on and POTA's park list downloaded, POTA parks are pinned at the parks
+  themselves instead (see [Overlays](#overlays)).
 - **Other programs**, a list with a colour and a count for each: SOTA summits, IOTA islands,
   GMA, WWBOTA bunkers, HEMA, SiOTA silos, WCA castles, ILLW and ARLHS lighthouses, MOTA
   mills, ZLOTA, WOTA, and any other SIG in the log. Tick the ones to show (**Show All**,
@@ -566,6 +567,18 @@ the LAT/LON left out. The grids AA00 and JJ00 are placeholders too, and are draw
 - **Cities**: 7,300 cities and towns (Natural Earth), the largest first and more as you zoom
   in, labelled with names where they don't run into each other. With counties labelled too,
   a city's name goes first and a county's name only where it is clear of the cities.
+- **POTA**: POTA's parks, at the parks themselves. A pin with a triangle marks each park you
+  hunted (POTA_REF, or SIG_INFO with SIG POTA), coloured as the map colours. A pin with a
+  star, in your station's colour, marks each park you activated (MY_POTA_REF, or
+  MY_SIG_INFO). A ring marks each active park you haven't worked. Where more than 2,500
+  rings would show, they gather into counts ("6.6k"); click a count to zoom in to it. Labels
+  give the references of the parks you worked, of the others once you are zoomed in to a few
+  hundred, and their names once fewer show. Point at a park for its name, location, your
+  QSOs there and how far it is; click it to list the QSOs. References written before POTA
+  renamed its programs in 2024 and kept the numbers (K-, G-, OA-, TG-, T7-, TA-) find the
+  park under its new name (US-, GB-, PE-, GT-, SM-, TR-). Programs that were renumbered (the
+  US territories, GI, GM and GW) and Canada's old VE- (now Venezuela's) don't, and stay at
+  the QSO's grid in **Parks**. Download the park list first in Settings → POTA Parks.
 - **IOTA**: IOTA's island groups, each the box of latitude and longitude IOTA gives it. The
   groups in the log's IOTA field are filled in (more strongly when a QSO is confirmed), the
   rest dashed; labels give each group's reference, and its name where the box is wide
@@ -635,7 +648,8 @@ On the globe:
 - **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys (on the globe
   these turn it).
 - **Point** at a square, DXCC entity, contact, park or IOTA group to read what it is, its
-  QSOs, and (for a square or contact) how far it is from home and at what bearing. **Click** it to list its
+  QSOs, and (for a square, contact or POTA park) how far it is from home and at what
+  bearing. **Click** it to list its
   QSOs under the map, and double-click one to go to its record in the log.
 
 ### Options and export
@@ -660,7 +674,7 @@ On the globe:
 
 **Export PNG…** saves the map as it is shown, legend included, at twice the screen's size.
 
-**Apple Maps** opens what you clicked (a contact, square, park, DXCC entity or IOTA group),
+**Apple Maps** opens what you clicked (a contact, square, park, POTA park, DXCC entity or IOTA group),
 or the middle of the map, in Apple's Maps app, for streets and satellite views. Maps goes
 online; ADIF Lint itself sends nothing.
 
@@ -984,6 +998,10 @@ Rules for every source:
   downloaded again when a week old, and used in New QSO's lookup line, the Spots window's
   LoTW column and the Log Table's optional LoTW column. No terms of use for the list were
   found; it is only fetched while on.
+- **POTA Parks:** **Download** fetches POTA's list of parks (`pota.app/all_parks_ext.csv`,
+  about 9.5 MB: every park's reference, name, location and place) for the Map's POTA
+  overlay; download again for new parks. It is only fetched when you press Download. ADIF
+  Lint isn't affiliated with Parks on the Air.
 - **IOTA Groups:** **Download** fetches IOTA's list of island groups (`iota-world.org`,
   about 290 KB) for the Map's IOTA overlay; download again to update it. The list is
   © RSGB and IOTA Ltd, who allow downloading it for personal non-commercial use, so it
@@ -1003,8 +1021,8 @@ Where things are kept:
   the last time zone and program) in `ADIFLint.ini`, in Nextpad++'s plugin config folder
   (`~/Library/Application Support/Nextpad++/plugins/Config/`). Beside it: station profiles
   (`ADIFLint-profiles.adi`), the Monitor's queue (`ADIFLint-queue.adi`), a downloaded
-  country file (`ADIFLint-cty.csv`), the LoTW user list (`ADIFLint-lotw-users.csv`) and IOTA's
-  group list (`ADIFLint-iota-groups.json`).
+  country file (`ADIFLint-cty.csv`), the LoTW user list (`ADIFLint-lotw-users.csv`), POTA's
+  park list (`ADIFLint-pota-parks.csv`) and IOTA's group list (`ADIFLint-iota-groups.json`).
   They survive plugin updates.
 - **The installed country file** and the Map's 1:10m detail (`map-detail.bin`) beside the
   plugin, in `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.

@@ -2,6 +2,7 @@
 
 #import "Country.h"
 #import "IotaGroups.h"
+#import "PotaParks.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -35,9 +36,11 @@ struct ADIFMapEntity {
 
 // What the pointer is over, or what was clicked.
 struct ADIFMapHit {
-    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Empty } kind = None;
+    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, PotaCluster, Empty } kind = None;
     std::string square;  // the 4-character square under the point (always set on the map)
-    size_t index = 0;    // into squares, entities, parks, contacts or IOTA groups (ADIFIotaGroups)
+    // Into squares, entities, parks, contacts, IOTA groups (ADIFIotaGroups), POTA's parks
+    // (ADIFPotaParks) or the counts of parks not worked last drawn.
+    size_t index = 0;
 };
 
 // How the map looks: the Options menu, the colour popup and the overlay checkboxes.
@@ -57,6 +60,7 @@ struct ADIFMapStyle {
     bool cqLabels = true, ituLabels = true, stateLabels = true, countryLabels = true;
     bool counties = false, countyLabels = true, cities = false, cityLabels = true;
     bool iota = false, iotaLabels = true;  // IOTA's island groups (downloaded in Settings)
+    bool pota = false, potaLabels = true;  // POTA's parks (the list downloaded in Settings)
 };
 
 // QSOs at one exact place (MapQso::located), for the Contacts layer.
@@ -72,6 +76,25 @@ struct ADIFMapAgg {
     size_t count = 0;
     int year = 0;      // the first QSO's year
     bool confirmed = false;
+};
+
+// Your QSOs with a POTA park: hunting it (POTA_REF) and activating it (MY_POTA_REF).
+struct ADIFParkWork {
+    std::vector<size_t> hunted, activated;  // into MapData::qsos
+};
+// A POTA park's marker in the view: its index in ADIFPotaParks(), and where it is (a pin's head).
+struct ADIFParkSpot {
+    size_t park = 0;
+    NSPoint at = NSZeroPoint;
+    bool pin = false;        // a park you worked; else a ring
+    bool activated = false;  // a pin for a park you activated
+    ADIFMapAgg agg;          // a hunted park's QSOs, for its colour
+};
+// Parks not worked, gathered into one count where too many would show.
+struct ADIFParkCluster {
+    NSPoint at = NSZeroPoint;
+    double radius = 0;
+    size_t count = 0;
 };
 
 namespace {
@@ -238,6 +261,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (NSPoint)viewPointForLon:(double)lon lat:(double)lat;
 - (const std::vector<ADIFMapContact> &)contacts;
 - (std::vector<size_t>)iotaQsos:(const std::string &)ref;  // the QSOs with this IOTA reference
+- (size_t)parkClusterCount:(size_t)i;                       // the parks in a count last drawn
+- (ADIFParkWork)parkWork:(const std::string &)ref;          // your QSOs with this POTA park (as the list writes it)
 - (void)selectedPlace:(double *)lat lon:(double *)lon name:(std::string *)name;
 @end
 
@@ -248,6 +273,11 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     std::vector<ADIFMapAgg> _squareAgg, _entityAgg, _contactAgg;
     std::vector<bool> _entityDot;  // drawn as a dot: no land at this scale, or too small on screen
     std::map<std::string, std::vector<size_t>> _iotaQsos;  // IOTA reference -> its QSOs (into _data.qsos)
+    std::map<std::string, ADIFParkWork> _potaWork;         // a POTA park, as the list writes it -> your QSOs there
+    std::vector<ADIFParkSpot> _potaSpots;                  // where the parks' markers are (placeParks)
+    std::vector<ADIFParkCluster> _potaClusters;            // and the counts of parks not worked
+    std::tuple<double, double, double, double, double, int, double, double, double, bool, uintptr_t, size_t, int> _parksPlacedFor;
+    int _dataGeneration;                                   // counts setData, for placeParks
     std::vector<std::string> _bands;  // in the data, frequency order
     int _minYear, _maxYear;
     adif::Projector _pr;    // in use: the globe turned to wherever you dragged it
@@ -338,8 +368,13 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
     for (const ADIFMapContact &c : _contacts) _contactAgg.push_back([self aggregate:c.qsos]);
     _iotaQsos.clear();
-    for (size_t i = 0; i < _data.qsos.size(); ++i)
+    _potaWork.clear();
+    ++_dataGeneration;
+    for (size_t i = 0; i < _data.qsos.size(); ++i) {
         if (!_data.qsos[i].iota.empty()) _iotaQsos[_data.qsos[i].iota].push_back(i);
+        for (const std::string &ref : _data.qsos[i].potaHunted) _potaWork[ref].hunted.push_back(i);
+        for (const std::string &ref : _data.qsos[i].potaActivated) _potaWork[ref].activated.push_back(i);
+    }
     std::set<std::string> bands;
     _minYear = _maxYear = 0;
     for (const adif::MapQso &q : _data.qsos) {
@@ -379,6 +414,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return it == _iotaQsos.end() ? std::vector<size_t>() : it->second;
 }
 
+- (ADIFParkWork)parkWork:(const std::string &)ref {
+    // The log's references as written, matched through the list (an old K- reference is the US- park).
+    ADIFParkWork out;
+    const adif::PotaParks &list = ADIFPotaParks();
+    for (const auto &[key, work] : _potaWork) {
+        const adif::PotaPark *p = list.find(key);
+        if (key != ref && (!p || p->ref != ref)) continue;
+        out.hunted.insert(out.hunted.end(), work.hunted.begin(), work.hunted.end());
+        out.activated.insert(out.activated.end(), work.activated.begin(), work.activated.end());
+    }
+    return out;
+}
+
 // Where the clicked thing is (a contact, square, park or DXCC entity) and what to call it;
 // with nothing clicked, the middle of the map.
 - (void)selectedPlace:(double *)lat lon:(double *)lon name:(std::string *)name {
@@ -392,6 +440,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         la = _entities[h.index].lat, lo = _entities[h.index].lon, *name = _entities[h.index].name;
     } else if (h.kind == ADIFMapHit::Park && h.index < _data.parks.size() && adif::gridToLatLon(_data.parks[h.index].grid, &la, &lo)) {
         *name = _data.parks[h.index].program + " " + _data.parks[h.index].reference;
+    } else if (h.kind == ADIFMapHit::Pota && h.index < ADIFPotaParks().size()) {
+        const adif::PotaPark &p = ADIFPotaParks().parks()[h.index];
+        la = p.lat, lo = p.lon, *name = p.ref + " " + p.name;
     } else if (h.kind == ADIFMapHit::Iota && h.index < ADIFIotaGroups().size()) {
         const adif::IotaGroup &g = ADIFIotaGroups()[h.index];
         la = (g.south + g.north) / 2, lo = (g.west + g.east) / 2;
@@ -825,6 +876,212 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return pk.park() ? _showParks : !_hiddenPrograms.count(pk.program);
 }
 
+// A POTA park the POTA overlay pins at the park itself, so the Parks layer leaves it out.
+- (BOOL)parkPinned:(const adif::MapPark &)pk {
+    if (!_style.pota || pk.program != "POTA") return NO;
+    const adif::PotaPark *p = ADIFPotaParks().find(pk.reference);
+    return p && p->placed;
+}
+
+// ── POTA ──
+
+// A POTA park's pin, its point at p: a head 2.2 radii above it, with a triangle in it for a
+// park you hunted, or a star for one you activated.
+- (void)drawParkPinAt:(NSPoint)p color:(NSColor *)c activated:(BOOL)activated lit:(BOOL)lit {
+    const MapPalette &pal = paletteAt(_style.palette);
+    double r = kPin * 1.2 * _style.marker;
+    NSPoint head = NSMakePoint(p.x, p.y + 2.2 * r);
+    double t = std::acos(1 / 2.2) * 180 / M_PI;  // the tangent points, from straight down
+    NSBezierPath *pin = [NSBezierPath bezierPath];
+    [pin moveToPoint:p];
+    [pin appendBezierPathWithArcWithCenter:head radius:r startAngle:-90 + t endAngle:270 - t clockwise:NO];
+    [pin closePath];
+    [c setFill];
+    [pin fill];
+    [[NSColor colorWithCalibratedWhite:lit ? (pal.dark ? 1 : 0) : (pal.dark && darkColour(c) ? 1 : 0) alpha:lit ? 1 : 0.85] setStroke];
+    pin.lineWidth = lit ? 1.6 : 1;
+    [pin stroke];
+    NSBezierPath *mark;
+    if (activated) {
+        mark = [self marker:3 at:head size:r * 0.78];
+    } else {
+        double e = r * 0.6;
+        mark = [NSBezierPath bezierPath];
+        [mark moveToPoint:NSMakePoint(head.x, head.y + e)];
+        [mark lineToPoint:NSMakePoint(head.x - e * 0.95, head.y - e * 0.7)];
+        [mark lineToPoint:NSMakePoint(head.x + e * 0.95, head.y - e * 0.7)];
+        [mark closePath];
+    }
+    [[NSColor colorWithCalibratedWhite:darkColour(c) ? 1 : 0 alpha:0.85] setFill];
+    [mark fill];
+}
+
+// Where the POTA overlay's markers go in the view as it is now: a pin at each park you worked
+// (hunted ones first, then the ones you activated, on top), and a ring at each other active
+// park, or, where more than 2,500 rings would show, counts where they are many. Worked
+// out again when the view, the log or the list changes; the pointer finds the markers here.
+- (void)placeParks {
+    NSRect b = self.bounds;
+    const adif::PotaParks &list = ADIFPotaParks();
+    auto key = std::make_tuple(_cx, _cy, _zoom, _pr.centerLat(), _pr.centerLon(), (int)_pr.kind(), b.size.width, b.size.height, _style.marker,
+                               _style.pota, (uintptr_t)list.parks().data(), list.size(), _dataGeneration);
+    if (key == _parksPlacedFor) return;
+    _parksPlacedFor = key;
+    _potaSpots.clear();
+    _potaClusters.clear();
+    if (!_style.pota || !list.size()) return;
+    double west, south, east, north;
+    [self visibleWest:&west south:&south east:&east north:&north];
+    std::map<size_t, ADIFParkWork> byPark;  // an old K- reference and its US- park are one park
+    for (const auto &[ref, work] : _potaWork) {
+        const adif::PotaPark *p = list.find(ref);
+        if (!p || !p->placed) continue;
+        ADIFParkWork &w = byPark[list.indexOf(p)];
+        w.hunted.insert(w.hunted.end(), work.hunted.begin(), work.hunted.end());
+        w.activated.insert(w.activated.end(), work.activated.begin(), work.activated.end());
+    }
+    std::vector<std::pair<size_t, NSPoint>> open;
+    for (size_t i = 0; i < list.parks().size(); ++i) {
+        const adif::PotaPark &p = list.parks()[i];
+        if (!p.active || !p.placed || p.lat < south - 1 || p.lat > north + 1 || byPark.count(i)) continue;
+        NSPoint q = [self viewPointForLon:p.lon lat:p.lat];
+        if (NSPointInRect(q, NSInsetRect(b, -6, -6))) open.emplace_back(i, q);
+    }
+    if (open.size() <= 2500) {
+        for (const auto &[i, q] : open) _potaSpots.push_back({i, q, false, false, {}});
+    } else {
+        // A count for each 48-point cell, its parks' middle; rings still where a cell has 4 or
+        // fewer. A count that would overlap a bigger one joins it, the biggest first.
+        const double cell = 48;
+        std::map<std::pair<long, long>, std::vector<size_t>> cells;  // into open
+        for (size_t k = 0; k < open.size(); ++k)
+            cells[{(long)std::floor(open[k].second.x / cell), (long)std::floor(open[k].second.y / cell)}].push_back(k);
+        std::vector<ADIFParkCluster> counts;
+        for (const auto &kv : cells) {
+            if (kv.second.size() <= 4) {
+                for (size_t k : kv.second) _potaSpots.push_back({open[k].first, open[k].second, false, false, {}});
+                continue;
+            }
+            ADIFParkCluster c;
+            for (size_t k : kv.second) c.at.x += open[k].second.x, c.at.y += open[k].second.y;
+            c.count = kv.second.size();
+            c.at = NSMakePoint(c.at.x / c.count, c.at.y / c.count);
+            counts.push_back(c);
+        }
+        auto radius = [](size_t n) { return std::min(18.0, 7 + 3.2 * std::log10((double)n)); };
+        std::stable_sort(counts.begin(), counts.end(), [](const ADIFParkCluster &a, const ADIFParkCluster &b) { return a.count > b.count; });
+        for (ADIFParkCluster &c : counts) {
+            c.radius = radius(c.count);
+            auto big = std::find_if(_potaClusters.begin(), _potaClusters.end(), [&](const ADIFParkCluster &o) {
+                return std::hypot(o.at.x - c.at.x, o.at.y - c.at.y) < (o.radius + c.radius) * 0.9;
+            });
+            if (big == _potaClusters.end()) {
+                _potaClusters.push_back(c);
+            } else {
+                big->count += c.count;
+                big->radius = radius(big->count);
+            }
+        }
+    }
+    double rise = 2.2 * kPin * 1.2 * _style.marker;  // a pin's head above its point
+    for (int pass = 0; pass < 2; ++pass)
+        for (const auto &[i, w] : byPark) {
+            bool activated = !w.activated.empty();
+            if (activated != (pass == 1)) continue;
+            const adif::PotaPark &p = list.parks()[i];
+            NSPoint q = [self viewPointForLon:p.lon lat:p.lat];
+            if (NSPointInRect(q, NSInsetRect(b, -12, -12)))
+                _potaSpots.push_back({i, NSMakePoint(q.x, q.y + rise), true, activated, [self aggregate:w.hunted]});
+        }
+}
+
+// The rings and counts of the parks you haven't worked.
+- (void)drawParkRings {
+    const MapPalette &pal = paletteAt(_style.palette);
+    CGFloat ink = pal.dark ? 1 : 0;
+    NSColor *tint = rgb(pal.park);
+    double r = 3.2 * _style.marker;
+    NSBezierPath *rings = [NSBezierPath bezierPath], *lit = [NSBezierPath bezierPath];
+    for (const ADIFParkSpot &sp : _potaSpots) {
+        if (sp.pin) continue;
+        bool on = (_hover.kind == ADIFMapHit::Pota && _hover.index == sp.park) || (_selected.kind == ADIFMapHit::Pota && _selected.index == sp.park);
+        [(on ? lit : rings) appendBezierPathWithOvalInRect:NSMakeRect(sp.at.x - r, sp.at.y - r, 2 * r, 2 * r)];
+    }
+    [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.55] setFill];
+    [rings fill];
+    [lit fill];
+    rings.lineWidth = 1.3;
+    [[tint colorWithAlphaComponent:0.95] setStroke];
+    [rings stroke];
+    lit.lineWidth = 2.2;
+    [[NSColor colorWithCalibratedWhite:ink alpha:1] setStroke];
+    [lit stroke];
+    NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:9.5 weight:NSFontWeightSemibold],
+                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:ink alpha:0.92]};
+    for (size_t k = 0; k < _potaClusters.size(); ++k) {
+        const ADIFParkCluster &c = _potaClusters[k];
+        bool on = _hover.kind == ADIFMapHit::PotaCluster && _hover.index == k;
+        NSBezierPath *o = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.at.x - c.radius, c.at.y - c.radius, 2 * c.radius, 2 * c.radius)];
+        [[tint colorWithAlphaComponent:on ? 0.55 : 0.32] setFill];
+        [o fill];
+        o.lineWidth = on ? 2 : 1;
+        [[tint colorWithAlphaComponent:0.95] setStroke];
+        [o stroke];
+        NSString *n = c.count < 1000 ? [NSString stringWithFormat:@"%zu", c.count] : [NSString stringWithFormat:@"%.1fk", c.count / 1000.0];
+        NSSize sz = [n sizeWithAttributes:attrs];
+        [n drawAtPoint:NSMakePoint(c.at.x - sz.width / 2, c.at.y - sz.height / 2) withAttributes:attrs];
+    }
+}
+
+// The pins of the parks you hunted (a triangle, in the map's colours) and activated (a star, in
+// your station's colour).
+- (void)drawParkPins {
+    const MapPalette &pal = paletteAt(_style.palette);
+    double rise = 2.2 * kPin * 1.2 * _style.marker;
+    for (const ADIFParkSpot &sp : _potaSpots) {
+        if (!sp.pin) continue;
+        bool lit = (_hover.kind == ADIFMapHit::Pota && _hover.index == sp.park) || (_selected.kind == ADIFMapHit::Pota && _selected.index == sp.park);
+        [self drawParkPinAt:NSMakePoint(sp.at.x, sp.at.y - rise) color:sp.activated ? rgb(pal.me) : [self colorFor:sp.agg entity:NO]
+                  activated:sp.activated
+                        lit:lit];
+    }
+}
+
+// Each park's reference beside its marker, where it doesn't run into another: the parks you
+// worked always, the others once the view is down to 400 rings and no counts, and names too
+// once it is down to 150.
+- (void)drawParkLabelsIn:(NSRect)b {
+    const adif::PotaParks &list = ADIFPotaParks();
+    const MapPalette &pal = paletteAt(_style.palette);
+    NSShadow *halo = [[NSShadow alloc] init];
+    halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
+    halo.shadowBlurRadius = 2;
+    NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold],
+                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9], NSShadowAttributeName : halo};
+    size_t rings = (size_t)std::count_if(_potaSpots.begin(), _potaSpots.end(), [](const ADIFParkSpot &sp) { return !sp.pin; });
+    bool ringLabels = _potaClusters.empty() && rings <= 400, names = _potaClusters.empty() && _potaSpots.size() <= 150;
+    std::vector<NSRect> taken;
+    for (int pass = 0; pass < 2; ++pass)
+        for (const ADIFParkSpot &sp : _potaSpots) {
+            if (sp.pin != (pass == 0) || sp.park >= list.size() || (!sp.pin && !ringLabels)) continue;
+            const adif::PotaPark &p = list.parks()[sp.park];
+            NSString *text = ADIFString(names ? p.ref + " " + p.name : p.ref);
+            NSSize sz = [text sizeWithAttributes:attrs];
+            double gap = sp.pin ? kPin * 1.2 * _style.marker + 3 : 3.2 * _style.marker + 3;
+            NSRect r = NSMakeRect(sp.at.x + gap, sp.at.y - sz.height / 2, sz.width, sz.height);
+            if (!NSIntersectsRect(r, b)) continue;
+            bool clear = true;
+            for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
+            if (!clear) continue;
+            [text drawAtPoint:r.origin withAttributes:attrs];
+            taken.push_back(r);
+        }
+}
+
+- (size_t)parkClusterCount:(size_t)i {
+    return i < _potaClusters.size() ? _potaClusters[i].count : 0;
+}
+
 // ── Drawing ──
 
 - (void)drawLabel:(NSString *)text at:(NSPoint)p size:(CGFloat)size alpha:(CGFloat)alpha {
@@ -1139,6 +1396,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     }
 
+    // POTA: the parks you haven't worked (rings, or counts); the worked ones' pins go on top, with the markers.
+    [self placeParks];
+    [self drawParkRings];
+
     // Cities: Natural Earth's 7,300, more as you zoom in (each from its own zoom), the most
     // populous first, each name only where it doesn't run into another.
     std::vector<NSRect> taken;  // city names and dots, which county names keep clear of
@@ -1383,7 +1644,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     // Parks (triangles) and other programs' references (diamonds, a colour each).
     for (size_t i = 0; i < _data.parks.size(); ++i) {
         const adif::MapPark &pk = _data.parks[i];
-        if (![self programShown:pk]) continue;
+        if (![self programShown:pk] || [self parkPinned:pk]) continue;
         double lat = 0, lon = 0;
         if (!adif::gridToLatLon(pk.grid, &lat, &lon)) continue;
         NSPoint p = [self viewPointForLon:lon lat:lat];
@@ -1396,6 +1657,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         m.lineWidth = lit ? 1.5 : 0.6;
         [m stroke];
     }
+
+    [self drawParkPins];
+    if (_style.potaLabels) [self drawParkLabelsIn:b];
 
     // Your station: a star at each MY_GRIDSQUARE.
     if (_style.mine)
@@ -1427,7 +1691,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)drawLegend {
     const MapPalette &pal = paletteAt(_style.palette);
     struct Entry {
-        int kind;  // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text, 9 dashed box
+        // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text, 9 dashed box,
+        // 10 park pin (hunted), 11 park pin (activated), 12 ring
+        int kind;
         NSColor *color;
         std::string text;
     };
@@ -1487,6 +1753,18 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     for (const std::string &p : programs) rows.push_back({3, [self programColor:p], p});
     if (_style.mine && !_data.mine.empty()) rows.push_back({4, rgb(pal.me), "my station"});
     if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], "lines to contacts"});
+    if (_style.pota && ADIFPotaParks().size()) {
+        std::set<std::string> hunted, activated;  // by the list's reference (K-0001 is US-0001)
+        for (const auto &[ref, w] : _potaWork) {
+            const adif::PotaPark *p = ADIFPotaParks().find(ref);
+            if (!w.hunted.empty()) hunted.insert(p ? p->ref : ref);
+            if (!w.activated.empty()) activated.insert(p ? p->ref : ref);
+        }
+        rows.push_back({7, nil, "POTA parks: " + std::to_string(hunted.size()) + " hunted, " + std::to_string(activated.size()) + " activated"});
+        rows.push_back({10, rgb(pal.worked), "hunted (in the map's colours)"});
+        rows.push_back({11, rgb(pal.me), "activated by you"});
+        rows.push_back({12, rgb(pal.park), "not worked (a count where many)"});
+    }
     if (_style.iota && !ADIFIotaGroups().empty()) {
         NSColor *tint = pal.dark ? rgb(0x4DD0E1) : rgb(0x00838F);
         rows.push_back({7, nil, "IOTA groups"});
@@ -1510,7 +1788,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGFloat y = NSMaxY(box) - 5 - lineH;
     for (const Entry &e : rows) {
         NSPoint at = NSMakePoint(NSMinX(box) + 8, y);
-        if (e.kind == 7 || e.kind == 8) {
+        if (e.kind == 10 || e.kind == 11) {
+            [self drawParkPinAt:NSMakePoint(at.x + 6, y + 1) color:e.color activated:e.kind == 11 lit:NO];
+            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
+        } else if (e.kind == 7 || e.kind == 8) {
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x, y + 1) withAttributes:e.kind == 7 ? head : text];
         } else {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
@@ -1522,6 +1803,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 case 3: m = [self marker:2 at:c size:5]; break;
                 case 4: m = [self marker:3 at:c size:6]; break;
                 case 6: m = [self contactMarkerAt:NSMakePoint(c.x, _style.contact == 0 ? c.y - 5 : c.y)]; break;
+                case 12: m = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 3.5, c.y - 3.5, 7, 7)]; break;
                 case 9: {
                     m = [NSBezierPath bezierPathWithRect:NSMakeRect(c.x - 5, c.y - 5, 10, 10)];
                     CGFloat dash[] = {3, 2};
@@ -1540,8 +1822,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     [m lineToPoint:NSMakePoint(c.x + 6, c.y)];
                     break;
             }
-            if (e.kind == 5 || e.kind == 9 || (e.kind == 6 && _style.contact == 2)) {
-                if (e.kind == 6) m.lineWidth = 1.5;
+            if (e.kind == 5 || e.kind == 9 || e.kind == 12 || (e.kind == 6 && _style.contact == 2)) {
+                if (e.kind == 6 || e.kind == 12) m.lineWidth = 1.5;
                 [e.color setStroke];
                 [m stroke];
             } else {
@@ -1562,8 +1844,16 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (![self lonLatAt:p lon:&lon lat:&lat]) return h;
     h.square = adif::squareAt(lon, lat);
     if (h.square.empty()) return h;
+    // POTA: the pins (drawn last, on top), the rings, then the counts.
+    [self placeParks];
+    for (auto it = _potaSpots.rbegin(); it != _potaSpots.rend(); ++it)
+        if (std::hypot(it->at.x - p.x, it->at.y - p.y) <= (it->pin ? kPin * 1.2 * _style.marker + 2 : 5 * _style.marker))
+            return h.kind = ADIFMapHit::Pota, h.index = it->park, h;
+    for (size_t i = 0; i < _potaClusters.size(); ++i)
+        if (std::hypot(_potaClusters[i].at.x - p.x, _potaClusters[i].at.y - p.y) <= _potaClusters[i].radius + 1)
+            return h.kind = ADIFMapHit::PotaCluster, h.index = i, h;
     for (size_t i = 0; i < _data.parks.size(); ++i) {
-        if (![self programShown:_data.parks[i]]) continue;
+        if (![self programShown:_data.parks[i]] || [self parkPinned:_data.parks[i]]) continue;
         double plat, plon;
         if (!adif::gridToLatLon(_data.parks[i].grid, &plat, &plon)) continue;
         NSPoint q = [self viewPointForLon:plon lat:plat];
@@ -1649,7 +1939,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)mouseUp:(NSEvent *)event {
     [[NSCursor arrowCursor] set];
     if (_dragged || event.clickCount > 1) return;
-    ADIFMapHit h = [self hitAt:[self convertPoint:event.locationInWindow fromView:nil]];
+    NSPoint at = [self convertPoint:event.locationInWindow fromView:nil];
+    ADIFMapHit h = [self hitAt:at];
+    if (h.kind == ADIFMapHit::PotaCluster) {  // a count of parks: zoom in to them
+        [self zoomBy:3 at:at];
+        return;
+    }
     _selected = h;
     self.needsDisplay = YES;
     if (self.onSelect) self.onSelect(h);
@@ -1739,7 +2034,7 @@ struct {
     NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *contacts = nil, *parks = nil, *mine = nil;
     NSButton *cqZones = nil, *ituZones = nil, *states = nil, *countries = nil;
     NSButton *cqLabels = nil, *ituLabels = nil, *stateLabels = nil, *countryLabels = nil;  // labels: the grid squares'
-    NSButton *counties = nil, *countyLabels = nil, *cities = nil, *cityLabels = nil, *iota = nil, *iotaLabels = nil;
+    NSButton *counties = nil, *countyLabels = nil, *cities = nil, *cityLabels = nil, *iota = nil, *iotaLabels = nil, *pota = nil, *potaLabels = nil;
     NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil, *region = nil;
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
@@ -1808,6 +2103,8 @@ ADIFMapStyle savedStyle() {
     s.cityLabels = flag("mapCityLabels", true);
     s.iota = flag("mapIota", false);
     s.iotaLabels = flag("mapIotaLabels", true);
+    s.pota = flag("mapPota", false);
+    s.potaLabels = flag("mapPotaLabels", true);
     s.legend = flag("mapLegend", true);
     s.rings = flag("mapRings", false);
     s.paths = flag("mapPaths", false);
@@ -1868,6 +2165,34 @@ std::string describe(const ADIFMapHit &h) {
             }
             return callsOf(c.qsos) + ": " + plural(c.qsos.size(), "QSO") + " at " + at + " (from " + q.locatedBy + ")." + from;
         }
+        case ADIFMapHit::Pota: {
+            if (h.index >= ADIFPotaParks().size()) break;
+            const adif::PotaPark &p = ADIFPotaParks().parks()[h.index];
+            ADIFParkWork w = [mw.view parkWork:p.ref];
+            std::string what;
+            if (!w.hunted.empty()) {
+                bool confirmed = false;
+                for (size_t qi : w.hunted) confirmed |= qi < mw.data.qsos.size() && mw.data.qsos[qi].confirmed;
+                what = "hunted, " + plural(w.hunted.size(), "QSO") + (confirmed ? ", confirmed" : "") + " (" + callsOf(w.hunted) + ")";
+            }
+            if (!w.activated.empty()) what += (what.empty() ? "" : "; ") + std::string("activated by you, ") + plural(w.activated.size(), "QSO");
+            if (what.empty()) what = "not worked";
+            std::string from;
+            double hlat, hlon;
+            if (!mw.home.empty() && adif::gridToLatLon(mw.home, &hlat, &hlon)) {
+                char d[96];
+                snprintf(d, sizeof d, " %ld km at %.0f° from %s.", std::lround(adif::greatCircleKm(hlat, hlon, p.lat, p.lon)),
+                         adif::initialBearing(hlat, hlon, p.lat, p.lon), mw.home.c_str());
+                from = d;
+            }
+            return "POTA " + p.ref + " " + p.name + " (" + p.location + (p.active ? "" : ", inactive") + "): " + what + "." + from;
+        }
+        case ADIFMapHit::PotaCluster: {
+            size_t n = [mw.view parkClusterCount:h.index];
+            std::string count = std::to_string(n);
+            for (int i = (int)count.size() - 3; i > 0; i -= 3) count.insert((size_t)i, ",");
+            return count + (n == 1 ? " POTA park" : " POTA parks") + " not worked here; click to zoom in.";
+        }
         case ADIFMapHit::Iota: {
             if (h.index >= ADIFIotaGroups().size()) break;
             const adif::IotaGroup &g = ADIFIotaGroups()[h.index];
@@ -1901,6 +2226,12 @@ void selected(const ADIFMapHit &h) {
     else if (h.kind == ADIFMapHit::Dxcc) qsos = mw.dxcc[h.index].qsos;
     else if (h.kind == ADIFMapHit::Contact) qsos = mw.view.contacts[h.index].qsos;
     else if (h.kind == ADIFMapHit::Iota && h.index < ADIFIotaGroups().size()) qsos = [mw.view iotaQsos:ADIFIotaGroups()[h.index].ref];
+    else if (h.kind == ADIFMapHit::Pota && h.index < ADIFPotaParks().size()) {
+        ADIFParkWork w = [mw.view parkWork:ADIFPotaParks().parks()[h.index].ref];
+        qsos = w.hunted;
+        for (size_t qi : w.activated)
+            if (std::find(qsos.begin(), qsos.end(), qi) == qsos.end()) qsos.push_back(qi);
+    }
     else if (h.kind == ADIFMapHit::Park)
         for (const adif::MapPark &p : mw.data.parks)
             if (p.reference == mw.data.parks[h.index].reference && p.program == mw.data.parks[h.index].program) qsos.push_back(p.qso);
@@ -2344,6 +2675,13 @@ void cmdMap() {
         mw.cities.toolTip = @"7,300 cities and towns (Natural Earth, public domain), more as you zoom in";
         mw.cityLabels = ADIFCheckbox(@"Cities", flag("mapCityLabels", true));
         mw.cityLabels.toolTip = @"City names, where they don't run into each other";
+        mw.pota = ADIFCheckbox(@"POTA", flag("mapPota", false));
+        mw.pota.toolTip = @"POTA parks: a pin at each park you hunted or activated, at the park itself, and a ring at each park you haven't "
+                          @"worked (a count where there are many: click it to zoom in). POTA's park list is downloaded in Settings (POTA Parks)";
+        mw.potaLabels = ADIFCheckbox(@"POTA", flag("mapPotaLabels", true));
+        mw.potaLabels.toolTip = @"Each park's reference (US-1234): the parks you worked always, the others once zoomed in to a few hundred, "
+                                @"and names once zoomed in to fewer";
+        mw.potaLabels.identifier = @"map.labels.pota";
         mw.iota = ADIFCheckbox(@"IOTA", flag("mapIota", false));
         mw.iota.toolTip = @"IOTA's island groups, the ones in your log filled in. The group list is downloaded in Settings (IOTA Groups)";
         mw.iotaLabels = ADIFCheckbox(@"IOTA", flag("mapIotaLabels", true));
@@ -2421,10 +2759,11 @@ void cmdMap() {
             mw.countyLabels.enabled = mw.counties.state == NSControlStateValueOn;
             mw.cityLabels.enabled = mw.cities.state == NSControlStateValueOn;
             mw.iotaLabels.enabled = mw.iota.state == NSControlStateValueOn;
+            mw.potaLabels.enabled = mw.pota.state == NSControlStateValueOn;
         };
         labelsFollow();
         for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.cqZones, mw.ituZones, mw.states, mw.countries, mw.cqLabels, mw.ituLabels,
-                               mw.countryLabels, mw.stateLabels, mw.counties, mw.countyLabels, mw.cities, mw.cityLabels, mw.iota, mw.iotaLabels ])
+                               mw.countryLabels, mw.stateLabels, mw.counties, mw.countyLabels, mw.cities, mw.cityLabels, mw.pota, mw.potaLabels, mw.iota, mw.iotaLabels ])
             ADIFOnAction(b, ^{
             saveFlag("mapGrid", mw.grid.state == NSControlStateValueOn);
             saveFlag("mapLabels", mw.labels.state == NSControlStateValueOn);
@@ -2436,6 +2775,8 @@ void cmdMap() {
             saveFlag("mapCountyLabels", mw.countyLabels.state == NSControlStateValueOn);
             saveFlag("mapCities", mw.cities.state == NSControlStateValueOn);
             saveFlag("mapCityLabels", mw.cityLabels.state == NSControlStateValueOn);
+            saveFlag("mapPota", mw.pota.state == NSControlStateValueOn);
+            saveFlag("mapPotaLabels", mw.potaLabels.state == NSControlStateValueOn);
             saveFlag("mapIota", mw.iota.state == NSControlStateValueOn);
             saveFlag("mapIotaLabels", mw.iotaLabels.state == NSControlStateValueOn);
             labelsFollow();
@@ -2448,6 +2789,9 @@ void cmdMap() {
             fillStyle();
             if (b == mw.iota && mw.iota.state == NSControlStateValueOn && ADIFIotaGroups().empty())
                 setStatus("IOTA: download IOTA's group list first, in Settings (IOTA Groups).");
+            if (b == mw.pota && mw.pota.state == NSControlStateValueOn && !ADIFPotaParks().size())
+                setStatus("POTA: download POTA's park list first, in Settings (POTA Parks). Until then, Parks shows the parks you "
+                          "hunted at the QSO's grid.");
         });
         ADIFOnAction(mw.colorBy, ^{
             setSetting("mapColorBy", std::to_string(mw.colorBy.indexOfSelectedItem));
@@ -2474,8 +2818,8 @@ void cmdMap() {
         [row2 setCustomSpacing:24 afterView:mw.confirmed];
         // Overlays, and under each one the box for its labels.
         NSGridView *overlays = [NSGridView gridViewWithViews:@[
-            @[ ADIFLabel(@"Overlays:"), mw.grid, mw.cqZones, mw.ituZones, mw.countries, mw.states, mw.counties, mw.cities, mw.iota ],
-            @[ ADIFLabel(@"Labels:"), mw.labels, mw.cqLabels, mw.ituLabels, mw.countryLabels, mw.stateLabels, mw.countyLabels, mw.cityLabels, mw.iotaLabels ]
+            @[ ADIFLabel(@"Overlays:"), mw.grid, mw.cqZones, mw.ituZones, mw.countries, mw.states, mw.counties, mw.cities, mw.pota, mw.iota ],
+            @[ ADIFLabel(@"Labels:"), mw.labels, mw.cqLabels, mw.ituLabels, mw.countryLabels, mw.stateLabels, mw.countyLabels, mw.cityLabels, mw.potaLabels, mw.iotaLabels ]
         ]];
         overlays.rowSpacing = 6;
         overlays.columnSpacing = 10;
@@ -2555,6 +2899,10 @@ void cmdMap() {
 }
 
 void iotaGroupsChanged() {
+    if (mw.view) mw.view.needsDisplay = YES;
+}
+
+void parkListChanged() {
     if (mw.view) mw.view.needsDisplay = YES;
 }
 

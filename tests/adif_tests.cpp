@@ -17,6 +17,7 @@
 #include "adif_projection.h"
 #include "adif_palette.h"
 #include "adif_detail.h"
+#include "adif_parks.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -3136,6 +3137,40 @@ static void testWorld() {
         LintResult lr = lintModel(log);
         MapData d = mapData(log, lr.model, "", "");
         CHECK(d.qsos.size() == 2 && d.qsos[0].iota == "EU-005" && d.qsos[1].iota.empty(), "the map reads a QSO's IOTA reference");
+    }
+    {  // POTA's park list (all_parks_ext.csv's layout, made-up parks), and the parks a QSO names
+        std::string csv = "\"reference\",\"name\",\"active\",\"entityId\",\"locationDesc\",\"latitude\",\"longitude\",\"grid\"\r\n"
+                          "\"US-0002\",\"Second Park, \"\"North\"\"\",\"1\",\"291\",\"US-WI\",\"43.1\",\"-89.4\",\"EN53\"\r\n"
+                          "\"US-0001\",\"First Park\",\"0\",\"291\",\"US-DC,US-MD\",\"38.9\",\"-77.0\",\"FM18\"\r\n"
+                          "\"FR-0001\",\"Parc Ã\x89tude\",\"1\",\"227\",\"FR-ARA\",\"0\",\"0\",\"\"\r\n"
+                          "\"K-TEST\",\"Not a park\",\"1\",\"291\",\"US-WI\",\"1\",\"1\",\"\"\r\n"
+                          "\"US-0003\",\"No place\",\"1\",\"291\",\"US-WI\",\"\",\"\",\"\"\r\n"
+                          "\"US-0004\",\"Short row\"\r\n";
+        PotaParks pp;
+        CHECK(pp.load(csv) == 4 && pp.active() == 3 && pp.parks()[0].ref == "FR-0001" && pp.parks()[3].ref == "US-0003",
+              "the park list loads its parks, sorted, skipping what isn't a park (%zu)", pp.size());
+        const PotaPark *second = pp.find("us-0002@US-WI");
+        CHECK(second && second->name == "Second Park, \"North\"" && second->entity == 291 && second->location == "US-WI" && second->placed &&
+                  std::fabs(second->lat - 43.1) < 1e-9 && std::fabs(second->lon + 89.4) < 1e-9,
+              "a park found by its reference with a location");
+        CHECK(pp.find("K-0001") && pp.find("K-0001")->ref == "US-0001" && !pp.find("US-0001")->active && pp.find("US-0001")->location == "US-DC,US-MD",
+              "an old K- reference finds the US- park");
+        CHECK(!pp.find("G-0001") && !pp.find("VE-0002"), "a renamed program's park not in the list isn't found");
+        CHECK(!pp.find("FR-0001")->placed && !pp.find("US-0003")->placed && !pp.find("US-9999") && !pp.find("junk") && !pp.find(""),
+              "parks without a place, and references not listed");
+        CHECK(potaListRef(" us-1234@us-wi ") == "US-1234" && potaListRef("VE-12345") == "VE-12345" && potaListRef("US-123").empty() &&
+                  potaListRef("US-1234@").empty(),
+              "park references as the list writes them");
+        PotaParks none;
+        CHECK(none.load("reference,name\r\nUS-0001,x\r\n") == 0 && none.load("") == 0 && none.load("<html>") == 0, "not the park list");
+        std::string log = "<CALL:4>W9AB<QSO_DATE:8>20260101<TIME_ON:4>1200<BAND:3>20m<MODE:3>SSB<POTA_REF:23>us-0002@US-WI,K-0001<EOR>\n"
+                          "<CALL:4>W9AC<QSO_DATE:8>20260101<TIME_ON:4>1300<BAND:3>20m<MODE:3>SSB<SIG:4>POTA<SIG_INFO:7>US-0003"
+                          "<MY_SIG:4>POTA<MY_SIG_INFO:7>US-0002<EOR>\n";
+        LintResult lr = lintModel(log);
+        MapData d = mapData(log, lr.model, "", "");
+        CHECK(d.qsos.size() == 2 && d.qsos[0].potaHunted == std::vector<std::string>({"US-0002", "K-0001"}) && d.qsos[0].potaActivated.empty() &&
+                  d.qsos[1].potaHunted == std::vector<std::string>({"US-0003"}) && d.qsos[1].potaActivated == std::vector<std::string>({"US-0002"}),
+              "the map reads the parks each QSO hunted and activated");
     }
 }
 

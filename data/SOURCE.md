@@ -41,6 +41,12 @@ the plugin installs it next to `ADIFLint.dylib`.
 
 # Not included
 
+POTA's park list (`all_parks_ext.csv`, about 9.5 MB, rebuilt daily) has no published terms of
+use (docs.pota.app and parksontheair.com, read 2026-10-14), so it is not in this repository or
+in a release: **Settings → POTA Parks → Download** fetches it from https://pota.app into the
+plugin config folder, on the user's request, as other loggers (Ham2K PoLo, Wavelog) fetch it at
+run time. `tests/fixtures/lookup/pota/all_parks_ext.csv` is made-up test data in its layout.
+
 IOTA's group list (`groups.json`) is © RSGB and IOTA Ltd, who allow downloading it for
 personal non-commercial use (iota-world.org, read 2026-10-13). It is not in this repository
 or in a release: **Settings → IOTA Groups → Download** fetches it into the plugin config

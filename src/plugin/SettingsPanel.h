@@ -25,6 +25,10 @@
 @property(nonatomic, copy) void (^onIotaUpdate)(void);
 - (void)setIotaStatus:(NSString *)text ok:(BOOL)ok;
 
+// POTA Parks: Download fetches POTA's park list for the Map's POTA overlay, and a status line.
+@property(nonatomic, copy) void (^onPotaUpdate)(void);
+- (void)setPotaStatus:(NSString *)text ok:(BOOL)ok;
+
 // Your station: the callsign and grid New QSO and the exports use when a log has none,
 // and the folder of logs Worked Before searches.
 @property(nonatomic, copy) void (^onStationSave)(NSString *call, NSString *grid);

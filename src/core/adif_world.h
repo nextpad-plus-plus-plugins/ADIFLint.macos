@@ -85,6 +85,9 @@ struct MapQso {
     double lat = 0, lon = 0;
     std::string locatedBy;  // "LAT/LON", or the grid
     std::string iota;       // IOTA, as iotaRef() writes it ("EU-005"); "" when none or not a reference
+    // POTA parks, as POTA's list writes them (potaListRef): the other station's (theirParks:
+    // POTA_REF, else SIG_INFO) and yours (myParks: MY_POTA_REF, else MY_SIG_INFO).
+    std::vector<std::string> potaHunted, potaActivated;
 };
 struct MapSquare {
     std::string grid;  // 4 characters, upper case ("FN31")

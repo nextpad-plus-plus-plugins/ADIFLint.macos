@@ -107,6 +107,9 @@ void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString 
 // IOTA's island groups, https://www.iota-world.org/islands-on-the-air/downloads/download-file.html?path=groups.json
 // (about 290 KB), only when the user asks (Settings). Test mode: <fake dir>/iota/groups.json.
 void ADIFDownloadIotaGroups(NSString *agent, void (^done)(NSData *body, NSString *error));
+// POTA's park list, https://pota.app/all_parks_ext.csv (about 9.5 MB: every park's name and
+// place), only when the user asks (Settings). Test mode: <fake dir>/pota/all_parks_ext.csv.
+void ADIFDownloadPotaParks(NSString *agent, void (^done)(NSData *body, NSString *error));
 // The newest Big CTY cty.csv from www.country-files.com: the release list's first
 // bigcty-*.zip, unzipped. `release` is its name ("bigcty-20260915").
 // Test mode: <fake dir>/cty/cty.csv.

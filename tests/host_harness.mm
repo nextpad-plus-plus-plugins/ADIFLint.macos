@@ -3984,6 +3984,120 @@ int main(int argc, char **argv) {
             snapshot(mapw, "map-iota-globe");
             pick(proj, @"Equirectangular");
             setBox(iotaBox, false);
+
+            // POTA: the overlay needs POTA's park list, which Settings downloads when asked; then a pin
+            // at each park hunted (W2CD's US-1234) or activated, at the park itself, and a ring at each other.
+            auto showBox = [&](double w, double s, double e, double n) {
+                SEL sel = NSSelectorFromString(@"showWest:south:east:north:");
+                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:[mapView methodSignatureForSelector:sel]];
+                inv.target = mapView;
+                inv.selector = sel;
+                [inv setArgument:&w atIndex:2];
+                [inv setArgument:&s atIndex:3];
+                [inv setArgument:&e atIndex:4];
+                [inv setArgument:&n atIndex:5];
+                [inv invoke];
+            };
+            NSButton *potaBox = findButton(mapw.contentView, @"POTA");
+            NSButton *potaLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.pota");
+            CHECK(potaBox && potaLabels && potaBox != potaLabels && potaBox.state == NSControlStateValueOff && !potaLabels.enabled,
+                  "the POTA overlay starts off, its Labels box with it");
+            setBox(potaBox, true);
+            CHECK(potaLabels.enabled && [labelContaining(mapw.contentView, @"POTA:") hasPrefix:@"POTA: download POTA's park list first"],
+                  "POTA without the park list says where to get it: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
+            run("Settings...");
+            NSWindow *psw = windowTitled(@"ADIF Lint Settings");
+            NSView *potaSection = psw ? viewWithIdentifier(psw.contentView, @"settings.pota") : nil;
+            CHECK(potaSection && [labelContaining(potaSection, @"Not downloaded") length] && [labelContaining(potaSection, @"isn't affiliated") length],
+                  "Settings: POTA Parks, not downloaded");
+            auto downloadParks = [&](NSString *expect) {
+                [findButton(potaSection, @"Download") performClick:nil];
+                for (int i = 0; i < 40 && ![labelContaining(potaSection, expect) length]; ++i) pump(0.05);
+                NSString *status = labelContaining(potaSection, @"active)");
+                return std::string(status ? status.UTF8String : "");
+            };
+            std::string potaStatus = downloadParks(@"7 parks");
+            CHECK(potaStatus.find("7 parks (6 active), downloaded") == 0 &&
+                      [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"ADIFLint-pota-parks.csv"]],
+                  "POTA's park list downloaded (the test file's 7 parks) into the config folder: %s", potaStatus.c_str());
+            [psw orderOut:nil];
+            std::string mapDoc = H.doc;  // and an activation of US-2004
+            H.doc += "<CALL:5>W9ACT <QSO_DATE:8>20261010 <TIME_ON:4>1300 <BAND:3>40m <MODE:2>CW <MY_POTA_REF:7>US-2004 <EOR>\n";
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.3);
+            run("Map (Grids, DXCC, Parks)...");
+            [findButton(mapw.contentView, @"World") performClick:nil];
+            snapshot(mapw, "map-pota-world");
+            showBox(-75.6, 40.2, -73.8, 41.5);
+            NSPoint hunted = pointFor(-74.40, 40.70);
+            hunted.y += 2.2 * 4 * 1.2;  // the pin's head
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, hunted, 0)];
+            CHECK([labelContaining(mapw.contentView, @"US-1234") hasPrefix:@"POTA US-1234 Test Park Hunted (US-NJ): hunted, 1 QSO (W2CD)."],
+                  "hovering a hunted park's pin: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
+            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, hunted, 1)];
+            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, hunted, 1)];
+            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"W2CD"],
+                  "a click on the park's pin lists its QSO");
+            setenv("ADIFLINT_TEST_SAVE_DIR", mapDir.UTF8String, 1);
+            [findButton(mapw.contentView, @"Apple Maps") performClick:nil];
+            unsetenv("ADIFLINT_TEST_SAVE_DIR");
+            NSString *parkUrl = [NSString stringWithContentsOfFile:[mapDir stringByAppendingPathComponent:@"apple-maps-url.txt"] encoding:NSUTF8StringEncoding
+                                                             error:nil];
+            CHECK([parkUrl hasPrefix:@"https://maps.apple.com/place?coordinate=40.70000,-74.40000&name=US-1234"], "Apple Maps opens the park: %s",
+                  parkUrl.UTF8String);
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
+            CHECK([labelContaining(mapw.contentView, @"US-2001") hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
+                  "hovering a park not worked: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.90, 40.80), 0)];
+            CHECK(![labelContaining(mapw.contentView, @"US-2003") length], "an inactive park isn't drawn");
+            snapshot(mapw, "map-pota");
+            showBox(-88.8, 41.7, -87.6, 42.5);
+            NSPoint activated = pointFor(-88.20, 42.10);
+            activated.y += 2.2 * 4 * 1.2;
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, activated, 0)];
+            CHECK([labelContaining(mapw.contentView, @"US-2004") hasPrefix:@"POTA US-2004 Test Park Activated (US-IL): activated by you, 1 QSO."],
+                  "hovering a park you activated: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
+            // Many parks: counts instead of rings, and a click on one zooms in.
+            {
+                NSString *many = [tmp stringByAppendingPathComponent:@"many-parks"];
+                [[NSFileManager defaultManager] createDirectoryAtPath:[many stringByAppendingPathComponent:@"pota"] withIntermediateDirectories:YES
+                                                           attributes:nil
+                                                                error:nil];
+                std::string csv = "\"reference\",\"name\",\"active\",\"entityId\",\"locationDesc\",\"latitude\",\"longitude\",\"grid\"\r\n";
+                for (int i = 0; i < 3000; ++i) {
+                    char row[160];
+                    snprintf(row, sizeof row, "\"US-%04d\",\"Test Park %d\",\"1\",\"291\",\"US-WI\",\"%.3f\",\"%.3f\",\"\"\r\n", 5000 + i, i,
+                             44.2 + (i % 60) * 0.01, -89.8 + (i / 60) * 0.01);
+                    csv += row;
+                }
+                [@(csv.c_str()) writeToFile:[many stringByAppendingPathComponent:@"pota/all_parks_ext.csv"] atomically:YES encoding:NSUTF8StringEncoding
+                                      error:nil];
+                std::string fixtures = getenv("ADIFLINT_FAKE_LOOKUP_DIR") ?: "";
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", many.UTF8String, 1);
+                run("Settings...");
+                std::string manyStatus = downloadParks(@"3,000 parks");
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", fixtures.c_str(), 1);
+                [psw orderOut:nil];
+                CHECK(manyStatus.find("3,000 parks (3,000 active)") == 0, "a list of 3,000 parks: %s", manyStatus.c_str());
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-89.5, 44.5), 0)];
+                NSString *count = labelContaining(mapw.contentView, @"POTA parks not worked here");
+                CHECK([count hasPrefix:@"3,000 POTA parks not worked here"], "3,000 parks in view are counts, not rings: %s",
+                      labelContaining(mapw.contentView, @"POTA").UTF8String);
+                snapshot(mapw, "map-pota-counts");
+                NSPoint at = pointFor(-89.5, 44.5);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 1)];
+                CHECK(zoomShown() == "3.0×", "a click on a count zooms in: %s", zoomShown().c_str());
+                run("Settings...");
+                downloadParks(@"7 parks");  // back to the test file's parks
+                [psw orderOut:nil];
+            }
+            setBox(potaBox, false);
+            H.doc = mapDoc;
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.3);
+            run("Map (Grids, DXCC, Parks)...");
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-light-band");
             CHECK(!menuState(programsMenu, @"IOTA (islands): 1") && menuAction(programsMenu, @"IOTA (islands)") &&
