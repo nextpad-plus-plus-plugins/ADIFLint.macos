@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-14
+
 ### Added
 
 - **Map → Options → Arch over the globe** (on at first): on the globe, lines to contacts
@@ -39,9 +41,8 @@ Versions before 0.8.0 were development builds and were not published.
 ### Changed
 
 - **Map**: the Overlays row lists **Grid squares** (was Maidenhead grid), CQ zones, ITU
-  zones, Countries, US states, US counties, Cities, POTA and IOTA, and a **Labels** row under it
-  turns each one's names or numbers on and off.
-
+  zones, Countries, US states, US counties, Cities, POTA and IOTA, and a **Labels** row
+  under it turns each one's names or numbers on and off.
 - **Map**: on the colour-blind safe palette, the legend lists the bands without a colour of
   their own in one row ("other bands: 160m, 12m, 6m") instead of a grey swatch each.
 - The README and the user guide are revised: highlights and screenshots of the main windows
@@ -447,7 +448,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.9.0...v1.0.0
